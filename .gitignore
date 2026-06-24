@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+backend/.env
+frontend/.env
+*.log
+*.tsbuildinfo
+
+# Local Google Ads credentials and archives
+GoogleAds.zip
+GoogleAds_extracted/**/key.json
+GoogleAds_extracted/**/google-ads.yaml
+**/service-account*.json
+**/*service_account*.json

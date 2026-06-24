@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Top Campaigns</title>
+    <style>
+        body {
+            font-family: Arial;
+            margin: 20px;
+        }
+        h2 {
+            margin-bottom: 20px;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+        }
+        th {
+            background-color: #007BFF;
+            color: white;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        .number {
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Top 20 Campaign (Theo chi phí hôm qua)</h2>
+
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Chi?n d?ch</th>
+            <th>Chi phí­ (USD)</th>
+            <th>ROAS</th>
+                       
+        </tr>
+    </thead>
+    <tbody>
+        {% for c in campaigns %}
+        <tr>
+            <td>{{ c.id }}</td>
+            <td>{{ c.name }}</td>
+            <td class="number">{{ "{:,.0f}".format(c.cost) }}</td>
+                        
+            <td class="number">{{ "%.2f"|format(c.roas) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+</body>
+</html>

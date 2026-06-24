@@ -1,0 +1,31 @@
+{
+  "name": "ggads-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "set NODE_OPTIONS=--use-system-ca&& node --use-system-ca ./node_modules/@nestjs/cli/bin/nest.js start --watch",
+    "start": "set NODE_OPTIONS=--use-system-ca&& node --use-system-ca ./node_modules/@nestjs/cli/bin/nest.js start",
+    "start:dev": "set NODE_OPTIONS=--use-system-ca&& node --use-system-ca ./node_modules/@nestjs/cli/bin/nest.js start --watch",
+    "build": "nest build",
+    "db:migrate": "node scripts/migrate.cjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.0",
+    "@nestjs/core": "^11.1.0",
+    "@nestjs/platform-express": "^11.1.0",
+    "@nestjs/typeorm": "^11.0.2",
+    "google-auth-library": "^10.0.0",
+    "pg": "^8.22.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "typeorm": "^1.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.1.0",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.20.0",
+    "typescript": "^5.8.0"
+  }
+}
