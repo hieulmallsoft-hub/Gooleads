@@ -20,6 +20,7 @@ import { CampaignGroupsPanel } from './features/campaign-groups/CampaignGroupsPa
 import { apiFetch, extractApiError, parseJsonSafe } from './api/client';
 import {
   AD_GROUP_STORAGE_KEY,
+  AUTO_AI_STORAGE_KEY,
   CUSTOMER_STORAGE_KEY,
   DESCRIPTION_MAX_LENGTH,
   HEADLINE_MAX_LENGTH,
@@ -65,6 +66,8 @@ import type {
   ReplaceMediaResponse,
   ReplacementImageInfo,
   SortDir,
+  TextChangeRequest,
+  TextChangeRequestApplyResponse,
   SortKey,
   ViewMode,
 } from './types/googleAds';
@@ -104,12 +107,14 @@ export default function App() {
   const [adGroupSortDir, setAdGroupSortDir] = useState<SortDir>('desc');
   const [assetSortDir, setAssetSortDir] = useState<SortDir>('desc');
   const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(PAGE_SIZE);
   const [replacementHeadline, setReplacementHeadline] = useState('');
   const [replacementDescription, setReplacementDescription] = useState('');
   const [replaceConfirmed, setReplaceConfirmed] = useState(false);
   const [replaceLoading, setReplaceLoading] = useState(false);
   const [replaceError, setReplaceError] = useState('');
   const [replaceStatus, setReplaceStatus] = useState('');
+  const [textChangeRequest, setTextChangeRequest] = useState<TextChangeRequest | null>(null);
   const [aiReview, setAiReview] = useState<AiReviewResponse | null>(null);
   const [aiReviewLoading, setAiReviewLoading] = useState(false);
   const [aiReviewError, setAiReviewError] = useState('');
@@ -120,6 +125,9 @@ export default function App() {
   const [aiTextLoading, setAiTextLoading] = useState(false);
   const [aiTextError, setAiTextError] = useState('');
   const [autoAiRunKey, setAutoAiRunKey] = useState('');
+  const [autoAiEnabled, setAutoAiEnabled] = useState(false);
+  const aiReviewCacheRef = useRef(new Map<string, AiReviewResponse>());
+  const aiTextCacheRef = useRef(new Map<string, AiTextSuggestionsResponse>());
   const [mediaReplacementTarget, setMediaReplacementTarget] = useState<Asset | null>(null);
   const [replacementImageFile, setReplacementImageFile] = useState<File | null>(null);
   const [replacementImageInfo, setReplacementImageInfo] = useState<ReplacementImageInfo | null>(null);
@@ -173,6 +181,53 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(AUTO_AI_STORAGE_KEY);
+      const stored = raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+      setAutoAiEnabled(Boolean(stored[customerId]));
+    } catch {
+      setAutoAiEnabled(false);
+    }
+  }, [customerId]);
+
+  function updateAutoAiEnabled(enabled: boolean) {
+    setAutoAiEnabled(enabled);
+    setAutoAiRunKey('');
+    try {
+      const raw = window.localStorage.getItem(AUTO_AI_STORAGE_KEY);
+      const stored = raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+      window.localStorage.setItem(
+        AUTO_AI_STORAGE_KEY,
+        JSON.stringify({ ...stored, [customerId]: enabled }),
+      );
+    } catch {
+      // Ignore localStorage failures; manual Generate buttons still work.
+    }
+  }
+
+  const assetFingerprint = useMemo(() => {
+    if (!assetData) return '';
+    return assetData.assets
+      .map((asset) => [
+        asset.resourceName,
+        asset.adResourceName,
+        asset.fieldType,
+        asset.type,
+        asset.performanceLabel,
+        asset.impressions,
+        asset.clicks,
+        asset.cost,
+        asset.conversionValue,
+      ].join(':'))
+      .join('|');
+  }, [assetData]);
+
+  function getAiCacheKey(normalizedAdGroupId: string) {
+    if (!assetData || !assetFingerprint) return '';
+    return `${customerId}:${normalizedAdGroupId}:${assetData.timeRange}:${assetFingerprint}`;
+  }
+
   function selectMediaReplacement(asset: Asset) {
     setMediaReplacementTarget(asset);
     setReplacementImageFile(null);
@@ -222,6 +277,8 @@ export default function App() {
       );
       setReplaceError('');
       setReplaceStatus('');
+      setTextChangeRequest(null);
+      setReplaceConfirmed(false);
     } catch (err) {
       setAiTextError(err instanceof Error ? err.message : 'Could not save AI approval');
     }
@@ -246,6 +303,8 @@ export default function App() {
       );
       setReplaceError('');
       setReplaceStatus('');
+      setTextChangeRequest(null);
+      setReplaceConfirmed(false);
     } catch (err) {
       setAiTextError(err instanceof Error ? err.message : 'Could not save AI approvals');
     }
@@ -325,6 +384,8 @@ export default function App() {
     setAiTextSuggestions(null);
     setApprovedCreativeSuggestionIds([]);
     setSelectedTextSuggestionKeys([]);
+    setTextChangeRequest(null);
+    setReplaceConfirmed(false);
     setAiReviewError('');
     setAiTextError('');
 
@@ -348,6 +409,8 @@ export default function App() {
       setAiReview(null);
       setAiTextSuggestions(null);
       setSelectedTextSuggestionKeys([]);
+      setTextChangeRequest(null);
+      setReplaceConfirmed(false);
       setAiTextError('');
       setAutoAiRunKey('');
       setMediaReplacementTarget(null);
@@ -405,7 +468,7 @@ export default function App() {
     void loadAssets(normalizedAdGroupId);
   }
 
-  async function generateAiReview(adGroupOverride?: string) {
+  async function generateAiReview(adGroupOverride?: string, options: { force?: boolean } = {}) {
     const normalizedAdGroupId = normalizeNumericId(
       typeof adGroupOverride === 'string' ? adGroupOverride : adGroupId,
     );
@@ -423,6 +486,18 @@ export default function App() {
     if (loadedAssetScope !== requestScope) {
       setAiReviewError('Load assets for this ad group before running AI review');
       return;
+    }
+
+    const cacheKey = getAiCacheKey(normalizedAdGroupId);
+    if (!options.force && cacheKey) {
+      const cached = aiReviewCacheRef.current.get(cacheKey);
+      if (cached) {
+        setAiReview(cached);
+        setApprovedCreativeSuggestionIds([]);
+        setAiReviewError('');
+        setAdGroupId(normalizedAdGroupId);
+        return;
+      }
     }
 
     setAiReviewLoading(true);
@@ -446,7 +521,11 @@ export default function App() {
 
       if (activeAssetScopeRef.current !== requestScope) return;
 
-      setAiReview(body as AiReviewResponse);
+      const result = body as AiReviewResponse;
+      setAiReview(result);
+      if (cacheKey) {
+        aiReviewCacheRef.current.set(cacheKey, result);
+      }
       setApprovedCreativeSuggestionIds([]);
       setAdGroupId(normalizedAdGroupId);
     } catch (err) {
@@ -459,7 +538,7 @@ export default function App() {
     }
   }
 
-  async function generateAiTextSuggestions(adGroupOverride?: string) {
+  async function generateAiTextSuggestions(adGroupOverride?: string, options: { force?: boolean } = {}) {
     const normalizedAdGroupId = normalizeNumericId(
       typeof adGroupOverride === 'string' ? adGroupOverride : adGroupId,
     );
@@ -479,10 +558,26 @@ export default function App() {
       return;
     }
 
+    const cacheKey = getAiCacheKey(normalizedAdGroupId);
+    if (!options.force && cacheKey) {
+      const cached = aiTextCacheRef.current.get(cacheKey);
+      if (cached) {
+        setAiTextSuggestions(cached);
+        setSelectedTextSuggestionKeys([]);
+        setTextChangeRequest(null);
+        setReplaceConfirmed(false);
+        setAiTextError('');
+        setAdGroupId(normalizedAdGroupId);
+        return;
+      }
+    }
+
     setAiTextLoading(true);
     setAiTextError('');
     setReplaceError('');
     setReplaceStatus('');
+    setTextChangeRequest(null);
+    setReplaceConfirmed(false);
 
     try {
       const response = await apiFetch('/google-ads/assets/ai-text-suggestions', {
@@ -502,8 +597,14 @@ export default function App() {
 
       if (activeAssetScopeRef.current !== requestScope) return;
 
-      setAiTextSuggestions(body as AiTextSuggestionsResponse);
+      const result = body as AiTextSuggestionsResponse;
+      setAiTextSuggestions(result);
+      if (cacheKey) {
+        aiTextCacheRef.current.set(cacheKey, result);
+      }
       setSelectedTextSuggestionKeys([]);
+      setTextChangeRequest(null);
+      setReplaceConfirmed(false);
       setAdGroupId(normalizedAdGroupId);
     } catch (err) {
       if (activeAssetScopeRef.current !== requestScope) return;
@@ -599,7 +700,7 @@ export default function App() {
     }
   }
 
-  async function replaceLowAssets() {
+  function buildTextReplacementPayload() {
     const normalizedAdGroupId = normalizeNumericId(adGroupId);
     const headline = replacementHeadline.trim();
     const description = replacementDescription.trim();
@@ -624,8 +725,26 @@ export default function App() {
             variantId: asset.variants[0]?.id,
           }));
 
+    return {
+      normalizedAdGroupId,
+      headline,
+      description,
+      headlineReplacements,
+      descriptionReplacements,
+    };
+  }
+
+  async function createTextChangeRequest() {
+    const {
+      normalizedAdGroupId,
+      headline,
+      description,
+      headlineReplacements,
+      descriptionReplacements,
+    } = buildTextReplacementPayload();
+
     if (!normalizedAdGroupId) {
-      setReplaceError('Enter an ad group ID before replacing LOW assets');
+      setReplaceError('Enter an ad group ID before preparing a change request');
       return;
     }
 
@@ -645,21 +764,18 @@ export default function App() {
       headlineReplacements.length === 0 &&
       descriptionReplacements.length === 0
     ) {
-      setReplaceError('Select at least one AI suggestion or enter an override before applying changes');
-      return;
-    }
-
-    if (!replaceConfirmed) {
-      setReplaceError('Confirm the ad replacement before updating');
+      setReplaceError('Select at least one AI suggestion or enter an override before creating a preview');
       return;
     }
 
     setReplaceLoading(true);
     setReplaceError('');
     setReplaceStatus('');
+    setTextChangeRequest(null);
+    setReplaceConfirmed(false);
 
     try {
-      const response = await apiFetch('/google-ads/assets/replace-low', {
+      const response = await apiFetch('/google-ads/change-requests/text', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -675,21 +791,59 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not replace LOW text assets'));
+        throw new Error(extractApiError(body, 'Could not prepare change request'));
       }
 
-      const result = body as ReplaceLowAssetsResponse;
+      const request = body as TextChangeRequest;
+      const plannedTexts = request.items.reduce((sum, item) => sum + item.replacementCount, 0);
+      setTextChangeRequest(request);
+      setReplaceStatus(`Preview ready. ${request.items.length} ad${request.items.length === 1 ? '' : 's'} and ${plannedTexts} text asset${plannedTexts === 1 ? '' : 's'} prepared. Review it before applying.`);
+      setAdGroupId(normalizedAdGroupId);
+    } catch (err) {
+      setReplaceError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setReplaceLoading(false);
+    }
+  }
+
+  async function applyTextChangeRequest() {
+    if (!textChangeRequest) {
+      setReplaceError('Create a preview before applying changes');
+      return;
+    }
+
+    if (!replaceConfirmed) {
+      setReplaceError('Confirm the preview before applying it in Google Ads');
+      return;
+    }
+
+    setReplaceLoading(true);
+    setReplaceError('');
+    setReplaceStatus('');
+
+    try {
+      const response = await apiFetch(`/google-ads/change-requests/${textChangeRequest.id}/apply`, {
+        method: 'POST',
+      });
+      const body = await parseJsonSafe(response);
+
+      if (!response.ok) {
+        throw new Error(extractApiError(body, 'Could not apply change request'));
+      }
+
+      const applyResponse = body as TextChangeRequestApplyResponse;
+      const result = applyResponse.result as ReplaceLowAssetsResponse;
       const changedTexts = result.replacedAds.reduce(
         (sum, ad) => sum + ad.headlineReplacements + ad.descriptionReplacements,
         0,
       );
       setReplaceStatus(
-        `${result.message}. Updated ${changedTexts} LOW text asset${changedTexts === 1 ? '' : 's'} from the suggestions.`,
+        `${result.message}. Applied ${changedTexts} text asset${changedTexts === 1 ? '' : 's'} from approved request ${applyResponse.changeRequest.id}.`,
       );
       setReplaceConfirmed(false);
       setSelectedTextSuggestionKeys([]);
-      setAdGroupId(normalizedAdGroupId);
       await loadAssets();
+      setTextChangeRequest(applyResponse.changeRequest);
     } catch (err) {
       setReplaceError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -731,6 +885,7 @@ export default function App() {
     adGroupSortDir,
     assetSortKey,
     assetSortDir,
+    rowsPerPage,
     viewMode,
   ]);
 
@@ -973,9 +1128,29 @@ export default function App() {
   );
 
   useEffect(() => {
+    if (viewMode !== 'assets' || !assetData || !assetFingerprint) return;
+
+    const key = `${customerId}:${assetData.adGroupId}:${assetData.timeRange}:${assetFingerprint}`;
+    const cachedReview = aiReviewCacheRef.current.get(key);
+    const cachedTextSuggestions = aiTextCacheRef.current.get(key);
+
+    if (cachedReview) {
+      setAiReview(cachedReview);
+      setAiReviewError('');
+    }
+
+    if (cachedTextSuggestions) {
+      setAiTextSuggestions(cachedTextSuggestions);
+      setAiTextError('');
+    }
+  }, [assetData, assetFingerprint, customerId, viewMode]);
+
+  useEffect(() => {
     if (
+      !autoAiEnabled ||
       viewMode !== 'assets' ||
       !assetData ||
+      !assetFingerprint ||
       assetLoading ||
       assetData.assets.length === 0 ||
       assetLoadVersion === 0
@@ -983,7 +1158,7 @@ export default function App() {
       return;
     }
 
-    const key = `${customerId}:${assetData.adGroupId}:${assetData.timeRange}:${assetLoadVersion}`;
+    const key = `${customerId}:${assetData.adGroupId}:${assetData.timeRange}:${assetFingerprint}`;
     if (autoAiRunKey === key) {
       return;
     }
@@ -996,8 +1171,10 @@ export default function App() {
     }
   }, [
     assetData,
+    assetFingerprint,
     assetLoading,
     assetLoadVersion,
+    autoAiEnabled,
     autoAiRunKey,
     customerId,
     lowTextCandidates.length,
@@ -1015,10 +1192,10 @@ export default function App() {
       : viewMode === 'adGroups'
         ? filteredAdGroups.length
         : filteredCampaigns.length;
-  const totalPages = Math.max(Math.ceil(activeListLength / PAGE_SIZE), 1);
+  const totalPages = Math.max(Math.ceil(activeListLength / rowsPerPage), 1);
   const safeCurrentPage = Math.min(currentPage, totalPages);
-  const pageStart = (safeCurrentPage - 1) * PAGE_SIZE;
-  const pageEnd = Math.min(pageStart + PAGE_SIZE, activeListLength);
+  const pageStart = (safeCurrentPage - 1) * rowsPerPage;
+  const pageEnd = Math.min(pageStart + rowsPerPage, activeListLength);
   const paginatedCampaigns = filteredCampaigns.slice(pageStart, pageEnd);
   const paginatedAdGroups = filteredAdGroups.slice(pageStart, pageEnd);
   const paginatedAssets = filteredAssets.slice(pageStart, pageEnd);
@@ -1051,13 +1228,18 @@ export default function App() {
     !assetData ||
     lowTextCandidates.length === 0 ||
     !adGroupId.trim();
-  const replaceDisabled =
+  const createTextChangeDisabled =
     replaceLoading ||
     aiTextLoading ||
     assetLoading ||
-    !replaceConfirmed ||
     !hasTextReplacementInput ||
     !adGroupId.trim();
+  const applyTextChangeDisabled =
+    replaceLoading ||
+    assetLoading ||
+    !textChangeRequest ||
+    textChangeRequest.status !== 'PENDING' ||
+    !replaceConfirmed;
   const mediaReplacementType = mediaReplacementTarget
     ? getMediaReplacementType(mediaReplacementTarget)
     : '';
@@ -1294,16 +1476,26 @@ export default function App() {
                   {aiReview
                     ? `${aiRecommendations.length} AI recommendations from ${aiReview.model}`
                     : assetData
-                      ? 'Auto-runs after loading assets; use the button to refresh'
+                      ? autoAiEnabled
+                        ? 'Auto AI is on for this customer; use Generate to refresh'
+                        : 'Manual mode. Click Generate when you want to call AI'
                       : 'Load assets first'}
                 </p>
               </div>
               <div className="editorTools">
                 <span className="pill">Manual approval</span>
+                <label className={`autoAiToggle${autoAiEnabled ? ' active' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={autoAiEnabled}
+                    onChange={(event) => updateAutoAiEnabled(event.target.checked)}
+                  />
+                  <span>Auto AI</span>
+                </label>
                 <button
                   className="primaryButton editorAction"
                   type="button"
-                  onClick={() => generateAiReview()}
+                  onClick={() => generateAiReview(undefined, { force: true })}
                   disabled={!assetData || assetLoading || aiReviewLoading}
                 >
                   {aiReviewLoading ? (
@@ -1400,7 +1592,7 @@ export default function App() {
                 })}
               </div>
             ) : assetData && !aiReviewLoading && !aiReview ? (
-              <div className="emptySuggestions">AI review will run automatically after assets load.</div>
+              <div className="emptySuggestions">Click Generate AI review to call AI for these assets.</div>
             ) : null}
           </section>
         ) : null}
@@ -1546,10 +1738,18 @@ export default function App() {
                     ? `${aiTextSuggestions.source.toUpperCase()} ${aiTextSuggestions.model}`
                     : 'AI provider'}
                 </span>
+                <label className={`autoAiToggle${autoAiEnabled ? ' active' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={autoAiEnabled}
+                    onChange={(event) => updateAutoAiEnabled(event.target.checked)}
+                  />
+                  <span>Auto AI</span>
+                </label>
                 <button
                   className="tableActionButton aiTextButton"
                   type="button"
-                  onClick={() => generateAiTextSuggestions()}
+                  onClick={() => generateAiTextSuggestions(undefined, { force: true })}
                   disabled={aiTextDisabled}
                 >
                   {aiTextLoading ? (
@@ -1610,7 +1810,7 @@ export default function App() {
                 })}
               </div>
             ) : assetData && lowTextCandidates.length > 0 ? (
-              <div className="emptySuggestions">AI text suggestions will run automatically after assets load.</div>
+              <div className="emptySuggestions">Click Generate AI suggestions to call AI for these LOW text assets.</div>
             ) : assetData ? (
               <div className="emptySuggestions">No LOW headline/description assets found.</div>
             ) : null}
@@ -1625,6 +1825,8 @@ export default function App() {
                     setReplacementHeadline(event.target.value.slice(0, HEADLINE_MAX_LENGTH));
                     setReplaceError('');
                     setReplaceStatus('');
+                    setTextChangeRequest(null);
+                    setReplaceConfirmed(false);
                   }}
                   placeholder="Optional headline"
                 />
@@ -1638,36 +1840,84 @@ export default function App() {
                     setReplacementDescription(event.target.value.slice(0, DESCRIPTION_MAX_LENGTH));
                     setReplaceError('');
                     setReplaceStatus('');
+                    setTextChangeRequest(null);
+                    setReplaceConfirmed(false);
                   }}
                   placeholder="Optional description"
                 />
               </label>
             </div>
 
+            {textChangeRequest ? (
+              <div className={`changePreview status-${textChangeRequest.status.toLowerCase()}`}>
+                <div className="changePreviewHeader">
+                  <div>
+                    <strong>Change request preview</strong>
+                    <span>{textChangeRequest.id}</span>
+                  </div>
+                  <span className="pill">{textChangeRequest.status}</span>
+                </div>
+                <div className="changePreviewList">
+                  {textChangeRequest.items.map((item, index) => {
+                    const changes = item.beforePayload.changes ?? [];
+                    return (
+                      <article className="changePreviewItem" key={item.id}>
+                        <div className="changePreviewMeta">
+                          <span>Ad #{index + 1}</span>
+                          <span>{item.replacementCount} replacement{item.replacementCount === 1 ? '' : 's'}</span>
+                          <span>{item.status}</span>
+                        </div>
+                        <div className="changePreviewCopy">
+                          {changes.map((change, changeIndex) => (
+                            <div key={`${item.id}-${change.fieldType}-${changeIndex}`}>
+                              <span>{change.fieldType}</span>
+                              <strong>{change.oldText}</strong>
+                              <strong>{change.newText}</strong>
+                            </div>
+                          ))}
+                        </div>
+                        {item.errorMessage ? <p>{item.errorMessage}</p> : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             <div className="editorFooter">
-              <label className="confirmRow">
-                <input
-                  type="checkbox"
-                  checked={replaceConfirmed}
-                  onChange={(event) => {
-                    setReplaceConfirmed(event.target.checked);
-                    setReplaceError('');
-                  }}
-                />
-                <span>Apply selected AI suggestions or overrides in Google Ads</span>
-              </label>
+              {textChangeRequest?.status === 'PENDING' ? (
+                <label className="confirmRow">
+                  <input
+                    type="checkbox"
+                    checked={replaceConfirmed}
+                    onChange={(event) => {
+                      setReplaceConfirmed(event.target.checked);
+                      setReplaceError('');
+                    }}
+                  />
+                  <span>I reviewed this preview and want to apply it in Google Ads</span>
+                </label>
+              ) : (
+                <span className="editorHint">Create a preview before applying anything to Google Ads.</span>
+              )}
               <button
                 className="primaryButton editorAction"
                 type="button"
-                onClick={replaceLowAssets}
-                disabled={replaceDisabled}
+                onClick={textChangeRequest?.status === 'PENDING'
+                  ? applyTextChangeRequest
+                  : createTextChangeRequest}
+                disabled={textChangeRequest?.status === 'PENDING'
+                  ? applyTextChangeDisabled
+                  : createTextChangeDisabled}
               >
                 {replaceLoading ? (
                   <RefreshCw size={15} className="spin" />
                 ) : (
                   <Sparkles size={15} />
                 )}
-                {replaceLoading ? 'Updating...' : 'Apply selected changes'}
+                {replaceLoading
+                  ? textChangeRequest?.status === 'PENDING' ? 'Applying...' : 'Preparing...'
+                  : textChangeRequest?.status === 'PENDING' ? 'Apply in Google Ads' : 'Create preview'}
               </button>
             </div>
 
@@ -1717,6 +1967,7 @@ export default function App() {
           pageEnd={pageEnd}
           currentPage={safeCurrentPage}
           totalPages={totalPages}
+          rowsPerPage={rowsPerPage}
           activeLoading={activeLoading}
           onCampaignSort={handleSort}
           onAdGroupSort={handleAdGroupSort}
@@ -1725,6 +1976,10 @@ export default function App() {
           onOpenAdGroup={openAdGroupAssets}
           onSelectMedia={selectMediaReplacement}
           onPageChange={setCurrentPage}
+          onRowsPerPageChange={(nextRowsPerPage) => {
+            setRowsPerPage(nextRowsPerPage);
+            setCurrentPage(1);
+          }}
         />
         </>
         )}

@@ -96,6 +96,58 @@ export type ReplaceLowAssetsResponse = {
   }[];
 };
 
+export type TextChangePreviewChange = {
+  fieldType: 'HEADLINE' | 'DESCRIPTION';
+  oldText: string;
+  newText: string;
+  suggestionId?: string;
+  variantId?: string;
+};
+
+export type TextChangeRequestItem = {
+  id: string;
+  status: string;
+  changeType: string;
+  oldAdResourceName: string | null;
+  newAdResourceName: string | null;
+  replacementCount: number;
+  beforePayload: {
+    input?: unknown;
+    timeRange?: string;
+    changes?: TextChangePreviewChange[];
+    adText?: {
+      headlines?: string[];
+      descriptions?: string[];
+    };
+  };
+  afterPayload: {
+    adText?: {
+      headlines?: string[];
+      descriptions?: string[];
+    };
+    googleAdsResult?: unknown;
+  };
+  errorMessage: string | null;
+};
+
+export type TextChangeRequest = {
+  id: string;
+  status: string;
+  source: string;
+  customerId: string | null;
+  adGroupId: string | null;
+  requestedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  errorMessage: string | null;
+  items: TextChangeRequestItem[];
+};
+
+export type TextChangeRequestApplyResponse = {
+  changeRequest: TextChangeRequest;
+  result: ReplaceLowAssetsResponse;
+};
+
 export type ReplaceMediaResponse = {
   message: string;
   mediaType: 'IMAGE' | 'VIDEO';

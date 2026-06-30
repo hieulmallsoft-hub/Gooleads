@@ -58,6 +58,7 @@ type PerformanceTableProps = {
   pageEnd: number;
   currentPage: number;
   totalPages: number;
+  rowsPerPage: number;
   activeLoading: boolean;
   onCampaignSort: (key: SortKey) => void;
   onAdGroupSort: (key: AdGroupSortKey) => void;
@@ -66,7 +67,10 @@ type PerformanceTableProps = {
   onOpenAdGroup: (adGroup: AdGroup) => void;
   onSelectMedia: (asset: Asset) => void;
   onPageChange: (page: number) => void;
+  onRowsPerPageChange: (rowsPerPage: number) => void;
 };
+
+const rowsPerPageOptions = [10, 25, 50, 100];
 
 const campaignColumns: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'Campaign' },
@@ -158,6 +162,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
     pageEnd,
     currentPage,
     totalPages,
+    rowsPerPage,
     activeLoading,
     onCampaignSort,
     onAdGroupSort,
@@ -166,6 +171,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
     onOpenAdGroup,
     onSelectMedia,
     onPageChange,
+    onRowsPerPageChange,
   } = props;
 
   return (
@@ -431,7 +437,21 @@ export function PerformanceTable(props: PerformanceTableProps) {
 
       {activeListLength > 0 ? (
         <div className="pagination">
-          <span>Showing {pageStart + 1}-{pageEnd} / {activeListLength}</span>
+          <div className="paginationMeta">
+            <span>Showing {pageStart + 1}-{pageEnd} / {activeListLength}</span>
+            <label>
+              Rows per page
+              <select
+                value={rowsPerPage}
+                onChange={(event) => onRowsPerPageChange(Number(event.target.value))}
+                disabled={activeLoading}
+              >
+                {rowsPerPageOptions.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="paginationControls">
             <button
               type="button"

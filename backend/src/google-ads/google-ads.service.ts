@@ -135,6 +135,34 @@ type ReplacementPlan = {
   descriptionReplacements: number;
 };
 
+type TextReplacementPreviewChange = {
+  fieldType: 'HEADLINE' | 'DESCRIPTION';
+  oldText: string;
+  newText: string;
+  suggestionId?: string;
+  variantId?: string;
+};
+
+type TextReplacementPreviewAd = {
+  oldResourceName: string;
+  updateMask: string;
+  headlineReplacements: number;
+  descriptionReplacements: number;
+  changes: TextReplacementPreviewChange[];
+  beforePayload: Record<string, unknown>;
+  afterPayload: Record<string, unknown>;
+};
+
+type TextReplacementPlanResult = {
+  timeRange: string;
+  adGroupId: string;
+  lowAssetCount: number;
+  operations: any[];
+  plans: ReplacementPlan[];
+  plannedAds: TextReplacementPreviewAd[];
+  skippedAds: { resourceName: string; reason: string }[];
+};
+
 type MediaReplacementPlan = {
   oldResourceName: string;
   operationIndex: number;
@@ -321,10 +349,9 @@ export class GoogleAdsService {
       FROM campaign
       WHERE ${this.dateSegmentCondition(timeRange)}
       ORDER BY metrics.impressions DESC
-      LIMIT 50
     `;
 
-    const response = await this.search(customerId, query);
+    const response = await this.searchAll(customerId, query);
     const campaigns: CampaignPerformance[] = (response.results ?? []).map((row: any): CampaignPerformance => {
       const impressions = Number(row.metrics?.impressions ?? 0);
       const clicks = Number(row.metrics?.clicks ?? 0);
@@ -386,10 +413,9 @@ export class GoogleAdsService {
       FROM ad_group
       WHERE ${this.dateSegmentCondition(timeRange)}
       ORDER BY metrics.impressions DESC
-      LIMIT 100
     `;
 
-    const response = await this.search(customerId, query);
+    const response = await this.searchAll(customerId, query);
     const adGroups: AdGroupPerformance[] = (response.results ?? []).map((row: any): AdGroupPerformance => {
       const impressions = Number(row.metrics?.impressions ?? 0);
       const clicks = Number(row.metrics?.clicks ?? 0);
@@ -469,10 +495,9 @@ export class GoogleAdsService {
         AND ${this.dateSegmentCondition(timeRange)}
         AND ad_group_ad_asset_view.enabled = TRUE
       ORDER BY metrics.impressions DESC
-      LIMIT 200
     `;
 
-    const response = await this.search(customerId, query);
+    const response = await this.searchAll(customerId, query);
     const assets: AssetPerformance[] = (response.results ?? []).map((row: any): AssetPerformance => {
       const metrics = row.metrics ?? {};
       const asset = row.asset ?? {};
@@ -690,6 +715,61 @@ export class GoogleAdsService {
     timeRange: string,
     input: ReplaceLowTextInput,
   ) {
+    const plan = await this.prepareLowTextReplacementPlan(
+      customerId,
+      adGroupId,
+      timeRange,
+      input,
+    );
+
+    const response = await this.mutateAds(customerId, plan.operations);
+    const results = response.results ?? [];
+    const replacedAds = plan.plans.map((item) => ({
+      oldResourceName: item.oldResourceName,
+      newResourceName: String(results[item.operationIndex]?.resourceName ?? ''),
+      headlineReplacements: item.headlineReplacements,
+      descriptionReplacements: item.descriptionReplacements,
+    }));
+
+    return {
+      message: `Updated ${replacedAds.length} ad${replacedAds.length === 1 ? '' : 's'}`,
+      timeRange,
+      adGroupId,
+      lowAssetCount: plan.lowAssetCount,
+      replacedAds,
+      skippedAds: plan.skippedAds,
+    };
+  }
+
+  async previewLowTextReplacement(
+    customerId: string,
+    adGroupId: string,
+    timeRange: string,
+    input: ReplaceLowTextInput,
+  ) {
+    const plan = await this.prepareLowTextReplacementPlan(
+      customerId,
+      adGroupId,
+      timeRange,
+      input,
+    );
+
+    return {
+      message: `Prepared ${plan.plannedAds.length} ad${plan.plannedAds.length === 1 ? '' : 's'} for review`,
+      timeRange,
+      adGroupId,
+      lowAssetCount: plan.lowAssetCount,
+      plannedAds: plan.plannedAds,
+      skippedAds: plan.skippedAds,
+    };
+  }
+
+  private async prepareLowTextReplacementPlan(
+    customerId: string,
+    adGroupId: string,
+    timeRange: string,
+    input: ReplaceLowTextInput,
+  ): Promise<TextReplacementPlanResult> {
     const headline = input.headline
       ? this.fitGoogleAdsCopy(input.headline, 30)
       : '';
@@ -704,6 +784,8 @@ export class GoogleAdsService {
       input.descriptionReplacements,
       90,
     );
+    const headlineReplacementLinkMap = this.buildTextReplacementLinkMap(input.headlineReplacements);
+    const descriptionReplacementLinkMap = this.buildTextReplacementLinkMap(input.descriptionReplacements);
 
     if (
       !headline &&
@@ -749,6 +831,7 @@ export class GoogleAdsService {
 
     const operations: any[] = [];
     const plans: ReplacementPlan[] = [];
+    const plannedAds: TextReplacementPreviewAd[] = [];
     const skippedAds: { resourceName: string; reason: string }[] = [];
 
     for (const [resourceName, target] of targets) {
@@ -801,6 +884,34 @@ export class GoogleAdsService {
         headlineReplacements,
         descriptionReplacements,
       });
+      plannedAds.push({
+        oldResourceName: resourceName,
+        updateMask,
+        headlineReplacements,
+        descriptionReplacements,
+        changes: this.buildTextReplacementPreviewChanges({
+          headline,
+          description,
+          headlineReplacementMap,
+          descriptionReplacementMap,
+          headlineReplacementLinkMap,
+          descriptionReplacementLinkMap,
+          headlineTexts: target.headlineTexts,
+          descriptionTexts: target.descriptionTexts,
+        }),
+        beforePayload: {
+          headlines: this.textAssetTexts(appAd.headlines),
+          descriptions: this.textAssetTexts(appAd.descriptions),
+        },
+        afterPayload: {
+          headlines: update.appAd && 'headlines' in update.appAd
+            ? this.textAssetTexts(update.appAd.headlines)
+            : this.textAssetTexts(appAd.headlines),
+          descriptions: update.appAd && 'descriptions' in update.appAd
+            ? this.textAssetTexts(update.appAd.descriptions)
+            : this.textAssetTexts(appAd.descriptions),
+        },
+      });
     }
 
     if (operations.length === 0) {
@@ -810,21 +921,13 @@ export class GoogleAdsService {
       });
     }
 
-    const response = await this.mutateAds(customerId, operations);
-    const results = response.results ?? [];
-    const replacedAds = plans.map((plan) => ({
-      oldResourceName: plan.oldResourceName,
-      newResourceName: String(results[plan.operationIndex]?.resourceName ?? ''),
-      headlineReplacements: plan.headlineReplacements,
-      descriptionReplacements: plan.descriptionReplacements,
-    }));
-
     return {
-      message: `Updated ${replacedAds.length} ad${replacedAds.length === 1 ? '' : 's'}`,
       timeRange,
       adGroupId,
       lowAssetCount: targetAssets.length,
-      replacedAds,
+      operations,
+      plans,
+      plannedAds,
       skippedAds,
     };
   }
@@ -3235,6 +3338,58 @@ export class GoogleAdsService {
       .length;
   }
 
+  private textAssetTexts(assets: unknown) {
+    return Array.isArray(assets)
+      ? assets
+          .map((asset) => String((asset as { text?: unknown })?.text ?? '').trim())
+          .filter(Boolean)
+      : [];
+  }
+
+  private buildTextReplacementPreviewChanges({
+    headline,
+    description,
+    headlineReplacementMap,
+    descriptionReplacementMap,
+    headlineReplacementLinkMap,
+    descriptionReplacementLinkMap,
+    headlineTexts,
+    descriptionTexts,
+  }: {
+    headline: string;
+    description: string;
+    headlineReplacementMap: Map<string, string>;
+    descriptionReplacementMap: Map<string, string>;
+    headlineReplacementLinkMap: Map<string, { suggestionId?: string; variantId?: string }>;
+    descriptionReplacementLinkMap: Map<string, { suggestionId?: string; variantId?: string }>;
+    headlineTexts: Set<string>;
+    descriptionTexts: Set<string>;
+  }): TextReplacementPreviewChange[] {
+    const changes: TextReplacementPreviewChange[] = [];
+
+    for (const oldText of headlineTexts) {
+      const newText = headline || headlineReplacementMap.get(oldText) || oldText;
+      changes.push({
+        fieldType: 'HEADLINE',
+        oldText,
+        newText,
+        ...headlineReplacementLinkMap.get(oldText),
+      });
+    }
+
+    for (const oldText of descriptionTexts) {
+      const newText = description || descriptionReplacementMap.get(oldText) || oldText;
+      changes.push({
+        fieldType: 'DESCRIPTION',
+        oldText,
+        newText,
+        ...descriptionReplacementLinkMap.get(oldText),
+      });
+    }
+
+    return changes;
+  }
+
   private buildAppAdTextUpdateMask({
     updateHeadlines,
     updateDescriptions,
@@ -3290,8 +3445,24 @@ export class GoogleAdsService {
         map.set(oldText, newText);
       }
 
-      return map;
-    }, new Map<string, string>());
+    return map;
+  }, new Map<string, string>());
+  }
+
+  private buildTextReplacementLinkMap(replacements: TextReplacement[] | undefined) {
+    return (replacements ?? []).reduce<Map<string, { suggestionId?: string; variantId?: string }>>(
+      (map, replacement) => {
+        const oldText = replacement.oldText.trim();
+        if (!oldText) return map;
+
+        map.set(oldText, {
+          ...(replacement.suggestionId ? { suggestionId: replacement.suggestionId } : {}),
+          ...(replacement.variantId ? { variantId: replacement.variantId } : {}),
+        });
+        return map;
+      },
+      new Map<string, { suggestionId?: string; variantId?: string }>(),
+    );
   }
 
   private cloneTextAsset(asset: any) {

@@ -241,6 +241,54 @@ export class GoogleAdsController {
 
   @Post('assets/replace-low')
   async replaceLowAssets(@Body() body: ReplaceLowAssetsBody) {
+    return this.prepareTextChangeRequest(body);
+  }
+
+  @Post('change-requests/text')
+  async createTextChangeRequest(@Body() body: ReplaceLowAssetsBody) {
+    return this.prepareTextChangeRequest(body);
+  }
+
+  @Get('change-requests/:id')
+  async getChangeRequest(@Param('id') id: string | undefined) {
+    const changeRequestId = id?.trim();
+    if (!changeRequestId) {
+      throw new BadRequestException('Missing change request ID');
+    }
+    return this.aiPersistenceService.getChangeRequestPreview(changeRequestId);
+  }
+
+  @Post('change-requests/:id/apply')
+  async applyChangeRequest(@Param('id') id: string | undefined) {
+    const changeRequestId = id?.trim();
+    if (!changeRequestId) {
+      throw new BadRequestException('Missing change request ID');
+    }
+
+    const request = await this.aiPersistenceService.getTextChangeRequestForApply(
+      changeRequestId,
+    );
+
+    try {
+      const result = await this.googleAdsService.replaceLowTextAssets(
+        request.customerId,
+        request.adGroupId,
+        request.timeRange,
+        request.input,
+      );
+      const changeRequest = await this.aiPersistenceService.completeTextChangeRequest(
+        changeRequestId,
+        request.input,
+        result,
+      );
+      return { changeRequest, result };
+    } catch (error) {
+      await this.aiPersistenceService.failChangeRequest(changeRequestId, error);
+      throw error;
+    }
+  }
+
+  private async prepareTextChangeRequest(body: ReplaceLowAssetsBody) {
     const normalizedCustomerId = normalizeCustomerId(body.customerId);
     const normalizedAdGroupId = normalizeAdGroupId(body.adGroupId);
     const timeRange = normalizeTimeRange(body.time);
@@ -263,19 +311,19 @@ export class GoogleAdsController {
       normalizedAdGroupId,
       timeRange,
     );
-    const result = await this.googleAdsService.replaceLowTextAssets(
+    const preview = await this.googleAdsService.previewLowTextReplacement(
       normalizedCustomerId,
       normalizedAdGroupId,
       timeRange,
       { headline, description, headlineReplacements, descriptionReplacements },
     );
-    await this.aiPersistenceService.saveTextChange(
+    return this.aiPersistenceService.createTextChangeRequest(
       normalizedCustomerId,
       normalizedAdGroupId,
+      timeRange,
       { headline, description, headlineReplacements, descriptionReplacements },
-      result,
+      preview,
     );
-    return result;
   }
 
   @Post('assets/ai-review')

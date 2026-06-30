@@ -9,6 +9,7 @@ import { AiSuggestionDecisionEntity } from '../database/entities/ai-suggestion-d
 import { AiSuggestionVariantEntity } from '../database/entities/ai-suggestion-variant.entity';
 import { AiSuggestionEntity } from '../database/entities/ai-suggestion.entity';
 import { AssetEntity } from '../database/entities/asset.entity';
+import { AuditLogEntity } from '../database/entities/audit-log.entity';
 import { ChangeItemEntity } from '../database/entities/change-item.entity';
 import { ChangeRequestEntity } from '../database/entities/change-request.entity';
 import { CreativePolicyEntity } from '../database/entities/creative-policy.entity';
@@ -19,6 +20,13 @@ type DecisionInput = {
   variantId?: string;
   editedContent?: unknown;
   note?: string;
+};
+
+type TextChangeRequestPayload = {
+  headline?: string;
+  description?: string;
+  headlineReplacements?: any[];
+  descriptionReplacements?: any[];
 };
 
 @Injectable()
@@ -185,6 +193,327 @@ export class AiPersistenceService {
     response: any,
   ) {
     return this.saveChange(customerId, adGroupId, 'MEDIA_REPLACE', input, response);
+  }
+
+  async createTextChangeRequest(
+    customerId: string,
+    googleAdGroupId: string,
+    timeRange: string,
+    input: TextChangeRequestPayload,
+    preview: any,
+  ) {
+    const context = await this.getContext(customerId, googleAdGroupId);
+    const plannedAds = Array.isArray(preview.plannedAds) ? preview.plannedAds : [];
+    if (!plannedAds.length) {
+      throw new BadRequestException('No text changes were prepared for preview');
+    }
+
+    const request = await this.dataSource.getRepository(ChangeRequestEntity).save({
+      workspaceId: context.account.workspaceId,
+      accountId: context.account.id,
+      adGroupId: context.adGroup.id,
+      requestedBy: null,
+      source: this.hasSuggestionLinks(input) ? 'AI_APPROVED' : 'MANUAL',
+      idempotencyKey: randomUUID(),
+      status: 'PENDING',
+      errorMessage: null,
+      requestedAt: new Date(),
+      startedAt: null,
+      completedAt: null,
+    });
+    const itemRepository = this.dataSource.getRepository(ChangeItemEntity);
+
+    for (const item of plannedAds) {
+      const linkedSuggestion = this.getPreviewSuggestionLink(item.changes);
+      await itemRepository.save({
+        changeRequestId: request.id,
+        suggestionId: linkedSuggestion?.suggestionId ?? null,
+        variantId: linkedSuggestion?.variantId ?? null,
+        adAssetLinkId: null,
+        changeType: 'TEXT_REPLACE',
+        mediaType: null,
+        beforePayload: {
+          input,
+          timeRange,
+          changes: item.changes ?? [],
+          adText: item.beforePayload ?? {},
+        },
+        afterPayload: {
+          adText: item.afterPayload ?? {},
+        },
+        oldAssetResourceName: null,
+        newAssetResourceName: null,
+        oldAdResourceName: item.oldResourceName ?? null,
+        newAdResourceName: null,
+        replacementCount:
+          Number(item.headlineReplacements ?? 0) +
+          Number(item.descriptionReplacements ?? 0),
+        status: 'PENDING',
+        errorCode: null,
+        errorMessage: null,
+      });
+    }
+
+    await this.writeAuditLog({
+      workspaceId: context.account.workspaceId,
+      action: 'CHANGE_REQUEST_CREATED',
+      entityType: 'change_request',
+      entityId: request.id,
+      beforePayload: null,
+      afterPayload: {
+        customerId,
+        adGroupId: googleAdGroupId,
+        timeRange,
+        plannedAds: plannedAds.length,
+      },
+      correlationId: request.id,
+      metadata: { source: request.source, changeType: 'TEXT_REPLACE' },
+    });
+
+    return this.getChangeRequestPreview(request.id);
+  }
+
+  async getChangeRequestPreview(changeRequestId: string) {
+    const request = await this.dataSource
+      .getRepository(ChangeRequestEntity)
+      .findOneBy({ id: changeRequestId });
+    if (!request) throw new NotFoundException('Change request not found');
+
+    const [items, account, adGroup] = await Promise.all([
+      this.dataSource.getRepository(ChangeItemEntity).find({
+        where: { changeRequestId },
+        order: { createdAt: 'ASC' },
+      }),
+      this.dataSource.getRepository(GoogleAdsAccountEntity).findOneBy({
+        id: request.accountId,
+      }),
+      request.adGroupId
+        ? this.dataSource.getRepository(AdGroupEntity).findOneBy({ id: request.adGroupId })
+        : Promise.resolve(null),
+    ]);
+
+    return {
+      id: request.id,
+      status: request.status,
+      source: request.source,
+      customerId: account?.customerId ?? null,
+      adGroupId: adGroup?.googleAdGroupId ?? null,
+      requestedAt: request.requestedAt,
+      startedAt: request.startedAt,
+      completedAt: request.completedAt,
+      errorMessage: request.errorMessage,
+      items: items.map((item) => ({
+        id: item.id,
+        status: item.status,
+        changeType: item.changeType,
+        oldAdResourceName: item.oldAdResourceName,
+        newAdResourceName: item.newAdResourceName,
+        replacementCount: item.replacementCount,
+        beforePayload: item.beforePayload,
+        afterPayload: item.afterPayload,
+        errorMessage: item.errorMessage,
+      })),
+    };
+  }
+
+  async getTextChangeRequestForApply(changeRequestId: string) {
+    const request = await this.dataSource
+      .getRepository(ChangeRequestEntity)
+      .findOneBy({ id: changeRequestId });
+    if (!request) throw new NotFoundException('Change request not found');
+    if (!['PENDING', 'APPROVED'].includes(request.status)) {
+      throw new BadRequestException(`Change request is already ${request.status.toLowerCase()}`);
+    }
+
+    const [account, adGroup, items] = await Promise.all([
+      this.dataSource.getRepository(GoogleAdsAccountEntity).findOneBy({
+        id: request.accountId,
+      }),
+      request.adGroupId
+        ? this.dataSource.getRepository(AdGroupEntity).findOneBy({ id: request.adGroupId })
+        : Promise.resolve(null),
+      this.dataSource.getRepository(ChangeItemEntity).find({
+        where: { changeRequestId },
+        order: { createdAt: 'ASC' },
+      }),
+    ]);
+
+    if (!account || !adGroup) {
+      throw new NotFoundException('Change request account or ad group is unavailable');
+    }
+    const firstItem = items[0];
+    const beforePayload = firstItem?.beforePayload ?? {};
+    const input = this.objectPayload(beforePayload.input) as TextChangeRequestPayload;
+    const timeRange = String(beforePayload.timeRange ?? '');
+    if (!timeRange) {
+      throw new BadRequestException('Change request is missing the original time range');
+    }
+
+    request.status = 'APPLYING';
+    request.startedAt = new Date();
+    request.errorMessage = null;
+    await this.dataSource.getRepository(ChangeRequestEntity).save(request);
+
+    return {
+      customerId: account.customerId,
+      adGroupId: adGroup.googleAdGroupId,
+      timeRange,
+      input,
+    };
+  }
+
+  async completeTextChangeRequest(
+    changeRequestId: string,
+    input: TextChangeRequestPayload,
+    response: any,
+  ) {
+    const requestRepository = this.dataSource.getRepository(ChangeRequestEntity);
+    const itemRepository = this.dataSource.getRepository(ChangeItemEntity);
+    const request = await requestRepository.findOneBy({ id: changeRequestId });
+    if (!request) throw new NotFoundException('Change request not found');
+
+    const replaced = Array.isArray(response.replacedAds) ? response.replacedAds : [];
+    const skipped = Array.isArray(response.skippedAds) ? response.skippedAds : [];
+    const replacedByOldResource = new Map<string, any>(
+      replaced.map((item: any) => [String(item.oldResourceName ?? ''), item]),
+    );
+    const skippedByOldResource = new Map<string, any>(
+      skipped.map((item: any) => [String(item.resourceName ?? ''), item]),
+    );
+    const items = await itemRepository.find({
+      where: { changeRequestId },
+      order: { createdAt: 'ASC' },
+    });
+
+    for (const item of items) {
+      const oldResourceName = item.oldAdResourceName ?? '';
+      const replacedItem = replacedByOldResource.get(oldResourceName);
+      const skippedItem = skippedByOldResource.get(oldResourceName);
+
+      if (replacedItem) {
+        item.status = 'APPLIED';
+        item.newAdResourceName = String(replacedItem.newResourceName ?? '');
+        item.replacementCount =
+          Number(replacedItem.headlineReplacements ?? 0) +
+          Number(replacedItem.descriptionReplacements ?? 0);
+        item.afterPayload = {
+          ...item.afterPayload,
+          googleAdsResult: replacedItem,
+        };
+        item.errorMessage = null;
+      } else if (skippedItem) {
+        item.status = 'SKIPPED';
+        item.errorMessage = String(skippedItem.reason ?? 'Skipped by Google Ads update');
+      } else {
+        item.status = replaced.length > 0 ? 'SKIPPED' : 'FAILED';
+        item.errorMessage = replaced.length > 0
+          ? 'No matching result returned by Google Ads'
+          : 'Google Ads did not apply this change';
+      }
+
+      await itemRepository.save(item);
+    }
+
+    request.status = replaced.length === 0 ? 'FAILED' : skipped.length ? 'PARTIAL' : 'APPLIED';
+    request.completedAt = new Date();
+    request.errorMessage = request.status === 'FAILED'
+      ? 'No ads were updated by Google Ads'
+      : null;
+    await requestRepository.save(request);
+    await this.markInputSuggestionsApplied(input as Record<string, unknown>);
+    await this.writeAuditLog({
+      workspaceId: request.workspaceId,
+      action: 'CHANGE_REQUEST_APPLIED',
+      entityType: 'change_request',
+      entityId: request.id,
+      beforePayload: null,
+      afterPayload: response,
+      correlationId: request.id,
+      metadata: {
+        status: request.status,
+        replacedAds: replaced.length,
+        skippedAds: skipped.length,
+      },
+    });
+
+    return this.getChangeRequestPreview(changeRequestId);
+  }
+
+  async failChangeRequest(changeRequestId: string, error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const requestRepository = this.dataSource.getRepository(ChangeRequestEntity);
+    const itemRepository = this.dataSource.getRepository(ChangeItemEntity);
+    const request = await requestRepository.findOneBy({ id: changeRequestId });
+    if (!request) return;
+
+    request.status = 'FAILED';
+    request.errorMessage = message;
+    request.completedAt = new Date();
+    await requestRepository.save(request);
+    await itemRepository.update(
+      { changeRequestId, status: In(['PENDING', 'APPLYING']) },
+      { status: 'FAILED', errorMessage: message },
+    );
+    await this.writeAuditLog({
+      workspaceId: request.workspaceId,
+      action: 'CHANGE_REQUEST_FAILED',
+      entityType: 'change_request',
+      entityId: request.id,
+      beforePayload: null,
+      afterPayload: null,
+      correlationId: request.id,
+      metadata: { errorMessage: message },
+    });
+  }
+
+  private hasSuggestionLinks(input: TextChangeRequestPayload) {
+    return [
+      ...this.getInputReplacementLinks(input.headlineReplacements),
+      ...this.getInputReplacementLinks(input.descriptionReplacements),
+    ].length > 0;
+  }
+
+  private getPreviewSuggestionLink(changes: unknown) {
+    if (!Array.isArray(changes)) return null;
+    const links = changes
+      .map((change) => {
+        const row = this.objectPayload(change);
+        const suggestionId = String(row.suggestionId ?? '').trim();
+        const variantId = String(row.variantId ?? '').trim();
+        return suggestionId ? { suggestionId, variantId: variantId || null } : null;
+      })
+      .filter((link): link is { suggestionId: string; variantId: string | null } => Boolean(link));
+    const uniqueSuggestionIds = new Set(links.map((link) => link.suggestionId));
+    return uniqueSuggestionIds.size === 1 ? links[0] : null;
+  }
+
+  private objectPayload(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  }
+
+  private async writeAuditLog(input: {
+    workspaceId: string;
+    action: string;
+    entityType: string;
+    entityId: string | null;
+    beforePayload: Record<string, unknown> | null;
+    afterPayload: Record<string, unknown> | null;
+    correlationId: string | null;
+    metadata: Record<string, unknown>;
+  }) {
+    await this.dataSource.getRepository(AuditLogEntity).save({
+      workspaceId: input.workspaceId,
+      actorUserId: null,
+      action: input.action,
+      entityType: input.entityType,
+      entityId: input.entityId,
+      beforePayload: input.beforePayload,
+      afterPayload: input.afterPayload,
+      correlationId: input.correlationId,
+      metadata: input.metadata,
+    });
   }
 
   private async saveChange(
