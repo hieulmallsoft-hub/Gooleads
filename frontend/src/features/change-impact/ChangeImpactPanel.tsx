@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
   AlertCircle,
   ArrowDownRight,
@@ -53,6 +53,16 @@ type ImpactResponse = {
   };
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
   changes: ImpactChange[];
+};
+
+type SyncBatchJob = {
+  id: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'PARTIAL' | 'FAILED';
+  totalCount: number;
+  completedCount: number;
+  failedCount: number;
+  currentAdGroupId: string | null;
+  errorMessage: string | null;
 };
 
 function percent(value: number) {
@@ -161,6 +171,7 @@ function PerformanceAfterChanges({ customerId }: { customerId: string }) {
   const [page, setPage] = useState(1);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
+  const [syncJob, setSyncJob] = useState<SyncBatchJob | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -196,12 +207,63 @@ function PerformanceAfterChanges({ customerId }: { customerId: string }) {
     }
   }
 
+  const loadEffect = useEffectEvent(load);
+
   useEffect(() => {
-    void load();
+    void loadEffect();
   }, [customerId, days, debouncedSearch, origin, verdict, page]);
 
   const currency = data?.account.currencyCode ?? null;
   const visibleChanges = data?.changes ?? [];
+
+  const refreshSyncJob = useEffectEvent(async (jobId?: string) => {
+    const params = new URLSearchParams({ customerId });
+    if (jobId) params.set('jobId', jobId);
+    const response = await apiFetch(`/google-ads/sync/batch/status?${params}`);
+    const body = await parseJsonSafe(response);
+    if (!response.ok) {
+      throw new Error(extractApiError(body, 'Không thể kiểm tra tiến độ đồng bộ'));
+    }
+    if (!body?.id) return;
+    const job = body as SyncBatchJob;
+    setSyncJob(job);
+    const active = job.status === 'PENDING' || job.status === 'RUNNING';
+    setSyncing(active);
+    if (active) {
+      setSyncStatus(
+        `Đang đồng bộ ${job.completedCount + job.failedCount}/${job.totalCount} nhóm quảng cáo${
+          job.currentAdGroupId ? ` · nhóm ${job.currentAdGroupId}` : ''
+        }. Bạn có thể chuyển sang màn khác.`,
+      );
+      return;
+    }
+    if (job.status === 'COMPLETED') {
+      setSyncStatus(`Đã đồng bộ thành công ${job.completedCount}/${job.totalCount} nhóm quảng cáo.`);
+    } else {
+      setSyncStatus(
+        `Đồng bộ hoàn tất: ${job.completedCount} thành công, ${job.failedCount} lỗi.`,
+      );
+      if (job.errorMessage) setError(job.errorMessage);
+    }
+    await loadEffect();
+  });
+
+  useEffect(() => {
+    if (!customerId) return;
+    void refreshSyncJob().catch(() => undefined);
+  }, [customerId]);
+
+  useEffect(() => {
+    if (!syncJob || !['PENDING', 'RUNNING'].includes(syncJob.status)) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void refreshSyncJob(syncJob.id).catch((jobError) => {
+          setError(jobError instanceof Error ? jobError.message : 'Không thể kiểm tra tiến độ');
+        });
+      }
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [syncJob]);
 
   async function syncVisibleChanges() {
     if (!visibleChanges.length || syncing) {
@@ -229,26 +291,30 @@ function PerformanceAfterChanges({ customerId }: { customerId: string }) {
       ].join('-');
       const time = `${datePart(start)},${datePart(end)}`;
 
-      for (const item of uniqueAdGroups) {
-        const response = await apiFetch('/google-ads/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customerId,
+      const response = await apiFetch('/google-ads/sync/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId,
+          time,
+          targets: uniqueAdGroups.map((item) => ({
             adGroupId: item.adGroup.id,
-            time,
-          }),
-        });
-        const body = await parseJsonSafe(response);
-        if (!response.ok) {
-          throw new Error(extractApiError(body, `Không thể đồng bộ nhóm ${item.adGroup.name}`));
-        }
+            adGroupName: item.adGroup.name,
+          })),
+        }),
+      });
+      const body = await parseJsonSafe(response);
+      if (!response.ok) {
+        throw new Error(extractApiError(body, 'Không thể tạo tác vụ đồng bộ Google Ads'));
       }
-      setSyncStatus(`Đã đồng bộ ${uniqueAdGroups.length} nhóm quảng cáo trực tiếp từ Google Ads.`);
-      await load();
+      const job = body as SyncBatchJob;
+      setSyncJob(job);
+      setSyncing(job.status === 'PENDING' || job.status === 'RUNNING');
+      setSyncStatus(
+        `Đã đưa ${job.totalCount} nhóm quảng cáo vào hàng đợi. Bạn có thể chuyển sang màn khác.`,
+      );
     } catch (syncError) {
       setError(syncError instanceof Error ? syncError.message : 'Không thể đồng bộ Google Ads');
-    } finally {
       setSyncing(false);
     }
   }

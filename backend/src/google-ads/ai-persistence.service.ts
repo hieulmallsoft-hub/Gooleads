@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { DataSource, In } from 'typeorm';
+import { DataSource, In, LessThan } from 'typeorm';
 import { AdAssetLinkEntity } from '../database/entities/ad-asset-link.entity';
 import { AdGroupEntity } from '../database/entities/ad-group.entity';
 import { AdEntity } from '../database/entities/ad.entity';
@@ -464,6 +464,30 @@ export class AiPersistenceService {
       correlationId: request.id,
       metadata: { errorMessage: message },
     });
+  }
+
+  async recoverStaleApplyingRequests(now = new Date()) {
+    const staleMinutes = Math.min(
+      Math.max(Number(process.env.CHANGE_REQUEST_STALE_MINUTES ?? 30), 5),
+      24 * 60,
+    );
+    const cutoff = new Date(now.getTime() - staleMinutes * 60_000);
+    const requests = await this.dataSource.getRepository(ChangeRequestEntity).find({
+      where: {
+        status: 'APPLYING',
+        startedAt: LessThan(cutoff),
+      },
+      order: { startedAt: 'ASC' },
+      take: 100,
+    });
+
+    for (const request of requests) {
+      await this.failChangeRequest(
+        request.id,
+        'Tiến trình áp dụng đã bị gián đoạn. Hệ thống không tự áp dụng lại để tránh tạo quảng cáo trùng; hãy đồng bộ Google Ads và kiểm tra lịch sử trước khi thử lại.',
+      );
+    }
+    return requests.length;
   }
 
   private hasSuggestionLinks(input: TextChangeRequestPayload) {

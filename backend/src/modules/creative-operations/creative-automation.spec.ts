@@ -35,3 +35,19 @@ test('automation date range is timezone-aware and inclusive', () => {
   );
   assert.equal(range, '2026-07-24,2026-07-30');
 });
+
+test('automation uses heartbeat instead of start time when detecting an interrupted run', () => {
+  const instance = service();
+  const now = new Date('2026-07-30T10:00:00.000Z');
+  const activeRun = {
+    startedAt: new Date('2026-07-30T08:00:00.000Z'),
+    lastHeartbeatAt: new Date('2026-07-30T09:50:00.000Z'),
+  };
+  const interruptedRun = {
+    startedAt: new Date('2026-07-30T08:00:00.000Z'),
+    lastHeartbeatAt: new Date('2026-07-30T09:00:00.000Z'),
+  };
+
+  assert.equal(instance.isStaleRunningRun(activeRun, now), false);
+  assert.equal(instance.isStaleRunningRun(interruptedRun, now), true);
+});

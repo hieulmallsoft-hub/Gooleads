@@ -1,0 +1,164 @@
+# Hoàn thiện sản phẩm GG Ads
+
+Tài liệu này mô tả các chức năng đã hoàn thiện, cách chúng hoạt động và cấu hình cần dùng khi triển khai.
+
+## 1. Automation an toàn và có thể tạm dừng
+
+### Chức năng
+
+- Người có quyền `automation.manage` có thể chạy AI định kỳ, tắt lịch chạy và bật lại.
+- Khi người dùng nhấn **Tắt**, lịch được vô hiệu hóa ngay. Lượt đang chạy hoàn tất mục đang gửi sang Google Ads nhưng kiểm tra lại lịch trước mỗi nhóm quảng cáo và không tạo thêm thay đổi mới.
+- Lượt dừng giữa chừng được ghi trạng thái `PAUSED`.
+- Mỗi lượt chạy cập nhật `last_heartbeat_at`. Backend dùng heartbeat thay vì chỉ dùng thời gian bắt đầu để phân biệt một lượt chạy lâu với một tiến trình thực sự bị treo.
+- Mutation lỗi được ghi `FAILED`, không còn để yêu cầu con ở `APPLYING` vô thời hạn.
+- Khi backend khởi động, yêu cầu `APPLYING` quá hạn được đóng an toàn với hướng dẫn đồng bộ và kiểm tra Google Ads. Hệ thống không tự gửi lại vì lần gọi cũ có thể đã thành công trên Google Ads.
+- Khóa idempotency của yêu cầu thay đổi tiếp tục được lưu để phục vụ đối soát và chống thao tác trùng.
+
+### Cách sử dụng
+
+1. Vào **Cài đặt → AI định kỳ**.
+2. Chọn chu kỳ và giới hạn số thay đổi.
+3. Nhấn **Chạy ngay** để bật lịch và chạy lần đầu.
+4. Nhấn **Tắt** khi muốn chuyển sang thay tài nguyên thủ công.
+5. Sau khi tắt, các thay đổi đã áp dụng được giữ nguyên; người dùng vẫn thay văn bản, ảnh và video bình thường.
+
+### Cấu hình
+
+```env
+AUTOMATION_POLL_INTERVAL_MS=60000
+AUTOMATION_STALE_RUNNING_MINUTES=30
+CHANGE_REQUEST_STALE_MINUTES=30
+```
+
+Migration `006_automation_recovery.sql` thêm heartbeat và chỉ mục cho truy vấn phục hồi.
+
+## 2. Số liệu hiệu quả sau thay đổi
+
+- Màn **Hiệu quả sau thay đổi** tìm kiếm và phân trang ở backend, không giới hạn tìm trong 100 dòng đã tải.
+- So sánh cùng số ngày trước và sau thay đổi; ngày thay đổi được loại khỏi phép so sánh.
+- Chỉ kết luận tăng hoặc giảm khi đã đủ toàn bộ cửa sổ 7, 14 hoặc 30 ngày.
+- Có trạng thái chờ dữ liệu để tránh kết luận sai khi dữ liệu sau thay đổi chưa đủ.
+- CTR và tỷ lệ chuyển đổi hiển thị theo phần trăm.
+- Giá trị chuyển đổi/chi phí hiển thị theo phần trăm giống chỉ số tương ứng trong Google Ads.
+- Nút **Đồng bộ Google Ads** lấy dữ liệu mới cho các thay đổi đang hiển thị.
+- Chiến dịch và nhóm quảng cáo tạm dừng vẫn xuất hiện với trạng thái thực từ Google Ads.
+
+### Cách sử dụng
+
+1. Mở **Theo dõi thay đổi → Hiệu quả sau thay đổi**.
+2. Chọn 7, 14 hoặc 30 ngày.
+3. Nhập tên hoặc ID chiến dịch vào ô tìm kiếm.
+4. Lọc theo AI tự động, AI đã duyệt hoặc thủ công.
+5. Nhấn **Đồng bộ Google Ads** trước khi đánh giá dữ liệu mới nhất.
+
+## 3. Lịch sử thay đổi
+
+- Tìm kiếm toàn bộ database theo chiến dịch, nhóm quảng cáo, ID và nội dung liên quan.
+- Lọc theo nguồn và trạng thái, phân trang ở backend.
+- Nhấn một dòng để xem nội dung trước và sau thay đổi.
+- Giao diện chi tiết chỉ trình bày dữ liệu hữu ích, không đưa khối JSON kỹ thuật ra màn hình chính.
+- Hiển thị nguồn thay đổi: thủ công, AI được duyệt hoặc Automation.
+- Hiển thị yêu cầu bị gián đoạn với lý do rõ ràng để người dùng không áp dụng lại mù quáng.
+
+## 4. Giao diện tiếng Việt và responsive
+
+- Sửa các nhãn tiếng Anh còn lại ở quản lý quy tắc từ khóa, phạm vi tài khoản và thông báo phê duyệt.
+- Sửa cảnh báo React Hook bằng `useEffectEvent` và `useMemo`; lint không còn cảnh báo dependency.
+- Việc đổi tài khoản, bộ lọc và màn hình sử dụng giá trị mới nhất mà không tạo vòng lặp tải API.
+- Dựng lại trang **Hướng dẫn sử dụng** bằng tiếng Việt chuẩn.
+- Trang hướng dẫn có hình mô phỏng đánh số vị trí cần nhấn khi chọn tài khoản, tìm chiến dịch, bật/tắt Automation, đồng bộ và xem hiệu quả.
+- Hướng dẫn có mục xử lý lỗi, phân quyền và giải thích chỉ số.
+
+## 5. Bảo vệ production
+
+### Đã bổ sung
+
+- Security headers: chống đoán MIME, chống nhúng iframe, referrer policy, permissions policy, cross-origin opener policy và HSTS trong production.
+- Rate limit đăng nhập: 5 lần trong 15 phút cho mỗi địa chỉ máy khách.
+- Rate limit AI, Automation và API thay tài nguyên: 20 lần/phút.
+- Phản hồi `429` bằng thông báo tiếng Việt.
+- Giới hạn JSON và form body mặc định 1 MB.
+- Upload ảnh giới hạn 10 MB và service kiểm tra MIME được hỗ trợ.
+- Chỉ đọc `X-Forwarded-For` khi quản trị viên bật `TRUST_PROXY`.
+- CORS dùng danh sách domain từ `FRONTEND_ORIGIN`.
+
+### Cấu hình production đề xuất
+
+```env
+NODE_ENV=production
+DATABASE_SSL=true
+DATABASE_SYNCHRONIZE=false
+DATABASE_SEED_ENABLED=false
+AUTH_COOKIE_SECURE=true
+FRONTEND_ORIGIN=https://ads.example.com
+TRUST_PROXY=true
+JSON_BODY_LIMIT=1mb
+FORM_BODY_LIMIT=1mb
+```
+
+Chỉ đặt `TRUST_PROXY=true` khi backend nằm sau reverse proxy do chính đơn vị vận hành quản lý. TLS/HTTPS nên kết thúc tại Nginx, Caddy hoặc load balancer; backend không nên mở trực tiếp ra Internet.
+
+## 6. Kiểm thử
+
+Các lớp kiểm tra hiện có:
+
+- đăng nhập, cookie session, mật khẩu và phân quyền;
+- quyền truy cập tài khoản/campaign;
+- Google Ads query phân trang và trạng thái campaign/ad group đã tạm dừng;
+- thay văn bản, ảnh/video và xử lý mutation lỗi;
+- AI review và lưu quyết định;
+- tính hiệu quả, tìm kiếm và phân trang lịch sử;
+- Automation, múi giờ, giới hạn thay đổi và heartbeat;
+- giao diện đăng nhập, tài nguyên, lịch sử, hiệu quả, Việt hóa và trang hướng dẫn;
+- ESLint React Hook/accessibility, TypeScript và production build.
+
+```powershell
+cd backend
+npm test
+npx tsc --noEmit
+
+cd ..\frontend
+npm run lint
+npm test
+npm run build
+```
+
+Nếu Vite dev server đang khóa `.vite-temp`, chạy:
+
+```powershell
+npx vitest run --configLoader runner
+```
+
+## 7. Vận hành và triển khai
+
+1. Chạy `npm run db:migrate` trong thư mục backend.
+2. Đặt secret trong biến môi trường, không commit `.env`.
+3. Tắt seed production và dùng mật khẩu quản trị mạnh.
+4. Cấu hình HTTPS, CORS và cookie secure.
+5. Chạy toàn bộ test, lint và build.
+6. Kiểm tra `/health/database`.
+7. Sao lưu PostgreSQL và thử khôi phục bản sao lưu.
+8. Sau lần khởi động đầu tiên, kiểm tra lịch sử các yêu cầu từng bị `APPLYING`.
+
+> Trạng thái `FAILED` do phục hồi không khẳng định Google Ads chưa thay đổi. Nó cho biết backend không nhận được kết quả cuối cùng. Hãy đồng bộ Google Ads và kiểm tra nội dung thực tế trước khi tạo yêu cầu mới.
+
+## 8. Tối ưu tải màn hiệu quả và đồng bộ
+
+- Tìm kiếm, nguồn thay đổi, kết quả, phân trang và tổng số được xử lý trực tiếp trong PostgreSQL.
+- Backend chỉ đưa tối đa số dòng của trang hiện tại về Node.js, thay vì tải toàn bộ lịch sử vào RAM rồi lọc.
+- Các index chuyên dụng được thêm cho thay đổi đã áp dụng và metric theo nhóm quảng cáo/ngày.
+- Tổng quan tự làm mới mỗi 30 giây thay vì 5 giây và không gọi API khi tab trình duyệt đang ẩn.
+- Đồng bộ màn hiệu quả tạo một `sync_batch_job` trong PostgreSQL rồi trả response ngay.
+- Worker xử lý từng nhóm quảng cáo tuần tự để hạn chế quota Google Ads.
+- Mỗi tài khoản chỉ có một job `PENDING` hoặc `RUNNING`, vì vậy bấm lặp không tạo nhiều lượt đồng bộ song song.
+- Worker dùng `FOR UPDATE SKIP LOCKED`, an toàn khi sau này chạy nhiều backend.
+- Giao diện hiển thị số nhóm hoàn thành, lỗi và nhóm đang xử lý; người dùng có thể chuyển sang màn khác trong lúc job chạy.
+
+Cấu hình hàng đợi:
+
+```env
+SYNC_QUEUE_WORKER_DISABLED=false
+SYNC_QUEUE_POLL_INTERVAL_MS=2000
+```
+
+Migration liên quan: `007_background_sync_jobs.sql`.

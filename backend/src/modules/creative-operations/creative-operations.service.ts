@@ -137,6 +137,15 @@ export class CreativeOperationsService {
     const account = await this.getAccount(customerId);
     const parsedDays = Number(inputDays ?? 14);
     const days = [7, 14, 30].includes(parsedDays) ? parsedDays : 14;
+    const search = String(input.search ?? '').trim();
+    const source = String(input.source ?? 'ALL').trim().toUpperCase();
+    const verdict = String(input.verdict ?? 'ALL').trim().toUpperCase();
+    const page = Math.max(1, Number.parseInt(String(input.page ?? '1'), 10) || 1);
+    const pageSize = Math.min(
+      100,
+      Math.max(10, Number.parseInt(String(input.pageSize ?? '25'), 10) || 25),
+    );
+    const offset = (page - 1) * pageSize;
     const rows = await this.dataSource.query(
       `
         WITH applied_changes AS (
@@ -152,13 +161,42 @@ export class CreativeOperationsService {
             COALESCE(SUM(ci.replacement_count), 0)::int AS replacement_count
           FROM change_requests cr
           LEFT JOIN change_items ci ON ci.change_request_id = cr.id
+          JOIN ad_groups filter_ag ON filter_ag.id = cr.ad_group_id
+          JOIN campaigns filter_c ON filter_c.id = filter_ag.campaign_id
           WHERE cr.account_id = $1
             AND cr.status = 'APPLIED'
             AND cr.completed_at IS NOT NULL
             AND cr.ad_group_id IS NOT NULL
+            AND (
+              $3::text = ''
+              OR filter_c.name ILIKE '%' || $3 || '%'
+              OR filter_c.google_campaign_id ILIKE '%' || $3 || '%'
+              OR filter_ag.name ILIKE '%' || $3 || '%'
+              OR filter_ag.google_ad_group_id ILIKE '%' || $3 || '%'
+            )
+            AND (
+              $4::text = 'ALL'
+              OR ($4 = 'MANUAL' AND cr.source = 'MANUAL')
+              OR (
+                $4 = 'AI_APPROVED'
+                AND cr.source = 'AI_APPROVED'
+                AND NOT EXISTS (
+                  SELECT 1 FROM automation_runs source_run
+                  WHERE source_run.change_request_id = cr.id
+                )
+              )
+              OR (
+                $4 = 'AI_AUTOMATION'
+                AND EXISTS (
+                  SELECT 1 FROM automation_runs source_run
+                  WHERE source_run.change_request_id = cr.id
+                )
+              )
+            )
           GROUP BY cr.id
-        )
-        SELECT
+        ),
+        measured AS (
+          SELECT
           ac.id AS change_id,
           ac.source,
           ac.completed_at,
@@ -185,10 +223,10 @@ export class CreativeOperationsService {
           COALESCE(after_metrics.cost_micros, 0)::float8 AS after_cost_micros,
           COALESCE(after_metrics.conversions, 0)::float8 AS after_conversions,
           COALESCE(after_metrics.conversion_value, 0)::float8 AS after_conversion_value
-        FROM applied_changes ac
-        JOIN ad_groups ag ON ag.id = ac.ad_group_id
-        JOIN campaigns c ON c.id = ag.campaign_id
-        LEFT JOIN LATERAL (
+          FROM applied_changes ac
+          JOIN ad_groups ag ON ag.id = ac.ad_group_id
+          JOIN campaigns c ON c.id = ag.campaign_id
+          LEFT JOIN LATERAL (
           SELECT
             COUNT(DISTINCT metric_date)::int AS metric_days,
             SUM(impressions)::float8 AS impressions,
@@ -201,8 +239,8 @@ export class CreativeOperationsService {
             AND metric_date BETWEEN
               (ac.completed_at::date - ($2::int * INTERVAL '1 day'))
               AND (ac.completed_at::date - INTERVAL '1 day')
-        ) before_metrics ON true
-        LEFT JOIN LATERAL (
+          ) before_metrics ON true
+          LEFT JOIN LATERAL (
           SELECT
             COUNT(DISTINCT metric_date)::int AS metric_days,
             SUM(impressions)::float8 AS impressions,
@@ -215,26 +253,128 @@ export class CreativeOperationsService {
             AND metric_date BETWEEN
               (ac.completed_at::date + INTERVAL '1 day')
               AND (ac.completed_at::date + ($2::int * INTERVAL '1 day'))
-        ) after_metrics ON true
-        ORDER BY ac.completed_at DESC
+          ) after_metrics ON true
+        ),
+        scored AS (
+          SELECT measured.*,
+            CASE
+              WHEN after_days < $2
+                OR (
+                  after_impressions = 0
+                  AND after_clicks = 0
+                  AND after_conversions = 0
+                )
+                THEN 'COLLECTING'
+              ELSE CASE
+                WHEN (
+                  CASE
+                    WHEN before_impressions = 0 AND after_impressions = 0 THEN 0
+                    WHEN ABS(
+                      (CASE WHEN after_impressions > 0 THEN after_clicks / after_impressions ELSE 0 END)
+                      - (CASE WHEN before_impressions > 0 THEN before_clicks / before_impressions ELSE 0 END)
+                    ) <= GREATEST(
+                      ABS(CASE WHEN before_impressions > 0 THEN before_clicks / before_impressions ELSE 0 END) * 0.01,
+                      0.000001
+                    ) THEN 0
+                    WHEN (CASE WHEN after_impressions > 0 THEN after_clicks / after_impressions ELSE 0 END)
+                      > (CASE WHEN before_impressions > 0 THEN before_clicks / before_impressions ELSE 0 END)
+                      THEN 1 ELSE -1
+                  END
+                  + CASE
+                    WHEN before_clicks = 0 AND after_clicks = 0 THEN 0
+                    WHEN ABS(
+                      (CASE WHEN after_clicks > 0 THEN after_conversions / after_clicks ELSE 0 END)
+                      - (CASE WHEN before_clicks > 0 THEN before_conversions / before_clicks ELSE 0 END)
+                    ) <= GREATEST(
+                      ABS(CASE WHEN before_clicks > 0 THEN before_conversions / before_clicks ELSE 0 END) * 0.01,
+                      0.000001
+                    ) THEN 0
+                    WHEN (CASE WHEN after_clicks > 0 THEN after_conversions / after_clicks ELSE 0 END)
+                      > (CASE WHEN before_clicks > 0 THEN before_conversions / before_clicks ELSE 0 END)
+                      THEN 1 ELSE -1
+                  END
+                  + CASE
+                    WHEN before_cost_micros = 0 AND after_cost_micros = 0 THEN 0
+                    WHEN ABS(
+                      (CASE WHEN after_cost_micros > 0 THEN after_conversion_value / (after_cost_micros / 1000000.0) ELSE 0 END)
+                      - (CASE WHEN before_cost_micros > 0 THEN before_conversion_value / (before_cost_micros / 1000000.0) ELSE 0 END)
+                    ) <= GREATEST(
+                      ABS(CASE WHEN before_cost_micros > 0 THEN before_conversion_value / (before_cost_micros / 1000000.0) ELSE 0 END) * 0.01,
+                      0.000001
+                    ) THEN 0
+                    WHEN (CASE WHEN after_cost_micros > 0 THEN after_conversion_value / (after_cost_micros / 1000000.0) ELSE 0 END)
+                      > (CASE WHEN before_cost_micros > 0 THEN before_conversion_value / (before_cost_micros / 1000000.0) ELSE 0 END)
+                      THEN 1 ELSE -1
+                  END
+                  + CASE
+                    WHEN before_conversions = 0 AND after_conversions = 0 THEN 0
+                    WHEN ABS(
+                      (CASE WHEN after_conversions > 0 THEN (after_cost_micros / 1000000.0) / after_conversions ELSE 0 END)
+                      - (CASE WHEN before_conversions > 0 THEN (before_cost_micros / 1000000.0) / before_conversions ELSE 0 END)
+                    ) <= GREATEST(
+                      ABS(CASE WHEN before_conversions > 0 THEN (before_cost_micros / 1000000.0) / before_conversions ELSE 0 END) * 0.01,
+                      0.000001
+                    ) THEN 0
+                    WHEN (CASE WHEN after_conversions > 0 THEN (after_cost_micros / 1000000.0) / after_conversions ELSE 0 END)
+                      > (CASE WHEN before_conversions > 0 THEN (before_cost_micros / 1000000.0) / before_conversions ELSE 0 END)
+                      THEN -1 ELSE 1
+                  END
+                ) > 0 THEN 'IMPROVED'
+                WHEN (
+                  SIGN(
+                    (CASE WHEN after_impressions > 0 THEN after_clicks / after_impressions ELSE 0 END)
+                    - (CASE WHEN before_impressions > 0 THEN before_clicks / before_impressions ELSE 0 END)
+                  )
+                  + SIGN(
+                    (CASE WHEN after_clicks > 0 THEN after_conversions / after_clicks ELSE 0 END)
+                    - (CASE WHEN before_clicks > 0 THEN before_conversions / before_clicks ELSE 0 END)
+                  )
+                  + SIGN(
+                    (CASE WHEN after_cost_micros > 0 THEN after_conversion_value / (after_cost_micros / 1000000.0) ELSE 0 END)
+                    - (CASE WHEN before_cost_micros > 0 THEN before_conversion_value / (before_cost_micros / 1000000.0) ELSE 0 END)
+                  )
+                  - SIGN(
+                    (CASE WHEN after_conversions > 0 THEN (after_cost_micros / 1000000.0) / after_conversions ELSE 0 END)
+                    - (CASE WHEN before_conversions > 0 THEN (before_cost_micros / 1000000.0) / before_conversions ELSE 0 END)
+                  )
+                ) < 0 THEN 'DECLINED'
+                ELSE 'MIXED'
+              END
+            END AS verdict
+          FROM measured
+        ),
+        summary AS (
+          SELECT
+            COUNT(*)::int AS total_changes,
+            COUNT(*) FILTER (WHERE verdict = 'IMPROVED')::int AS total_improved,
+            COUNT(*) FILTER (WHERE verdict = 'DECLINED')::int AS total_declined,
+            COUNT(*) FILTER (WHERE verdict = 'MIXED')::int AS total_mixed,
+            COUNT(*) FILTER (WHERE verdict = 'COLLECTING')::int AS total_collecting
+          FROM scored
+        ),
+        filtered AS (
+          SELECT * FROM scored
+          WHERE $5::text = 'ALL' OR verdict = $5
+        )
+        SELECT page_rows.*, summary.*,
+          (SELECT COUNT(*)::int FROM filtered) AS filtered_total
+        FROM summary
+        LEFT JOIN LATERAL (
+          SELECT *
+          FROM filtered
+          ORDER BY completed_at DESC
+          LIMIT $6 OFFSET $7
+        ) page_rows ON true
       `,
-      [account.id, days],
+      [account.id, days, search, source, verdict, pageSize, offset],
     );
 
-    const changes: any[] = rows.map((row: Record<string, unknown>) => {
+    const changes: any[] = rows
+      .filter((row: Record<string, unknown>) => Boolean(row.change_id))
+      .map((row: Record<string, unknown>) => {
       const before = this.impactMetrics(row, 'before');
       const after = this.impactMetrics(row, 'after');
       const afterDays = Number(row.after_days ?? 0);
-      const hasEnoughData =
-        afterDays >= days &&
-        (after.impressions > 0 || after.clicks > 0 || after.conversions > 0);
-      const signals = [
-        this.metricDirection(before.ctr, after.ctr),
-        this.metricDirection(before.conversionRate, after.conversionRate),
-        this.metricDirection(before.roas, after.roas),
-        this.metricDirection(before.cpa, after.cpa, true),
-      ].filter((value) => value !== 0);
-      const score = signals.reduce((sum, value) => sum + value, 0);
 
       return {
         id: String(row.change_id),
@@ -265,38 +405,11 @@ export class CreativeOperationsService {
         },
         before,
         after,
-        verdict: !hasEnoughData
-          ? 'COLLECTING'
-          : score > 0
-            ? 'IMPROVED'
-            : score < 0
-              ? 'DECLINED'
-              : 'MIXED',
-      };
-    });
-
-    const search = String(input.search ?? '').trim().toLocaleLowerCase();
-    const source = String(input.source ?? 'ALL').trim().toUpperCase();
-    const verdict = String(input.verdict ?? 'ALL').trim().toUpperCase();
-    const page = Math.max(1, Number.parseInt(String(input.page ?? '1'), 10) || 1);
-    const pageSize = Math.min(
-      100,
-      Math.max(10, Number.parseInt(String(input.pageSize ?? '25'), 10) || 25),
-    );
-    const matchingScope = changes.filter((item) => {
-      if (source !== 'ALL' && item.origin !== source) return false;
-      if (!search) return true;
-      return [
-        item.campaign.name,
-        item.campaign.id,
-        item.adGroup.name,
-        item.adGroup.id,
-      ].some((value) => value.toLocaleLowerCase().includes(search));
-    });
-    const matchingVerdict = matchingScope.filter(
-      (item) => verdict === 'ALL' || item.verdict === verdict,
-    );
-    const offset = (page - 1) * pageSize;
+        verdict: String(row.verdict ?? 'COLLECTING'),
+        };
+      });
+    const summary = rows[0] ?? {};
+    const filteredTotal = Number(summary.filtered_total ?? 0);
 
     return {
       account: {
@@ -308,19 +421,19 @@ export class CreativeOperationsService {
       methodology:
         'Compares equal calendar windows before and after each applied change. The change day is excluded.',
       totals: {
-        changes: matchingScope.length,
-        improved: matchingScope.filter((item) => item.verdict === 'IMPROVED').length,
-        declined: matchingScope.filter((item) => item.verdict === 'DECLINED').length,
-        mixed: matchingScope.filter((item) => item.verdict === 'MIXED').length,
-        collecting: matchingScope.filter((item) => item.verdict === 'COLLECTING').length,
+        changes: Number(summary.total_changes ?? 0),
+        improved: Number(summary.total_improved ?? 0),
+        declined: Number(summary.total_declined ?? 0),
+        mixed: Number(summary.total_mixed ?? 0),
+        collecting: Number(summary.total_collecting ?? 0),
       },
       pagination: {
         page,
         pageSize,
-        total: matchingVerdict.length,
-        totalPages: Math.max(1, Math.ceil(matchingVerdict.length / pageSize)),
+        total: filteredTotal,
+        totalPages: Math.max(1, Math.ceil(filteredTotal / pageSize)),
       },
-      changes: matchingVerdict.slice(offset, offset + pageSize),
+      changes,
     };
   }
 

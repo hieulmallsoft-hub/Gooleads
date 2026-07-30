@@ -51,6 +51,13 @@ const baseRow = {
   after_cost_micros: 120_000_000,
   after_conversions: 10,
   after_conversion_value: 360,
+  verdict: 'IMPROVED',
+  total_changes: 1,
+  total_improved: 1,
+  total_declined: 0,
+  total_mixed: 0,
+  total_collecting: 0,
+  filtered_total: 1,
 };
 
 test('change impact calculates metrics and marks an improvement', async () => {
@@ -63,7 +70,9 @@ test('change impact calculates metrics and marks an improvement', async () => {
   assert.equal(result.changes[0].after.roas, 3);
   assert.equal(result.changes[0].origin, 'MANUAL');
   assert.equal(result.totals.improved, 1);
-  assert.deepEqual(queries[0].parameters, ['account-1', 14]);
+  assert.deepEqual(queries[0].parameters, [
+    'account-1', 14, '', 'ALL', 'ALL', 25, 0,
+  ]);
 });
 
 test('change impact identifies changes made by automation', async () => {
@@ -73,7 +82,13 @@ test('change impact identifies changes made by automation', async () => {
 });
 
 test('change impact stays collecting until enough post-change days exist', async () => {
-  const { service } = createService({ ...baseRow, after_days: 3 });
+  const { service } = createService({
+    ...baseRow,
+    after_days: 3,
+    verdict: 'COLLECTING',
+    total_improved: 0,
+    total_collecting: 1,
+  });
   const result = await service.getChangeImpact('1234567890', '30');
   assert.equal(result.changes[0].verdict, 'COLLECTING');
   assert.equal(result.totals.collecting, 1);
@@ -81,7 +96,11 @@ test('change impact stays collecting until enough post-change days exist', async
 });
 
 test('change impact waits for the full selected window before judging performance', async () => {
-  const { service } = createService({ ...baseRow, after_days: 13 });
+  const { service } = createService({
+    ...baseRow,
+    after_days: 13,
+    verdict: 'COLLECTING',
+  });
   const result = await service.getChangeImpact('1234567890', '14');
   assert.equal(result.changes[0].verdict, 'COLLECTING');
 });
@@ -89,7 +108,9 @@ test('change impact waits for the full selected window before judging performanc
 test('change impact falls back to a 14-day window for invalid input', async () => {
   const { service, queries } = createService(baseRow);
   await service.getChangeImpact('1234567890', '365');
-  assert.deepEqual(queries[0].parameters, ['account-1', 14]);
+  assert.deepEqual(queries[0].parameters, [
+    'account-1', 14, '', 'ALL', 'ALL', 25, 0,
+  ]);
 });
 
 test('change impact searches and paginates all matching changes on the server', async () => {
@@ -99,7 +120,18 @@ test('change impact searches and paginates all matching changes on the server', 
     google_campaign_id: `${100 + index}`,
     campaign_name: `AC Campaign ${index + 1}`,
   }));
-  const dataSource = { query: async () => rows };
+  const dataSource = {
+    query: async () => rows.slice(10, 20).map((row) => ({
+      ...row,
+      verdict: 'IMPROVED',
+      total_changes: 30,
+      total_improved: 30,
+      total_declined: 0,
+      total_mixed: 0,
+      total_collecting: 0,
+      filtered_total: 30,
+    })),
+  };
   const accountRegistry = {
     getOrCreate: async () => ({
       id: 'account-1',

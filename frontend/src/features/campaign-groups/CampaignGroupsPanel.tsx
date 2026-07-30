@@ -7,7 +7,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { apiFetch, extractApiError, parseJsonSafe } from '../../api/client';
 import { formatNumber, formatPercent } from '../../utils/format';
 import type {
@@ -126,20 +126,23 @@ export function CampaignGroupsPanel({
     }
   }
 
+  const loadGroupsEffect = useEffectEvent(loadGroups);
+  const onFilterChangeEffect = useEffectEvent(onFilterChange);
+
   useEffect(() => {
     setSelectedGroupId('');
-    onFilterChange(null);
-    void loadGroups();
+    onFilterChangeEffect(null);
+    void loadGroupsEffect();
   }, [customerId]);
 
   useEffect(() => {
     if (!selectedGroup) {
-      onFilterChange(null);
+      onFilterChangeEffect(null);
       return;
     }
 
     writeStoredGroupId(customerId, selectedGroup.id);
-    onFilterChange({
+    onFilterChangeEffect({
       id: selectedGroup.id,
       name: selectedGroup.name,
       campaignIds: selectedGroup.campaigns.map((campaign) => campaign.id),
@@ -153,7 +156,7 @@ export function CampaignGroupsPanel({
     }
     const name = groupName.trim();
     if (!name) {
-      setError('Enter a group name');
+      setError('Vui lòng nhập tên nhóm');
       return;
     }
     setSaving(true);

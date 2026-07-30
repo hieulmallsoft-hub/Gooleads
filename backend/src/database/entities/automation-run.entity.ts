@@ -12,6 +12,8 @@ export class AutomationRunEntity extends UuidCreatedEntity {
   @Column({ name: 'failed_count', type: 'integer' }) failedCount!: number;
   @Column({ name: 'scheduled_for', type: 'timestamptz' }) scheduledFor!: Date;
   @Column({ name: 'started_at', type: 'timestamptz' }) startedAt!: Date;
+  @Column({ name: 'last_heartbeat_at', type: 'timestamptz', nullable: true })
+  lastHeartbeatAt!: Date | null;
   @Column({ name: 'completed_at', type: 'timestamptz', nullable: true }) completedAt!: Date | null;
   @Column({ name: 'error_message', type: 'text', nullable: true }) errorMessage!: string | null;
 }

@@ -28,6 +28,7 @@ import { GoogleAdsAccountEntity } from './google-ads-account.entity';
 import { MediaFileEntity } from './media-file.entity';
 import { PromptTemplateEntity } from './prompt-template.entity';
 import { SyncRunEntity } from './sync-run.entity';
+import { SyncBatchJobEntity } from './sync-batch-job.entity';
 import { UserGoogleAdsAccountAccessEntity } from './user-google-ads-account-access.entity';
 import { UserPreferenceEntity } from './user-preference.entity';
 import { WorkspaceMemberEntity } from './workspace-member.entity';
@@ -50,6 +51,7 @@ export const DATABASE_ENTITIES = [
   AssetEntity,
   AdAssetLinkEntity,
   SyncRunEntity,
+  SyncBatchJobEntity,
   CampaignDailyMetricEntity,
   AdGroupDailyMetricEntity,
   AdAssetDailyMetricEntity,

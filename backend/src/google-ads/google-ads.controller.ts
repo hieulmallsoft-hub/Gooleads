@@ -14,6 +14,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { GoogleAdsService } from './google-ads.service';
 import { GoogleAdsSyncService } from './google-ads-sync.service';
+import { GoogleAdsSyncQueueService } from './google-ads-sync-queue.service';
 import { AiPersistenceService } from './ai-persistence.service';
 import { AiReviewService } from './ai-review.service';
 import { AssetReplacementService } from './asset-replacement.service';
@@ -39,6 +40,12 @@ type AiReviewBody = {
   customerId?: string;
   adGroupId?: string;
   time?: string;
+};
+
+type BatchSyncBody = {
+  customerId?: string;
+  time?: string;
+  targets?: Array<{ adGroupId?: string; adGroupName?: string }>;
 };
 
 type ReplaceMediaBody = {
@@ -179,6 +186,7 @@ export class GoogleAdsController {
   constructor(
     private readonly googleAdsService: GoogleAdsService,
     private readonly googleAdsSyncService: GoogleAdsSyncService,
+    private readonly googleAdsSyncQueueService: GoogleAdsSyncQueueService,
     private readonly aiPersistenceService: AiPersistenceService,
     private readonly aiReviewService: AiReviewService,
     private readonly assetReplacementService: AssetReplacementService,
@@ -273,6 +281,41 @@ export class GoogleAdsController {
     const normalizedCustomerId = normalizeCustomerId(customerId);
     this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
     return this.googleAdsSyncService.getLatestStatus(normalizedCustomerId);
+  }
+
+  @Post('sync/batch')
+  @RequirePermissions('automation.manage')
+  async enqueueBatchSync(
+    @Body() body: BatchSyncBody,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    const normalizedCustomerId = normalizeCustomerId(body.customerId);
+    this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
+    const timeRange = normalizeTimeRange(body.time);
+    const targets = (body.targets ?? []).map((target) => ({
+      adGroupId: normalizeAdGroupId(target.adGroupId),
+      adGroupName: target.adGroupName?.trim(),
+    }));
+    return this.googleAdsSyncQueueService.enqueue(
+      normalizedCustomerId,
+      timeRange,
+      targets,
+      request.user.id,
+    );
+  }
+
+  @Get('sync/batch/status')
+  async getBatchSyncStatus(
+    @Query('customerId') customerId: string | undefined,
+    @Query('jobId') jobId: string | undefined,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    const normalizedCustomerId = normalizeCustomerId(customerId);
+    this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
+    return this.googleAdsSyncQueueService.getJob(
+      normalizedCustomerId,
+      jobId?.trim() || undefined,
+    );
   }
 
   @Post('assets/replace-low')

@@ -89,6 +89,15 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         `Initial automation due check failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     });
+    void this.aiPersistenceService.recoverStaleApplyingRequests().then((recovered) => {
+      if (recovered > 0) {
+        this.logger.warn(`Recovered ${recovered} interrupted change request(s)`);
+      }
+    }).catch((error) => {
+      this.logger.error(
+        `Change request recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
   }
 
   onModuleDestroy() {
@@ -161,6 +170,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         failedCount: 0,
         scheduledFor: options.force ? now : schedule.nextRunAt ?? now,
         startedAt: now,
+        lastHeartbeatAt: now,
         completedAt: null,
         errorMessage: null,
       }),
@@ -194,7 +204,20 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         await this.saveRunItem(run.id, 'SKIPPED', 'No enabled ad groups found for this policy');
       }
 
+      let paused = false;
       for (const target of targets) {
+        const currentSchedule = await scheduleRepository.findOneBy({ id: schedule.id });
+        if (!currentSchedule?.enabled) {
+          paused = true;
+          await this.saveRunItem(
+            run.id,
+            'PAUSED',
+            'Người dùng đã tạm dừng tự động hóa; hệ thống không tạo thêm thay đổi mới.',
+          );
+          break;
+        }
+        run.lastHeartbeatAt = new Date();
+        await runRepository.save(run);
         if (remainingChanges <= 0) {
           await this.saveRunItem(
             run.id,
@@ -226,7 +249,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         }
       }
 
-      const status = this.resolveRunStatus(run);
+      const status = paused ? 'PAUSED' : this.resolveRunStatus(run);
       return await this.completeRun(run, schedule, now, status);
     } catch (error) {
       run.status = 'FAILED';
@@ -353,26 +376,33 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     run.selectedCount += selectedCount;
 
     if (policy.approvalMode === 'AUTO' && typeof changeRequest.id === 'string') {
-      const requestForApply = await this.changeRequestService.getTextChangeRequestForApply(
-        changeRequest.id,
-      );
-      const applyResult = await this.googleAdsService.replaceLowTextAssets(
-        requestForApply.customerId,
-        requestForApply.adGroupId,
-        requestForApply.timeRange,
-        requestForApply.input,
-      );
-      await this.googleAdsSyncService.markTextReplacementsApplied(
-        requestForApply.customerId,
-        requestForApply.adGroupId,
-        requestForApply.input,
-        applyResult.replacedAds.map((item) => item.oldResourceName),
-      );
-      await this.changeRequestService.completeTextChangeRequest(
-        changeRequest.id,
-        requestForApply.input,
-        applyResult,
-      );
+      let requestForApply;
+      let applyResult;
+      try {
+        requestForApply = await this.changeRequestService.getTextChangeRequestForApply(
+          changeRequest.id,
+        );
+        applyResult = await this.googleAdsService.replaceLowTextAssets(
+          requestForApply.customerId,
+          requestForApply.adGroupId,
+          requestForApply.timeRange,
+          requestForApply.input,
+        );
+        await this.googleAdsSyncService.markTextReplacementsApplied(
+          requestForApply.customerId,
+          requestForApply.adGroupId,
+          requestForApply.input,
+          applyResult.replacedAds.map((item) => item.oldResourceName),
+        );
+        await this.changeRequestService.completeTextChangeRequest(
+          changeRequest.id,
+          requestForApply.input,
+          applyResult,
+        );
+      } catch (error) {
+        await this.changeRequestService.failChangeRequest(changeRequest.id, error);
+        throw error;
+      }
       const appliedCount = Array.isArray(applyResult.replacedAds)
         ? applyResult.replacedAds.reduce(
             (sum: number, item: { headlineReplacements?: number; descriptionReplacements?: number }) =>
@@ -501,6 +531,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     status: string,
   ) {
     run.status = status;
+    run.lastHeartbeatAt = new Date();
     run.completedAt = new Date();
     await this.dataSource.getRepository(AutomationRunEntity).save(run);
     await this.advanceSchedule(schedule, now);
@@ -557,7 +588,8 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       5,
       24 * 60,
     );
-    return now.getTime() - run.startedAt.getTime() > staleMinutes * 60_000;
+    const lastActivity = run.lastHeartbeatAt ?? run.startedAt;
+    return now.getTime() - lastActivity.getTime() > staleMinutes * 60_000;
   }
 
   private buildTrailingDateRange(days: number, timezone: string, now: Date) {

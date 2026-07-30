@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import {
   AlertCircle,
   Check,
@@ -157,15 +157,15 @@ type Props = {
 };
 
 const TERM_TYPES = [
-  ['KEYWORD', 'Product keyword'],
-  ['BRAND_TERM', 'Brand term'],
-  ['CTA', 'Call to action'],
-  ['NEGATIVE_KEYWORD', 'Negative keyword'],
-  ['PROHIBITED_CLAIM', 'Prohibited claim'],
+  ['KEYWORD', 'Từ khóa sản phẩm'],
+  ['BRAND_TERM', 'Từ khóa thương hiệu'],
+  ['CTA', 'Lời kêu gọi hành động'],
+  ['NEGATIVE_KEYWORD', 'Từ khóa phủ định'],
+  ['PROHIBITED_CLAIM', 'Nội dung bị cấm'],
 ] as const;
 
 const SCOPE_OPTIONS = [
-  ['ACCOUNT', 'Account'],
+  ['ACCOUNT', 'Tài khoản'],
   ['CAMPAIGN', 'Chiến dịch'],
   ['AD_GROUP', 'Nhóm quảng cáo'],
 ] as const;
@@ -320,18 +320,23 @@ export function OperationsPanel({
     }
   }
 
+  const loadSectionEffect = useEffectEvent(loadSection);
+  const loadOverviewEffect = useEffectEvent(loadOverview);
+
   useEffect(() => {
-    void loadSection();
+    void loadSectionEffect();
   }, [section, customerId, recommendationStatus]);
 
   useEffect(() => {
     if (section !== 'overview') return;
 
     const timer = window.setInterval(() => {
-      void loadOverview().catch((err) => {
-        setError(err instanceof Error ? err.message : 'Không thể làm mới tổng quan');
-      });
-    }, 5_000);
+      if (document.visibilityState === 'visible') {
+        void loadOverviewEffect().catch((err) => {
+          setError(err instanceof Error ? err.message : 'Không thể làm mới tổng quan');
+        });
+      }
+    }, 30_000);
 
     return () => window.clearInterval(timer);
   }, [section, customerId]);
@@ -378,7 +383,7 @@ export function OperationsPanel({
             )
           : current.filter((entry) => entry.id !== item.id),
       );
-      setNotice(`Suggestion ${body.status.toLowerCase()}. Google Ads has not been changed.`);
+      setNotice(`Đã cập nhật trạng thái đề xuất thành ${body.status}. Google Ads chưa bị thay đổi.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể lưu quyết định');
     } finally {
@@ -412,7 +417,7 @@ export function OperationsPanel({
         setTermCampaignId('');
         setTermAdGroupId('');
       }
-      setNotice('Keyword rule added. New AI reviews will use this policy data.');
+      setNotice('Đã thêm quy tắc từ khóa. Các lần đánh giá AI mới sẽ sử dụng quy tắc này.');
       await loadTerms();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể tạo quy tắc từ khóa');
@@ -664,7 +669,7 @@ export function OperationsPanel({
   function scopeLabel(item: CreativeTerm) {
     if (item.scopeLevel === 'AD_GROUP') return `Nhóm quảng cáo ${item.googleAdGroupId ?? '-'}`;
     if (item.scopeLevel === 'CAMPAIGN') return `Chiến dịch ${item.googleCampaignId ?? '-'}`;
-    return 'Account';
+    return 'Tài khoản';
   }
   const latestAutomationRun = settings?.recentAutomationRuns[0] ?? null;
   const automationRunStale = isStaleAutomationRun(latestAutomationRun);

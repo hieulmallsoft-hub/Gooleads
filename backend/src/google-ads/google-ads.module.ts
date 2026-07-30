@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { GoogleAdsController } from './google-ads.controller';
 import { GoogleAdsSyncService } from './google-ads-sync.service';
+import { GoogleAdsSyncQueueService } from './google-ads-sync-queue.service';
 import { GoogleAdsService } from './google-ads.service';
 import { AiPersistenceService } from './ai-persistence.service';
 import { AiReviewService } from './ai-review.service';
@@ -18,6 +19,7 @@ import { GoogleAdsQueryService } from './google-ads-query.service';
     GoogleAdsMutationService,
     GoogleAdsService,
     GoogleAdsSyncService,
+    GoogleAdsSyncQueueService,
     AiPersistenceService,
     AiReviewService,
     AssetReplacementService,
@@ -29,6 +31,7 @@ import { GoogleAdsQueryService } from './google-ads-query.service';
     GoogleAdsMutationService,
     GoogleAdsService,
     GoogleAdsSyncService,
+    GoogleAdsSyncQueueService,
     AiPersistenceService,
     AiReviewService,
     AssetReplacementService,

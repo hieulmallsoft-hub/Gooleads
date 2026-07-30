@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   MousePointerClick,
@@ -1263,9 +1263,16 @@ export default function App() {
     }
   }
 
+  const loadCampaignsEffect = useEffectEvent(loadCampaigns);
+  const loadAdGroupsEffect = useEffectEvent(loadAdGroups);
+  const loadAssetsEffect = useEffectEvent(loadAssets);
+  const generateAiReviewEffect = useEffectEvent(generateAiReview);
+  const generateAiTextSuggestionsEffect = useEffectEvent(generateAiTextSuggestions);
+  const campaignFromAdGroupEffect = useEffectEvent(campaignFromAdGroup);
+
   useEffect(() => {
     if (authUser) {
-      void loadCampaigns();
+      void loadCampaignsEffect();
     }
   }, [authUser, customerId, timeRange]);
 
@@ -1315,21 +1322,21 @@ export default function App() {
 
   useEffect(() => {
     if (authUser && viewMode === 'adGroups') {
-      void loadAdGroups();
+      void loadAdGroupsEffect();
     }
   }, [authUser, customerId, timeRange, viewMode]);
 
   useEffect(() => {
     if (authUser && viewMode === 'assets') {
-      void loadAdGroups();
+      void loadAdGroupsEffect();
     }
   }, [authUser, customerId, timeRange, viewMode]);
 
   useEffect(() => {
     if (authUser && viewMode === 'assets' && adGroupId.trim()) {
-      void loadAssets();
+      void loadAssetsEffect();
     }
-  }, [authUser, customerId, timeRange]);
+  }, [authUser, customerId, timeRange, viewMode, adGroupId]);
 
   useEffect(() => {
     if (
@@ -1337,7 +1344,7 @@ export default function App() {
       selectedAdGroup &&
       selectedCampaign?.id !== selectedAdGroup.campaignId
     ) {
-      setSelectedCampaign(campaignFromAdGroup(selectedAdGroup));
+      setSelectedCampaign(campaignFromAdGroupEffect(selectedAdGroup));
     }
   }, [data, selectedAdGroup, selectedCampaign, viewMode]);
 
@@ -1585,7 +1592,10 @@ export default function App() {
       .map(({ conversionValue: _conversionValue, ...row }) => row);
   }, [assetData]);
 
-  const lowTextSuggestions = aiTextSuggestions?.suggestions ?? [];
+  const lowTextSuggestions = useMemo(
+    () => aiTextSuggestions?.suggestions ?? [],
+    [aiTextSuggestions],
+  );
   const selectedTextSuggestionSet = useMemo(
     () => new Set(selectedTextSuggestionKeys),
     [selectedTextSuggestionKeys],
@@ -1638,10 +1648,10 @@ export default function App() {
     }
 
     setAutoAiRunKey(key);
-    void generateAiReview(assetData.adGroupId);
+    void generateAiReviewEffect(assetData.adGroupId);
 
     if (lowTextCandidates.length > 0) {
-      void generateAiTextSuggestions(assetData.adGroupId);
+      void generateAiTextSuggestionsEffect(assetData.adGroupId);
     }
   }, [
     assetData,

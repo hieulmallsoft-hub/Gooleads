@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { AlertCircle, ChevronLeft, ChevronRight, Clock3, RefreshCw, Search } from 'lucide-react';
 import { apiFetch, extractApiError, parseJsonSafe } from '../../api/client';
 
@@ -154,8 +154,10 @@ export function ChangeHistoryPanel({ customerId }: { customerId: string }) {
     }
   }
 
+  const loadEffect = useEffectEvent(load);
+
   useEffect(() => {
-    void load();
+    void loadEffect();
   }, [customerId, debouncedQuery, source, status, page]);
 
   async function toggleDetail(changeId: string) {
