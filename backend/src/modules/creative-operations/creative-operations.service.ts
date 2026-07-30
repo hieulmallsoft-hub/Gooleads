@@ -10,14 +10,18 @@ import { AdEntity } from '../../database/entities/ad.entity';
 import { AiReviewRunEntity } from '../../database/entities/ai-review-run.entity';
 import { AiSuggestionVariantEntity } from '../../database/entities/ai-suggestion-variant.entity';
 import { AiSuggestionEntity } from '../../database/entities/ai-suggestion.entity';
+import { AutomationRunItemEntity } from '../../database/entities/automation-run-item.entity';
+import { AutomationRunEntity } from '../../database/entities/automation-run.entity';
 import { AutomationScheduleEntity } from '../../database/entities/automation-schedule.entity';
 import { CampaignEntity } from '../../database/entities/campaign.entity';
 import { ChangeRequestEntity } from '../../database/entities/change-request.entity';
 import { CreativePolicyEntity } from '../../database/entities/creative-policy.entity';
+import { CreativePolicyScopeEntity } from '../../database/entities/creative-policy-scope.entity';
 import { CreativeTermEntity } from '../../database/entities/creative-term.entity';
 import { GoogleAdsAccountEntity } from '../../database/entities/google-ads-account.entity';
 import { SyncRunEntity } from '../../database/entities/sync-run.entity';
 import { GoogleAdsAccountRegistryService } from '../../database/google-ads-account-registry.service';
+import { CreativeAutomationService } from './creative-automation.service';
 import { CreateCreativeTermDto } from './dto/create-creative-term.dto';
 import { UpdateCreativeSettingsDto } from './dto/update-creative-settings.dto';
 import { UpdateCreativeTermDto } from './dto/update-creative-term.dto';
@@ -37,6 +41,7 @@ export class CreativeOperationsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly accountRegistry: GoogleAdsAccountRegistryService,
+    private readonly automationService: CreativeAutomationService,
   ) {}
 
   async getOverview(customerId: string, googleAdGroupId?: string) {
@@ -70,6 +75,16 @@ export class CreativeOperationsService {
       order: { requestedAt: 'DESC' },
       take: 5,
     });
+    const policy = await this.getPolicy(account.workspaceId);
+    const schedule = await this.dataSource
+      .getRepository(AutomationScheduleEntity)
+      .findOneBy({ policyId: policy.id });
+    const recentAutomationRun = schedule
+      ? await this.dataSource.getRepository(AutomationRunEntity).findOne({
+          where: { scheduleId: schedule.id },
+          order: { createdAt: 'DESC' },
+        })
+      : null;
     const lastSync = await this.dataSource.getRepository(SyncRunEntity).findOne({
       where: { accountId: account.id },
       order: { startedAt: 'DESC' },
@@ -94,8 +109,355 @@ export class CreativeOperationsService {
         rejected: statusCounts.REJECTED ?? 0,
       },
       lastReviewAt: runs[0]?.startedAt ?? null,
+      automation: schedule
+        ? {
+            enabled: schedule.enabled,
+            intervalDays: schedule.intervalDays,
+            lastRunAt: schedule.lastRunAt,
+            nextRunAt: schedule.nextRunAt,
+            lastStatus: recentAutomationRun?.status ?? null,
+          }
+        : null,
       lastSync,
       recentChanges,
+    };
+  }
+
+  async getChangeImpact(
+    customerId: string,
+    inputDays?: string,
+    input: {
+      search?: string;
+      source?: string;
+      verdict?: string;
+      page?: string;
+      pageSize?: string;
+    } = {},
+  ) {
+    const account = await this.getAccount(customerId);
+    const parsedDays = Number(inputDays ?? 14);
+    const days = [7, 14, 30].includes(parsedDays) ? parsedDays : 14;
+    const rows = await this.dataSource.query(
+      `
+        WITH applied_changes AS (
+          SELECT
+            cr.id,
+            cr.ad_group_id,
+            cr.source,
+            cr.completed_at,
+            COALESCE(
+              string_agg(DISTINCT ci.change_type, ', ' ORDER BY ci.change_type),
+              'ASSET_REPLACEMENT'
+            ) AS change_types,
+            COALESCE(SUM(ci.replacement_count), 0)::int AS replacement_count
+          FROM change_requests cr
+          LEFT JOIN change_items ci ON ci.change_request_id = cr.id
+          WHERE cr.account_id = $1
+            AND cr.status = 'APPLIED'
+            AND cr.completed_at IS NOT NULL
+            AND cr.ad_group_id IS NOT NULL
+          GROUP BY cr.id
+        )
+        SELECT
+          ac.id AS change_id,
+          ac.source,
+          ac.completed_at,
+          ac.change_types,
+          ac.replacement_count,
+          EXISTS (
+            SELECT 1
+            FROM automation_runs automation_run
+            WHERE automation_run.change_request_id = ac.id
+          ) AS automated,
+          c.google_campaign_id,
+          c.name AS campaign_name,
+          ag.google_ad_group_id,
+          ag.name AS ad_group_name,
+          COALESCE(before_metrics.metric_days, 0)::int AS before_days,
+          COALESCE(after_metrics.metric_days, 0)::int AS after_days,
+          COALESCE(before_metrics.impressions, 0)::float8 AS before_impressions,
+          COALESCE(before_metrics.clicks, 0)::float8 AS before_clicks,
+          COALESCE(before_metrics.cost_micros, 0)::float8 AS before_cost_micros,
+          COALESCE(before_metrics.conversions, 0)::float8 AS before_conversions,
+          COALESCE(before_metrics.conversion_value, 0)::float8 AS before_conversion_value,
+          COALESCE(after_metrics.impressions, 0)::float8 AS after_impressions,
+          COALESCE(after_metrics.clicks, 0)::float8 AS after_clicks,
+          COALESCE(after_metrics.cost_micros, 0)::float8 AS after_cost_micros,
+          COALESCE(after_metrics.conversions, 0)::float8 AS after_conversions,
+          COALESCE(after_metrics.conversion_value, 0)::float8 AS after_conversion_value
+        FROM applied_changes ac
+        JOIN ad_groups ag ON ag.id = ac.ad_group_id
+        JOIN campaigns c ON c.id = ag.campaign_id
+        LEFT JOIN LATERAL (
+          SELECT
+            COUNT(DISTINCT metric_date)::int AS metric_days,
+            SUM(impressions)::float8 AS impressions,
+            SUM(clicks)::float8 AS clicks,
+            SUM(cost_micros)::float8 AS cost_micros,
+            SUM(conversions)::float8 AS conversions,
+            SUM(conversion_value)::float8 AS conversion_value
+          FROM ad_group_daily_metrics
+          WHERE ad_group_id = ac.ad_group_id
+            AND metric_date BETWEEN
+              (ac.completed_at::date - ($2::int * INTERVAL '1 day'))
+              AND (ac.completed_at::date - INTERVAL '1 day')
+        ) before_metrics ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            COUNT(DISTINCT metric_date)::int AS metric_days,
+            SUM(impressions)::float8 AS impressions,
+            SUM(clicks)::float8 AS clicks,
+            SUM(cost_micros)::float8 AS cost_micros,
+            SUM(conversions)::float8 AS conversions,
+            SUM(conversion_value)::float8 AS conversion_value
+          FROM ad_group_daily_metrics
+          WHERE ad_group_id = ac.ad_group_id
+            AND metric_date BETWEEN
+              (ac.completed_at::date + INTERVAL '1 day')
+              AND (ac.completed_at::date + ($2::int * INTERVAL '1 day'))
+        ) after_metrics ON true
+        ORDER BY ac.completed_at DESC
+      `,
+      [account.id, days],
+    );
+
+    const changes: any[] = rows.map((row: Record<string, unknown>) => {
+      const before = this.impactMetrics(row, 'before');
+      const after = this.impactMetrics(row, 'after');
+      const afterDays = Number(row.after_days ?? 0);
+      const hasEnoughData =
+        afterDays >= days &&
+        (after.impressions > 0 || after.clicks > 0 || after.conversions > 0);
+      const signals = [
+        this.metricDirection(before.ctr, after.ctr),
+        this.metricDirection(before.conversionRate, after.conversionRate),
+        this.metricDirection(before.roas, after.roas),
+        this.metricDirection(before.cpa, after.cpa, true),
+      ].filter((value) => value !== 0);
+      const score = signals.reduce((sum, value) => sum + value, 0);
+
+      return {
+        id: String(row.change_id),
+        source: String(row.source ?? ''),
+        origin: row.automated
+          ? 'AI_AUTOMATION'
+          : String(row.source ?? '') === 'AI_APPROVED'
+            ? 'AI_APPROVED'
+            : 'MANUAL',
+        appliedAt: row.completed_at,
+        changeTypes: String(row.change_types ?? '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean),
+        replacementCount: Number(row.replacement_count ?? 0),
+        campaign: {
+          id: String(row.google_campaign_id ?? ''),
+          name: String(row.campaign_name ?? ''),
+        },
+        adGroup: {
+          id: String(row.google_ad_group_id ?? ''),
+          name: String(row.ad_group_name ?? ''),
+        },
+        coverage: {
+          requestedDays: days,
+          beforeDays: Number(row.before_days ?? 0),
+          afterDays,
+        },
+        before,
+        after,
+        verdict: !hasEnoughData
+          ? 'COLLECTING'
+          : score > 0
+            ? 'IMPROVED'
+            : score < 0
+              ? 'DECLINED'
+              : 'MIXED',
+      };
+    });
+
+    const search = String(input.search ?? '').trim().toLocaleLowerCase();
+    const source = String(input.source ?? 'ALL').trim().toUpperCase();
+    const verdict = String(input.verdict ?? 'ALL').trim().toUpperCase();
+    const page = Math.max(1, Number.parseInt(String(input.page ?? '1'), 10) || 1);
+    const pageSize = Math.min(
+      100,
+      Math.max(10, Number.parseInt(String(input.pageSize ?? '25'), 10) || 25),
+    );
+    const matchingScope = changes.filter((item) => {
+      if (source !== 'ALL' && item.origin !== source) return false;
+      if (!search) return true;
+      return [
+        item.campaign.name,
+        item.campaign.id,
+        item.adGroup.name,
+        item.adGroup.id,
+      ].some((value) => value.toLocaleLowerCase().includes(search));
+    });
+    const matchingVerdict = matchingScope.filter(
+      (item) => verdict === 'ALL' || item.verdict === verdict,
+    );
+    const offset = (page - 1) * pageSize;
+
+    return {
+      account: {
+        customerId: account.customerId,
+        displayName: account.displayName,
+        currencyCode: account.currencyCode,
+      },
+      windowDays: days,
+      methodology:
+        'Compares equal calendar windows before and after each applied change. The change day is excluded.',
+      totals: {
+        changes: matchingScope.length,
+        improved: matchingScope.filter((item) => item.verdict === 'IMPROVED').length,
+        declined: matchingScope.filter((item) => item.verdict === 'DECLINED').length,
+        mixed: matchingScope.filter((item) => item.verdict === 'MIXED').length,
+        collecting: matchingScope.filter((item) => item.verdict === 'COLLECTING').length,
+      },
+      pagination: {
+        page,
+        pageSize,
+        total: matchingVerdict.length,
+        totalPages: Math.max(1, Math.ceil(matchingVerdict.length / pageSize)),
+      },
+      changes: matchingVerdict.slice(offset, offset + pageSize),
+    };
+  }
+
+  async getChangeHistory(
+    customerId: string,
+    input: {
+      search?: string;
+      source?: string;
+      status?: string;
+      page?: string;
+      pageSize?: string;
+    },
+  ) {
+    const account = await this.getAccount(customerId);
+    const search = String(input.search ?? '').trim();
+    const source = String(input.source ?? 'ALL').trim().toUpperCase();
+    const status = String(input.status ?? 'ALL').trim().toUpperCase();
+    const page = Math.max(1, Number.parseInt(String(input.page ?? '1'), 10) || 1);
+    const pageSize = Math.min(
+      100,
+      Math.max(10, Number.parseInt(String(input.pageSize ?? '25'), 10) || 25),
+    );
+    const offset = (page - 1) * pageSize;
+    const parameters: unknown[] = [account.id];
+    const conditions = ['cr.account_id = $1'];
+
+    if (search) {
+      parameters.push(`%${search}%`);
+      conditions.push(`(
+        c.name ILIKE $${parameters.length}
+        OR c.google_campaign_id ILIKE $${parameters.length}
+        OR ag.name ILIKE $${parameters.length}
+        OR ag.google_ad_group_id ILIKE $${parameters.length}
+      )`);
+    }
+    if (source !== 'ALL') {
+      if (source === 'AI_AUTOMATION') {
+        conditions.push(`EXISTS (
+          SELECT 1 FROM automation_runs ar WHERE ar.change_request_id = cr.id
+        )`);
+      } else if (source === 'AI_APPROVED') {
+        conditions.push(`cr.source = 'AI_APPROVED' AND NOT EXISTS (
+          SELECT 1 FROM automation_runs ar WHERE ar.change_request_id = cr.id
+        )`);
+      } else if (source === 'MANUAL') {
+        conditions.push(`cr.source = 'MANUAL'`);
+      }
+    }
+    if (status !== 'ALL') {
+      parameters.push(status);
+      conditions.push(`cr.status = $${parameters.length}`);
+    }
+
+    const where = conditions.join(' AND ');
+    const countResult = await this.dataSource.query(
+      `
+        SELECT COUNT(*)::int AS total
+        FROM change_requests cr
+        LEFT JOIN ad_groups ag ON ag.id = cr.ad_group_id
+        LEFT JOIN campaigns c ON c.id = ag.campaign_id
+        WHERE ${where}
+      `,
+      parameters,
+    );
+    parameters.push(pageSize, offset);
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          cr.id,
+          cr.source,
+          cr.status,
+          cr.requested_at,
+          cr.completed_at,
+          cr.error_message,
+          c.google_campaign_id,
+          c.name AS campaign_name,
+          ag.google_ad_group_id,
+          ag.name AS ad_group_name,
+          COALESCE(
+            string_agg(DISTINCT ci.change_type, ', ' ORDER BY ci.change_type),
+            'ASSET_REPLACEMENT'
+          ) AS change_types,
+          COALESCE(SUM(ci.replacement_count), 0)::int AS replacement_count,
+          EXISTS (
+            SELECT 1 FROM automation_runs ar WHERE ar.change_request_id = cr.id
+          ) AS automated
+        FROM change_requests cr
+        LEFT JOIN ad_groups ag ON ag.id = cr.ad_group_id
+        LEFT JOIN campaigns c ON c.id = ag.campaign_id
+        LEFT JOIN change_items ci ON ci.change_request_id = cr.id
+        WHERE ${where}
+        GROUP BY cr.id, c.id, ag.id
+        ORDER BY cr.requested_at DESC
+        LIMIT $${parameters.length - 1} OFFSET $${parameters.length}
+      `,
+      parameters,
+    );
+
+    const items = rows.map((row: Record<string, unknown>) => ({
+      id: String(row.id),
+      source: String(row.source ?? ''),
+      origin: row.automated
+        ? 'AI_AUTOMATION'
+        : String(row.source ?? '') === 'AI_APPROVED'
+          ? 'AI_APPROVED'
+          : 'MANUAL',
+      status: String(row.status ?? ''),
+      requestedAt: row.requested_at,
+      completedAt: row.completed_at,
+      errorMessage: row.error_message,
+      campaign: row.google_campaign_id
+        ? {
+            id: String(row.google_campaign_id),
+            name: String(row.campaign_name ?? ''),
+          }
+        : null,
+      adGroup: row.google_ad_group_id
+        ? {
+            id: String(row.google_ad_group_id),
+            name: String(row.ad_group_name ?? ''),
+          }
+        : null,
+      changeTypes: String(row.change_types ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean),
+      replacementCount: Number(row.replacement_count ?? 0),
+    }));
+    const total = Number(countResult[0]?.total ?? 0);
+    return {
+      items,
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      },
     };
   }
 
@@ -151,6 +513,69 @@ export class CreativeOperationsService {
           variants: variantMap.get(item.id) ?? [],
         };
       }),
+    };
+  }
+
+  async getChangeHistoryDetail(customerId: string, changeId: string) {
+    const account = await this.getAccount(customerId);
+    const rows = await this.dataSource.query(
+      `
+        SELECT
+          cr.id AS change_request_id,
+          cr.source,
+          cr.status AS request_status,
+          cr.requested_at,
+          cr.completed_at,
+          cr.error_message AS request_error_message,
+          ci.id,
+          ci.change_type,
+          ci.media_type,
+          ci.before_payload,
+          ci.after_payload,
+          ci.old_asset_resource_name,
+          ci.new_asset_resource_name,
+          ci.old_ad_resource_name,
+          ci.new_ad_resource_name,
+          ci.replacement_count,
+          ci.status,
+          ci.error_code,
+          ci.error_message
+        FROM change_requests cr
+        LEFT JOIN change_items ci ON ci.change_request_id = cr.id
+        WHERE cr.id = $1 AND cr.account_id = $2
+        ORDER BY ci.created_at ASC
+      `,
+      [changeId, account.id],
+    );
+    if (!rows.length) {
+      throw new NotFoundException('Không tìm thấy lịch sử thay đổi');
+    }
+
+    const request = rows[0] as Record<string, unknown>;
+    return {
+      id: String(request.change_request_id),
+      source: String(request.source ?? ''),
+      status: String(request.request_status ?? ''),
+      requestedAt: request.requested_at,
+      completedAt: request.completed_at,
+      errorMessage: request.request_error_message,
+      items: rows
+        .filter((row: Record<string, unknown>) => row.id)
+        .map((row: Record<string, unknown>) => ({
+          id: String(row.id),
+          changeType: String(row.change_type ?? ''),
+          mediaType: row.media_type ? String(row.media_type) : null,
+          before: row.before_payload ?? {},
+          after: row.after_payload ?? {},
+          oldAssetResourceName: row.old_asset_resource_name,
+          newAssetResourceName: row.new_asset_resource_name,
+          oldAdResourceName: row.old_ad_resource_name,
+          newAdResourceName: row.new_ad_resource_name,
+          replacementCount: Number(row.replacement_count ?? 0),
+          status: String(row.status ?? ''),
+          errorCode: row.error_code,
+          errorMessage: row.error_message,
+        })),
     };
   }
 
@@ -252,6 +677,13 @@ export class CreativeOperationsService {
     const schedule = await this.dataSource
       .getRepository(AutomationScheduleEntity)
       .findOneBy({ policyId: policy.id });
+    const recentAutomationRuns = schedule
+      ? await this.dataSource.getRepository(AutomationRunEntity).find({
+          where: { scheduleId: schedule.id },
+          order: { createdAt: 'DESC' },
+          take: 5,
+        })
+      : [];
     return {
       account: {
         customerId: account.customerId,
@@ -262,6 +694,7 @@ export class CreativeOperationsService {
       },
       policy,
       schedule,
+      recentAutomationRuns,
       providers: {
         googleAdsConfigured: Boolean(
           account.lastSyncedAt ||
@@ -273,6 +706,65 @@ export class CreativeOperationsService {
           process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY,
         ),
       },
+    };
+  }
+
+  async getAutomationNotifications(customerId: string) {
+    const account = await this.getAccount(customerId);
+    const policy = await this.getPolicy(account.workspaceId);
+    const schedule = await this.dataSource
+      .getRepository(AutomationScheduleEntity)
+      .findOneBy({ policyId: policy.id });
+
+    if (!schedule) {
+      return { notifications: [] };
+    }
+
+    const runs = await this.dataSource.getRepository(AutomationRunEntity).find({
+      where: { scheduleId: schedule.id },
+      order: { createdAt: 'DESC' },
+      take: 5,
+    });
+    const runIds = runs.map((run) => run.id);
+    if (!runIds.length) {
+      return { notifications: [] };
+    }
+
+    const runMap = new Map(runs.map((run) => [run.id, run]));
+    const items = await this.dataSource.getRepository(AutomationRunItemEntity).find({
+      where: {
+        automationRunId: In(runIds),
+        action: In(['APPLIED', 'SUGGESTED', 'FAILED']),
+      },
+      order: { createdAt: 'DESC' },
+      take: 10,
+    });
+
+    return {
+      notifications: items.map((item) => {
+        const run = runMap.get(item.automationRunId);
+        const applied = item.action === 'APPLIED';
+        const failed = item.action === 'FAILED';
+        return {
+          id: `automation-${item.id}`,
+          severity: failed ? 'warning' : 'info',
+          title: applied
+            ? 'AI định kỳ đã thay asset'
+            : failed
+              ? 'AI định kỳ cần kiểm tra'
+              : 'AI định kỳ đã tạo đề xuất',
+          message: item.reason ?? 'AI định kỳ vừa chạy',
+          targetLabel: 'AI định kỳ',
+          createdAtLabel: run?.completedAt ?? run?.startedAt ?? item.createdAt,
+          recommendations: applied
+            ? ['Kiểm tra hiệu quả sau lần thay mới.', 'Giữ AI định kỳ bật nếu kết quả ổn định.']
+            : failed
+              ? ['Mở Settings để xem lỗi automation.', 'Chạy lại sau khi kiểm tra cấu hình Google Ads/Gemini.']
+              : ['Mở Recommendations để duyệt đề xuất.', 'Bật AI định kỳ nếu muốn tự apply mỗi 14 ngày.'],
+          runStatus: run?.status ?? null,
+          action: item.action,
+        };
+      }),
     };
   }
 
@@ -291,6 +783,13 @@ export class CreativeOperationsService {
     }
     if (policy.languageStrategy === 'FIXED' && !policy.targetLanguage) {
       throw new BadRequestException('Choose a target language for FIXED strategy');
+    }
+    if (input.approvalMode !== undefined) {
+      const approvalMode = String(input.approvalMode).trim().toUpperCase();
+      if (!['MANUAL', 'AUTO'].includes(approvalMode)) {
+        throw new BadRequestException('Invalid approval mode');
+      }
+      policy.approvalMode = approvalMode;
     }
     if (input.targetLabels !== undefined) {
       const labels = input.targetLabels
@@ -321,11 +820,109 @@ export class CreativeOperationsService {
         this.clampNumber(input.maxChangesPerRun, 10, 1, 100),
       );
     }
-    return this.dataSource.getRepository(CreativePolicyEntity).save(policy);
+    const savedPolicy = await this.dataSource.getRepository(CreativePolicyEntity).save(policy);
+    if (input.automationEnabled !== undefined || input.reviewIntervalDays !== undefined) {
+      await this.automationService.ensureSchedule(savedPolicy, {
+        enabled: input.automationEnabled,
+        intervalDays: savedPolicy.reviewIntervalDays,
+        timezone: account.timeZone,
+      });
+    }
+    return savedPolicy;
+  }
+
+  async updateAutomationSettings(customerId: string, input: UpdateCreativeSettingsDto) {
+    const account = await this.getAccount(customerId);
+    const policy = await this.getPolicy(account.workspaceId);
+    if (input.reviewIntervalDays !== undefined) {
+      policy.reviewIntervalDays = Math.round(
+        this.clampNumber(input.reviewIntervalDays, 14, 1, 365),
+      );
+    }
+    if (input.maxChangesPerRun !== undefined) {
+      policy.maxChangesPerRun = Math.round(
+        this.clampNumber(input.maxChangesPerRun, 10, 1, 100),
+      );
+    }
+    policy.approvalMode = input.automationEnabled === false ? 'MANUAL' : 'AUTO';
+
+    const savedPolicy = await this.dataSource.getRepository(CreativePolicyEntity).save(policy);
+    if (input.automationEnabled) {
+      await this.ensurePolicyAccountScope(savedPolicy.id, account.id);
+    }
+    await this.automationService.ensureSchedule(savedPolicy, {
+      enabled: Boolean(input.automationEnabled),
+      intervalDays: savedPolicy.reviewIntervalDays,
+      timezone: account.timeZone,
+    });
+
+    return this.getSettings(customerId);
+  }
+
+  async runAutomationNow(customerId: string) {
+    const account = await this.getAccount(customerId);
+    const policy = await this.getPolicy(account.workspaceId);
+    policy.approvalMode = 'AUTO';
+    await this.dataSource.getRepository(CreativePolicyEntity).save(policy);
+    await this.ensurePolicyAccountScope(policy.id, account.id);
+    const schedule = await this.automationService.ensureSchedule(policy, {
+      enabled: true,
+      intervalDays: policy.reviewIntervalDays,
+      timezone: account.timeZone,
+    });
+    const maxChangesOverride = Math.round(
+      this.clampNumber(
+        process.env.AUTOMATION_RUN_NOW_MAX_CHANGES,
+        5000,
+        1,
+        50000,
+      ),
+    );
+    const run = await this.automationService.runSchedule(schedule.id, {
+      force: true,
+      now: new Date(),
+      accountIds: [account.id],
+      maxChangesOverride,
+      approvalModeOverride: 'AUTO',
+    });
+    const items = await this.dataSource.getRepository(AutomationRunItemEntity).find({
+      where: { automationRunId: run.id },
+      order: { createdAt: 'DESC' },
+      take: 200,
+    });
+    return { ...run, maxChangesOverride, items };
   }
 
   private async getAccount(customerId: string) {
     return this.accountRegistry.getOrCreate(customerId);
+  }
+
+  private impactMetrics(row: Record<string, unknown>, prefix: 'before' | 'after') {
+    const impressions = Number(row[`${prefix}_impressions`] ?? 0);
+    const clicks = Number(row[`${prefix}_clicks`] ?? 0);
+    const cost = Number(row[`${prefix}_cost_micros`] ?? 0) / 1_000_000;
+    const conversions = Number(row[`${prefix}_conversions`] ?? 0);
+    const conversionValue = Number(row[`${prefix}_conversion_value`] ?? 0);
+    return {
+      impressions,
+      clicks,
+      cost,
+      conversions,
+      conversionValue,
+      ctr: impressions > 0 ? clicks / impressions : 0,
+      conversionRate: clicks > 0 ? conversions / clicks : 0,
+      cpa: conversions > 0 ? cost / conversions : 0,
+      roas: cost > 0 ? conversionValue / cost : 0,
+    };
+  }
+
+  private metricDirection(before: number, after: number, lowerIsBetter = false) {
+    if (before === 0 && after === 0) return 0;
+    const delta = after - before;
+    const tolerance = Math.max(Math.abs(before) * 0.01, 0.000001);
+    if (Math.abs(delta) <= tolerance) return 0;
+    const direction = delta > 0 ? 1 : -1;
+    return lowerIsBetter ? -direction : direction;
   }
 
   private async getPolicy(workspaceId: string) {
@@ -335,6 +932,18 @@ export class CreativeOperationsService {
     });
     if (!policy) throw new NotFoundException('Creative policy is not configured');
     return policy;
+  }
+
+  private async ensurePolicyAccountScope(policyId: string, accountId: string) {
+    const repository = this.dataSource.getRepository(CreativePolicyScopeEntity);
+    const existing = await repository.findOneBy({ policyId, accountId });
+    if (existing) return existing;
+    return repository.save({
+      policyId,
+      accountId,
+      campaignId: null,
+      adGroupId: null,
+    });
   }
 
   private async getAccountAdGroups(accountId: string, googleAdGroupId?: string) {

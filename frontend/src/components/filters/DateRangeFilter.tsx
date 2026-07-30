@@ -56,6 +56,20 @@ export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
     setEndDate(range.endDate);
   }
 
+  function changeStartDate(nextStartDate: string) {
+    setStartDate(nextStartDate);
+    if (endDate && nextStartDate && nextStartDate > endDate) {
+      setEndDate(nextStartDate);
+    }
+  }
+
+  function changeEndDate(nextEndDate: string) {
+    setEndDate(nextEndDate);
+    if (startDate && nextEndDate && nextEndDate < startDate) {
+      setStartDate(nextEndDate);
+    }
+  }
+
   function applyCustomRange() {
     if (!validRange) return;
     onChange(serializeCustomDateRange({ startDate, endDate }));
@@ -64,7 +78,7 @@ export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
 
   return (
     <div className="dateRangeFilter" ref={containerRef}>
-      <div className="segment" aria-label="Time range">
+      <div className="segment" aria-label="Khoảng thời gian">
         {TIME_OPTIONS.map((option) => (
           <button
             key={option.value}
@@ -82,7 +96,7 @@ export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
           aria-expanded={open}
         >
           <CalendarDays size={15} />
-          Custom
+          Tùy chỉnh
         </button>
       </div>
 
@@ -92,38 +106,37 @@ export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
         <div className="dateRangePopover">
           <div className="dateRangeHeader">
             <div>
-              <strong>Custom date range</strong>
-              <span>Select any dates or year</span>
+              <strong>Khoảng ngày tùy chỉnh</strong>
+              <span>Chọn ngày hoặc năm bất kỳ</span>
             </div>
-            <button className="iconButton" type="button" onClick={() => setOpen(false)} aria-label="Close calendar">
+            <button className="iconButton" type="button" onClick={() => setOpen(false)} aria-label="Đóng lịch">
               <X size={17} />
             </button>
           </div>
 
           <div className="quickDateRanges">
-            <button type="button" onClick={() => selectLastDays(10)}>Last 10 days</button>
-            <button type="button" onClick={() => selectLastDays(20)}>Last 20 days</button>
-            <button type="button" onClick={() => selectLastDays(30)}>Last 30 days</button>
+            <button type="button" onClick={() => selectLastDays(10)}>10 ngày qua</button>
+            <button type="button" onClick={() => selectLastDays(20)}>20 ngày qua</button>
+            <button type="button" onClick={() => selectLastDays(30)}>30 ngày qua</button>
           </div>
 
           <div className="dateInputs">
             <label>
-              <span>Start date</span>
+              <span>Ngày bắt đầu</span>
               <input
                 type="date"
                 value={startDate}
-                max={endDate || today}
-                onChange={(event) => setStartDate(event.target.value)}
+                max={today}
+                onChange={(event) => changeStartDate(event.target.value)}
               />
             </label>
             <label>
-              <span>End date</span>
+              <span>Ngày kết thúc</span>
               <input
                 type="date"
                 value={endDate}
-                min={startDate}
                 max={today}
-                onChange={(event) => setEndDate(event.target.value)}
+                onChange={(event) => changeEndDate(event.target.value)}
               />
             </label>
           </div>
@@ -131,8 +144,8 @@ export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
           <div className="dateRangeFooter">
             <span>
               {validRange
-                ? `${dayCount} day${dayCount === 1 ? '' : 's'} selected`
-                : 'Choose a valid date range'}
+                ? `Đã chọn ${dayCount} ngày`
+                : 'Hãy chọn khoảng ngày hợp lệ'}
             </span>
             <button
               className="primaryButton"
@@ -141,7 +154,7 @@ export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
               onClick={applyCustomRange}
             >
               <Check size={15} />
-              Apply
+              Áp dụng
             </button>
           </div>
         </div>

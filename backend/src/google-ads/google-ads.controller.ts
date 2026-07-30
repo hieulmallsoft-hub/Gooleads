@@ -6,14 +6,22 @@ import {
   Param,
   Post,
   Query,
+  Req,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { GoogleAdsService } from './google-ads.service';
 import { GoogleAdsSyncService } from './google-ads-sync.service';
 import { AiPersistenceService } from './ai-persistence.service';
+import { AiReviewService } from './ai-review.service';
+import { AssetReplacementService } from './asset-replacement.service';
+import { ChangeRequestService } from './change-request.service';
 import { GoogleAdsAccountRegistryService } from '../database/google-ads-account-registry.service';
+import { AuthGuard, type AuthenticatedUser } from '../modules/auth/auth.guard';
+import { CampaignAccessService } from '../modules/auth/campaign-access.service';
+import { RequirePermissions } from '../modules/auth/permissions.decorator';
 
 const ALLOWED_TIMES = new Set(['TODAY', 'YESTERDAY', 'LAST_7_DAYS', 'THIS_MONTH']);
 
@@ -164,24 +172,34 @@ function normalizeMediaType(mediaType: string | undefined) {
   return normalized;
 }
 
+@UseGuards(AuthGuard)
+@RequirePermissions('ads.view')
 @Controller('google-ads')
 export class GoogleAdsController {
   constructor(
     private readonly googleAdsService: GoogleAdsService,
     private readonly googleAdsSyncService: GoogleAdsSyncService,
     private readonly aiPersistenceService: AiPersistenceService,
+    private readonly aiReviewService: AiReviewService,
+    private readonly assetReplacementService: AssetReplacementService,
+    private readonly changeRequestService: ChangeRequestService,
     private readonly accountRegistry: GoogleAdsAccountRegistryService,
+    private readonly campaignAccessService: CampaignAccessService,
   ) {}
 
   @Get('accounts')
-  async getAccounts() {
+  async getAccounts(@Req() request: { user: AuthenticatedUser }) {
     const accounts = await this.accountRegistry.listActive();
     return {
-      accounts: accounts.map((account) => ({
-        customerId: account.customerId,
-        displayName: account.displayName,
-        status: account.status,
-      })),
+      accounts: accounts
+        .filter((account) =>
+          this.campaignAccessService.canViewCustomer(request.user, account.customerId),
+        )
+        .map((account) => ({
+          customerId: account.customerId,
+          displayName: account.displayName,
+          status: account.status,
+        })),
     };
   }
 
@@ -189,9 +207,11 @@ export class GoogleAdsController {
   async getCampaigns(
     @Query('customerId') customerId: string | undefined,
     @Query('time') time = 'TODAY',
+    @Req() request: { user: AuthenticatedUser },
   ) {
     const normalizedCustomerId = normalizeCustomerId(customerId);
     const timeRange = normalizeTimeRange(time);
+    this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
     return this.googleAdsService.getCampaignPerformance(normalizedCustomerId, timeRange);
   }
 
@@ -199,9 +219,11 @@ export class GoogleAdsController {
   async getAdGroups(
     @Query('customerId') customerId: string | undefined,
     @Query('time') time = 'TODAY',
+    @Req() request: { user: AuthenticatedUser },
   ) {
     const normalizedCustomerId = normalizeCustomerId(customerId);
     const timeRange = normalizeTimeRange(time);
+    this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
     return this.googleAdsService.getAdGroupPerformance(normalizedCustomerId, timeRange);
   }
 
@@ -210,10 +232,16 @@ export class GoogleAdsController {
     @Query('customerId') customerId: string | undefined,
     @Query('adGroupId') adGroupId: string | undefined,
     @Query('time') time = 'TODAY',
+    @Req() request: { user: AuthenticatedUser },
   ) {
     const normalizedCustomerId = normalizeCustomerId(customerId);
     const normalizedAdGroupId = normalizeAdGroupId(adGroupId);
     const timeRange = normalizeTimeRange(time);
+    await this.campaignAccessService.assertCanViewAdGroup(
+      request.user,
+      normalizedCustomerId,
+      normalizedAdGroupId,
+    );
     return this.googleAdsService.getAssetPerformance(
       normalizedCustomerId,
       normalizedAdGroupId,
@@ -222,8 +250,12 @@ export class GoogleAdsController {
   }
 
   @Post('sync')
-  async sync(@Body() body: AiReviewBody) {
+  async sync(
+    @Body() body: AiReviewBody,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
     const normalizedCustomerId = normalizeCustomerId(body.customerId);
+    this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
     const normalizedAdGroupId = normalizeAdGroupId(body.adGroupId);
     const timeRange = normalizeTimeRange(body.time);
     return this.googleAdsSyncService.sync(
@@ -234,19 +266,31 @@ export class GoogleAdsController {
   }
 
   @Get('sync/status')
-  async getSyncStatus(@Query('customerId') customerId: string | undefined) {
+  async getSyncStatus(
+    @Query('customerId') customerId: string | undefined,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
     const normalizedCustomerId = normalizeCustomerId(customerId);
+    this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
     return this.googleAdsSyncService.getLatestStatus(normalizedCustomerId);
   }
 
   @Post('assets/replace-low')
-  async replaceLowAssets(@Body() body: ReplaceLowAssetsBody) {
-    return this.prepareTextChangeRequest(body);
+  @RequirePermissions('change.preview')
+  async replaceLowAssets(
+    @Body() body: ReplaceLowAssetsBody,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.prepareTextChangeRequest(body, request.user);
   }
 
   @Post('change-requests/text')
-  async createTextChangeRequest(@Body() body: ReplaceLowAssetsBody) {
-    return this.prepareTextChangeRequest(body);
+  @RequirePermissions('change.preview')
+  async createTextChangeRequest(
+    @Body() body: ReplaceLowAssetsBody,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.prepareTextChangeRequest(body, request.user);
   }
 
   @Get('change-requests/:id')
@@ -255,40 +299,27 @@ export class GoogleAdsController {
     if (!changeRequestId) {
       throw new BadRequestException('Missing change request ID');
     }
-    return this.aiPersistenceService.getChangeRequestPreview(changeRequestId);
+    return this.changeRequestService.getChangeRequestPreview(changeRequestId);
   }
 
   @Post('change-requests/:id/apply')
-  async applyChangeRequest(@Param('id') id: string | undefined) {
+  @RequirePermissions('change.apply')
+  async applyChangeRequest(
+    @Param('id') id: string | undefined,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
     const changeRequestId = id?.trim();
     if (!changeRequestId) {
       throw new BadRequestException('Missing change request ID');
     }
 
-    const request = await this.aiPersistenceService.getTextChangeRequestForApply(
-      changeRequestId,
-    );
-
-    try {
-      const result = await this.googleAdsService.replaceLowTextAssets(
-        request.customerId,
-        request.adGroupId,
-        request.timeRange,
-        request.input,
-      );
-      const changeRequest = await this.aiPersistenceService.completeTextChangeRequest(
-        changeRequestId,
-        request.input,
-        result,
-      );
-      return { changeRequest, result };
-    } catch (error) {
-      await this.aiPersistenceService.failChangeRequest(changeRequestId, error);
-      throw error;
-    }
+    return this.assetReplacementService.applyTextChangeRequest(changeRequestId, request.user);
   }
 
-  private async prepareTextChangeRequest(body: ReplaceLowAssetsBody) {
+  private async prepareTextChangeRequest(
+    body: ReplaceLowAssetsBody,
+    user: AuthenticatedUser,
+  ) {
     const normalizedCustomerId = normalizeCustomerId(body.customerId);
     const normalizedAdGroupId = normalizeAdGroupId(body.adGroupId);
     const timeRange = normalizeTimeRange(body.time);
@@ -306,90 +337,72 @@ export class GoogleAdsController {
       throw new BadRequestException('Enter or choose headline/description suggestions');
     }
 
-    await this.googleAdsSyncService.sync(
-      normalizedCustomerId,
-      normalizedAdGroupId,
-      timeRange,
-    );
-    const preview = await this.googleAdsService.previewLowTextReplacement(
+    return this.assetReplacementService.createTextChangeRequest(
       normalizedCustomerId,
       normalizedAdGroupId,
       timeRange,
       { headline, description, headlineReplacements, descriptionReplacements },
-    );
-    return this.aiPersistenceService.createTextChangeRequest(
-      normalizedCustomerId,
-      normalizedAdGroupId,
-      timeRange,
-      { headline, description, headlineReplacements, descriptionReplacements },
-      preview,
+      user,
     );
   }
 
   @Post('assets/ai-review')
-  async generateAiReview(@Body() body: AiReviewBody) {
+  @RequirePermissions('ai.generate')
+  async generateAiReview(
+    @Body() body: AiReviewBody,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
     const normalizedCustomerId = normalizeCustomerId(body.customerId);
     const normalizedAdGroupId = normalizeAdGroupId(body.adGroupId);
     const timeRange = normalizeTimeRange(body.time);
 
-    await this.googleAdsSyncService.sync(
+    return this.aiReviewService.generateCreativeReview(
       normalizedCustomerId,
       normalizedAdGroupId,
       timeRange,
-    );
-    const result = await this.googleAdsService.generateAiCreativeReview(
-      normalizedCustomerId,
-      normalizedAdGroupId,
-      timeRange,
-    );
-    return this.aiPersistenceService.saveCreativeReview(
-      normalizedCustomerId,
-      normalizedAdGroupId,
-      timeRange,
-      result,
+      request.user,
     );
   }
 
   @Post('assets/ai-text-suggestions')
-  async generateAiTextSuggestions(@Body() body: AiReviewBody) {
+  @RequirePermissions('ai.generate')
+  async generateAiTextSuggestions(
+    @Body() body: AiReviewBody,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
     const normalizedCustomerId = normalizeCustomerId(body.customerId);
     const normalizedAdGroupId = normalizeAdGroupId(body.adGroupId);
     const timeRange = normalizeTimeRange(body.time);
 
-    await this.googleAdsSyncService.sync(
+    return this.aiReviewService.generateTextSuggestions(
       normalizedCustomerId,
       normalizedAdGroupId,
       timeRange,
-    );
-    const result = await this.googleAdsService.generateAiTextSuggestions(
-      normalizedCustomerId,
-      normalizedAdGroupId,
-      timeRange,
-    );
-    return this.aiPersistenceService.saveTextSuggestions(
-      normalizedCustomerId,
-      normalizedAdGroupId,
-      timeRange,
-      result,
+      request.user,
     );
   }
 
   @Post('assets/ai-suggestions/:suggestionId/decision')
+  @RequirePermissions('suggestion.approve')
   async decideAiSuggestion(
     @Param('suggestionId') pathSuggestionId: string | undefined,
     @Body() body: AiDecisionBody,
+    @Req() request: { user: AuthenticatedUser },
   ) {
     const suggestionId = pathSuggestionId?.trim();
     if (!suggestionId) {
       throw new BadRequestException('Missing suggestionId');
     }
+    await this.campaignAccessService.assertCanDecideSuggestion(request.user, suggestionId);
     return this.aiPersistenceService.decideSuggestion(suggestionId, body);
   }
 
   @Post('assets/replace-media')
+  @RequirePermissions('media.replace')
   @UseInterceptors(FileInterceptor('image', { limits: { fileSize: 10 * 1024 * 1024 } }))
   async replaceMediaAsset(
     @Body() body: ReplaceMediaBody,
+    @Req() request: { user: AuthenticatedUser },
     @UploadedFile() imageFile?: any,
   ) {
     const normalizedCustomerId = normalizeCustomerId(body.customerId);
@@ -402,12 +415,7 @@ export class GoogleAdsController {
       throw new BadRequestException('Choose an image or video asset to replace');
     }
 
-    await this.googleAdsSyncService.sync(
-      normalizedCustomerId,
-      normalizedAdGroupId,
-      timeRange,
-    );
-    const result = await this.googleAdsService.replaceMediaAsset(
+    return this.assetReplacementService.replaceMedia(
       normalizedCustomerId,
       normalizedAdGroupId,
       timeRange,
@@ -417,18 +425,7 @@ export class GoogleAdsController {
         imageFile,
         youtubeVideo: body.youtubeVideo,
       },
+      request.user,
     );
-    await this.aiPersistenceService.saveMediaChange(
-      normalizedCustomerId,
-      normalizedAdGroupId,
-      {
-        mediaType,
-        oldAssetResourceName,
-        youtubeVideo: body.youtubeVideo?.trim() || null,
-        imageFileName: imageFile?.originalname ?? null,
-      },
-      result,
-    );
-    return result;
   }
 }

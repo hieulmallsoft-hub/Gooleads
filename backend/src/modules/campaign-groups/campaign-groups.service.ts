@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import { GoogleAdsAccountRegistryService } from '../../database/google-ads-accou
 import { CreateCampaignGroupDto } from './dto/create-campaign-group.dto';
 import { UpdateCampaignGroupDto } from './dto/update-campaign-group.dto';
 import { UpdateCampaignGroupMembersDto } from './dto/update-campaign-group-members.dto';
+import type { AuthenticatedUser } from '../auth/auth.guard';
 
 @Injectable()
 export class CampaignGroupsService {
@@ -19,8 +21,10 @@ export class CampaignGroupsService {
     private readonly accountRegistry: GoogleAdsAccountRegistryService,
   ) {}
 
-  async findAll(customerId: string) {
-    const account = await this.accountRegistry.getOrCreate(customerId);
+  async findAll(customerId: string, user: AuthenticatedUser) {
+    const normalizedCustomerId = this.normalizeCustomerId(customerId);
+    this.assertCustomerAccess(user, normalizedCustomerId);
+    const account = await this.accountRegistry.getOrCreate(normalizedCustomerId);
     const groups = await this.dataSource.getRepository(CampaignGroupEntity).find({
       where: { accountId: account.id },
       order: { name: 'ASC' },
@@ -47,8 +51,9 @@ export class CampaignGroupsService {
     };
   }
 
-  async create(input: CreateCampaignGroupDto) {
+  async create(input: CreateCampaignGroupDto, user: AuthenticatedUser) {
     const customerId = this.normalizeCustomerId(input.customerId);
+    this.assertCustomerAccess(user, customerId);
     const name = this.normalizeName(input.name);
     const account = await this.accountRegistry.getOrCreate(customerId);
     const repository = this.dataSource.getRepository(CampaignGroupEntity);
@@ -68,8 +73,10 @@ export class CampaignGroupsService {
     });
   }
 
-  async update(id: string, input: UpdateCampaignGroupDto) {
-    const group = await this.findOwnedGroup(id, this.normalizeCustomerId(input.customerId));
+  async update(id: string, input: UpdateCampaignGroupDto, user: AuthenticatedUser) {
+    const customerId = this.normalizeCustomerId(input.customerId);
+    this.assertCustomerAccess(user, customerId);
+    const group = await this.findOwnedGroup(id, customerId);
     if (input.name !== undefined) group.name = this.normalizeName(input.name);
     if (input.color !== undefined) group.color = this.normalizeColor(input.color);
     if (input.description !== undefined) group.description = input.description?.trim() || null;
@@ -81,8 +88,13 @@ export class CampaignGroupsService {
     }
   }
 
-  async replaceMembers(id: string, input: UpdateCampaignGroupMembersDto) {
+  async replaceMembers(
+    id: string,
+    input: UpdateCampaignGroupMembersDto,
+    user: AuthenticatedUser,
+  ) {
     const customerId = this.normalizeCustomerId(input.customerId);
+    this.assertCustomerAccess(user, customerId);
     await this.findOwnedGroup(id, customerId);
     const campaigns = Array.isArray(input.campaigns)
       ? Array.from(
@@ -111,11 +123,13 @@ export class CampaignGroupsService {
       }
     });
 
-    return this.findAll(customerId);
+    return this.findAll(customerId, user);
   }
 
-  async remove(id: string, customerId: string) {
-    const group = await this.findOwnedGroup(id, this.normalizeCustomerId(customerId));
+  async remove(id: string, customerId: string, user: AuthenticatedUser) {
+    const normalizedCustomerId = this.normalizeCustomerId(customerId);
+    this.assertCustomerAccess(user, normalizedCustomerId);
+    const group = await this.findOwnedGroup(id, normalizedCustomerId);
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(CampaignGroupMemberEntity).delete({ groupId: id });
       await manager.getRepository(CampaignGroupEntity).remove(group);
@@ -130,6 +144,13 @@ export class CampaignGroupsService {
       .findOneBy({ id, accountId: account.id });
     if (!group) throw new NotFoundException('Campaign group not found');
     return group;
+  }
+
+  private assertCustomerAccess(user: AuthenticatedUser, customerId: string) {
+    if (user.role === 'ADMIN') return;
+    if (!user.accountAccess.some((access) => access.customerId === customerId)) {
+      throw new ForbiddenException('You do not have access to this Google Ads customer');
+    }
   }
 
   private normalizeCustomerId(value: string | undefined) {

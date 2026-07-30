@@ -7,6 +7,7 @@ import { AiReviewRunEntity } from './ai-review-run.entity';
 import { AiSuggestionDecisionEntity } from './ai-suggestion-decision.entity';
 import { AiSuggestionVariantEntity } from './ai-suggestion-variant.entity';
 import { AiSuggestionEntity } from './ai-suggestion.entity';
+import { AppSessionEntity } from './app-session.entity';
 import { AppUserEntity } from './app-user.entity';
 import { AssetEntity } from './asset.entity';
 import { AuditLogEntity } from './audit-log.entity';
@@ -27,6 +28,7 @@ import { GoogleAdsAccountEntity } from './google-ads-account.entity';
 import { MediaFileEntity } from './media-file.entity';
 import { PromptTemplateEntity } from './prompt-template.entity';
 import { SyncRunEntity } from './sync-run.entity';
+import { UserGoogleAdsAccountAccessEntity } from './user-google-ads-account-access.entity';
 import { UserPreferenceEntity } from './user-preference.entity';
 import { WorkspaceMemberEntity } from './workspace-member.entity';
 import { WorkspaceEntity } from '../../modules/workspaces/entities/workspace.entity';
@@ -34,7 +36,9 @@ import { WorkspaceEntity } from '../../modules/workspaces/entities/workspace.ent
 export const DATABASE_ENTITIES = [
   WorkspaceEntity,
   AppUserEntity,
+  AppSessionEntity,
   WorkspaceMemberEntity,
+  UserGoogleAdsAccountAccessEntity,
   GoogleAdsAccountEntity,
   UserPreferenceEntity,
   CampaignEntity,

@@ -3,6 +3,7 @@ export const DEFAULT_CUSTOMER_IDS = ['9920642691'];
 export const CUSTOMER_STORAGE_KEY = 'ggads.customerIds';
 export const AD_GROUP_STORAGE_KEY = 'ggads.adGroupIds';
 export const AUTO_AI_STORAGE_KEY = 'ggads.autoAiByCustomer';
+export const VIEW_STATE_STORAGE_KEY = 'ggads.viewState';
 export const PAGE_SIZE = 10;
 export const HEADLINE_MAX_LENGTH = 30;
 export const DESCRIPTION_MAX_LENGTH = 90;

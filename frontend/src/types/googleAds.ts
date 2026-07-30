@@ -1,12 +1,33 @@
 export type Campaign = {
   id: string;
   name: string;
+  status?: string;
   impressions: number;
   clicks: number;
   ctr: number;
   cost: number;
+  conversions: number;
   conversionValue: number;
   roas: number;
+};
+
+export type AppRole = 'ADMIN' | 'EDITOR' | 'VIEWER';
+
+export type AuthUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  status: string;
+  workspaceId: string;
+  role: AppRole;
+  permissions: string[];
+  accountAccess: Array<{
+    customerId: string;
+  }>;
+};
+
+export type AuthMeResponse = {
+  user: AuthUser;
 };
 
 export type CampaignResponse = {
@@ -14,6 +35,7 @@ export type CampaignResponse = {
   timeRange: string;
   totalCost: number;
   totalClicks: number;
+  totalConversions: number;
   totalImpressions: number;
   avgCtr: number;
   avgRoas: number;
@@ -29,6 +51,7 @@ export type AdGroup = {
   clicks: number;
   ctr: number;
   cost: number;
+  conversions: number;
   conversionValue: number;
   roas: number;
 };
@@ -38,6 +61,7 @@ export type AdGroupResponse = {
   timeRange: string;
   totalCost: number;
   totalClicks: number;
+  totalConversions: number;
   totalImpressions: number;
   avgCtr: number;
   avgRoas: number;
@@ -76,6 +100,7 @@ export type AssetResponse = {
   timeRange: string;
   totalCost: number;
   totalClicks: number;
+  totalConversions: number;
   totalImpressions: number;
   avgCtr: number;
   avgRoas: number;
@@ -167,6 +192,7 @@ export type ReplaceMediaResponse = {
 export type SortKey =
   | 'name'
   | 'id'
+  | 'status'
   | 'impressions'
   | 'clicks'
   | 'ctr'

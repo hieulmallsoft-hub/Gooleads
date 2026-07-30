@@ -41,7 +41,7 @@ function getImageSize(file: File) {
     };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Could not read replacement image dimensions'));
+      reject(new Error('Không thể đọc kích thước hình ảnh thay thế'));
     };
     image.src = url;
   });
@@ -92,7 +92,7 @@ export async function normalizeImageForGoogleAds(file: File, spec: ImageAspectSp
   const context = canvas.getContext('2d');
 
   if (!context) {
-    throw new Error('Could not prepare replacement image for Google Ads');
+    throw new Error('Không thể chuẩn bị hình ảnh thay thế cho Google Ads');
   }
 
   context.drawImage(
@@ -110,7 +110,7 @@ export async function normalizeImageForGoogleAds(file: File, spec: ImageAspectSp
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((result) => {
       if (result) resolve(result);
-      else reject(new Error('Could not crop replacement image'));
+      else reject(new Error('Không thể cắt hình ảnh thay thế'));
     }, 'image/png');
   });
   const safeName = file.name.replace(/\.[^.]+$/, '') || 'replacement-image';

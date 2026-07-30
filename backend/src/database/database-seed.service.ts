@@ -3,7 +3,23 @@ import { DataSource } from 'typeorm';
 import { CreativePolicyScopeEntity } from './entities/creative-policy-scope.entity';
 import { CreativePolicyEntity } from './entities/creative-policy.entity';
 import { GoogleAdsAccountEntity } from './entities/google-ads-account.entity';
+import { AppUserEntity } from './entities/app-user.entity';
+import { WorkspaceMemberEntity } from './entities/workspace-member.entity';
 import { WorkspaceEntity } from '../modules/workspaces/entities/workspace.entity';
+import { getPasswordPolicyError, hashPassword } from '../modules/auth/password';
+
+function normalizeCustomerId(value: string | null | undefined) {
+  const normalized = String(value ?? '').replace(/\D/g, '');
+  return /^\d{10}$/.test(normalized) ? normalized : null;
+}
+
+function configuredLoginCustomerId() {
+  return normalizeCustomerId(
+    process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ??
+      process.env.GOOGLE_ADS_MANAGER_CUSTOMER_ID ??
+      process.env.GOOGLE_ADS_MCC_CUSTOMER_ID,
+  );
+}
 
 @Injectable()
 export class DatabaseSeedService implements OnApplicationBootstrap {
@@ -21,6 +37,8 @@ export class DatabaseSeedService implements OnApplicationBootstrap {
     await this.dataSource.transaction(async (manager) => {
       const workspaceRepository = manager.getRepository(WorkspaceEntity);
       const accountRepository = manager.getRepository(GoogleAdsAccountEntity);
+      const userRepository = manager.getRepository(AppUserEntity);
+      const memberRepository = manager.getRepository(WorkspaceMemberEntity);
       const policyRepository = manager.getRepository(CreativePolicyEntity);
       const scopeRepository = manager.getRepository(CreativePolicyScopeEntity);
 
@@ -44,7 +62,7 @@ export class DatabaseSeedService implements OnApplicationBootstrap {
           accountRepository.create({
             workspaceId: workspace.id,
             customerId,
-            loginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? null,
+            loginCustomerId: configuredLoginCustomerId(),
             displayName: 'Allsoft Google Ads',
             currencyCode: null,
             timeZone: workspace.timezone,
@@ -53,6 +71,56 @@ export class DatabaseSeedService implements OnApplicationBootstrap {
             lastSyncedAt: null,
           }),
         );
+      }
+
+      const adminEmail = (
+        process.env.ADMIN_EMAIL ?? 'admin@allsoft.local'
+      ).trim().toLowerCase();
+      const adminPassword = process.env.ADMIN_PASSWORD ?? 'Admin@123456';
+      const adminName = process.env.ADMIN_NAME ?? 'Allsoft Admin';
+      if (process.env.NODE_ENV === 'production' && !process.env.ADMIN_PASSWORD) {
+        throw new Error('ADMIN_PASSWORD is required in production');
+      }
+      const adminPasswordError = getPasswordPolicyError(adminPassword);
+      if (adminPasswordError) {
+        throw new Error(`ADMIN_PASSWORD is invalid: ${adminPasswordError}`);
+      }
+
+      let admin = await userRepository.findOneBy({ email: adminEmail });
+      if (!admin) {
+        admin = await userRepository.save(
+          userRepository.create({
+            email: adminEmail,
+            displayName: adminName,
+            passwordHash: hashPassword(adminPassword),
+            status: 'ACTIVE',
+            lastLoginAt: null,
+          }),
+        );
+      } else {
+        admin.displayName = admin.displayName || adminName;
+        admin.status = 'ACTIVE';
+        if (!admin.passwordHash || process.env.ADMIN_PASSWORD_RESET === 'true') {
+          admin.passwordHash = hashPassword(adminPassword);
+        }
+        admin = await userRepository.save(admin);
+      }
+
+      const adminMember = await memberRepository.findOneBy({
+        workspaceId: workspace.id,
+        userId: admin.id,
+      });
+      if (!adminMember) {
+        await memberRepository.save(
+          memberRepository.create({
+            workspaceId: workspace.id,
+            userId: admin.id,
+            role: 'ADMIN',
+          }),
+        );
+      } else if (adminMember.role !== 'ADMIN') {
+        adminMember.role = 'ADMIN';
+        await memberRepository.save(adminMember);
       }
 
       let policy = await policyRepository.findOneBy({
@@ -99,7 +167,7 @@ export class DatabaseSeedService implements OnApplicationBootstrap {
       }
 
       this.logger.log(
-        `Seed ready for workspace "${workspace.slug}" and Google Ads customer ${customerId}`,
+        `Seed ready for workspace "${workspace.slug}", admin "${adminEmail}", and Google Ads customer ${customerId}`,
       );
     });
   }

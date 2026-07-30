@@ -4,9 +4,6 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { GoogleAuth } from 'google-auth-library';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
 import { DataSource, In } from 'typeorm';
 import { AdGroupEntity } from '../database/entities/ad-group.entity';
 import { AiReviewRunEntity } from '../database/entities/ai-review-run.entity';
@@ -16,21 +13,18 @@ import { CampaignEntity } from '../database/entities/campaign.entity';
 import { CreativePolicyEntity } from '../database/entities/creative-policy.entity';
 import { CreativeTermEntity } from '../database/entities/creative-term.entity';
 import { GoogleAdsAccountEntity } from '../database/entities/google-ads-account.entity';
-
-type GoogleAdsConfig = {
-  developerToken: string;
-  loginCustomerId?: string;
-  keyFilePath: string;
-  apiVersion: string;
-};
+import { GoogleAdsMutationService } from './google-ads-mutation.service';
+import { GoogleAdsQueryService } from './google-ads-query.service';
 
 type CampaignPerformance = {
   id: string;
   name: string;
+  status: string;
   impressions: number;
   clicks: number;
   ctr: number;
   cost: number;
+  conversions: number;
   conversionValue: number;
   roas: number;
 };
@@ -45,6 +39,7 @@ type AdGroupPerformance = {
   clicks: number;
   ctr: number;
   cost: number;
+  conversions: number;
   conversionValue: number;
   roas: number;
 };
@@ -324,9 +319,11 @@ export type GoogleAdsSyncAsset = {
 
 @Injectable()
 export class GoogleAdsService {
-  constructor(private readonly dataSource: DataSource) {}
-
-  private readonly config = this.loadConfig();
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly googleAdsQuery: GoogleAdsQueryService,
+    private readonly googleAdsMutation: GoogleAdsMutationService,
+  ) {}
 
   private dateSegmentCondition(timeRange: string) {
     const customRange = timeRange.match(/^(\d{4}-\d{2}-\d{2}),(\d{4}-\d{2}-\d{2})$/);
@@ -342,12 +339,15 @@ export class GoogleAdsService {
       SELECT
         campaign.id,
         campaign.name,
+        campaign.status,
         metrics.impressions,
         metrics.clicks,
         metrics.cost_micros,
+        metrics.conversions,
         metrics.conversions_value
       FROM campaign
-      WHERE ${this.dateSegmentCondition(timeRange)}
+      WHERE campaign.status != REMOVED
+        AND ${this.dateSegmentCondition(timeRange)}
       ORDER BY metrics.impressions DESC
     `;
 
@@ -356,15 +356,18 @@ export class GoogleAdsService {
       const impressions = Number(row.metrics?.impressions ?? 0);
       const clicks = Number(row.metrics?.clicks ?? 0);
       const cost = Number(row.metrics?.costMicros ?? 0) / 1_000_000;
+      const conversions = Number(row.metrics?.conversions ?? 0);
       const conversionValue = Number(row.metrics?.conversionsValue ?? 0);
 
       return {
         id: String(row.campaign?.id ?? ''),
         name: String(row.campaign?.name ?? ''),
+        status: String(row.campaign?.status ?? 'UNKNOWN'),
         impressions,
         clicks,
         ctr: impressions > 0 ? clicks / impressions : 0,
         cost,
+        conversions,
         conversionValue,
         roas: cost > 0 ? conversionValue / cost : 0,
       };
@@ -382,6 +385,10 @@ export class GoogleAdsService {
       (sum: number, campaign: CampaignPerformance) => sum + campaign.clicks,
       0,
     );
+    const totalConversions = campaigns.reduce(
+      (sum: number, campaign: CampaignPerformance) => sum + campaign.conversions,
+      0,
+    );
     const totalImpressions = campaigns.reduce(
       (sum: number, campaign: CampaignPerformance) => sum + campaign.impressions,
       0,
@@ -392,6 +399,7 @@ export class GoogleAdsService {
       timeRange,
       totalCost,
       totalClicks,
+      totalConversions,
       totalImpressions,
       avgCtr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
       avgRoas: totalCost > 0 ? totalConversionValue / totalCost : 0,
@@ -409,9 +417,12 @@ export class GoogleAdsService {
         metrics.impressions,
         metrics.clicks,
         metrics.cost_micros,
+        metrics.conversions,
         metrics.conversions_value
       FROM ad_group
-      WHERE ${this.dateSegmentCondition(timeRange)}
+      WHERE campaign.status != REMOVED
+        AND ad_group.status != REMOVED
+        AND ${this.dateSegmentCondition(timeRange)}
       ORDER BY metrics.impressions DESC
     `;
 
@@ -420,6 +431,7 @@ export class GoogleAdsService {
       const impressions = Number(row.metrics?.impressions ?? 0);
       const clicks = Number(row.metrics?.clicks ?? 0);
       const cost = Number(row.metrics?.costMicros ?? 0) / 1_000_000;
+      const conversions = Number(row.metrics?.conversions ?? 0);
       const conversionValue = Number(row.metrics?.conversionsValue ?? 0);
 
       return {
@@ -432,6 +444,7 @@ export class GoogleAdsService {
         clicks,
         ctr: impressions > 0 ? clicks / impressions : 0,
         cost,
+        conversions,
         conversionValue,
         roas: cost > 0 ? conversionValue / cost : 0,
       };
@@ -449,6 +462,10 @@ export class GoogleAdsService {
       (sum: number, adGroup: AdGroupPerformance) => sum + adGroup.clicks,
       0,
     );
+    const totalConversions = adGroups.reduce(
+      (sum: number, adGroup: AdGroupPerformance) => sum + adGroup.conversions,
+      0,
+    );
     const totalImpressions = adGroups.reduce(
       (sum: number, adGroup: AdGroupPerformance) => sum + adGroup.impressions,
       0,
@@ -459,6 +476,7 @@ export class GoogleAdsService {
       timeRange,
       totalCost,
       totalClicks,
+      totalConversions,
       totalImpressions,
       avgCtr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
       avgRoas: totalCost > 0 ? totalConversionValue / totalCost : 0,
@@ -552,6 +570,10 @@ export class GoogleAdsService {
       0,
     );
     const totalClicks = assets.reduce((sum: number, asset: AssetPerformance) => sum + asset.clicks, 0);
+    const totalConversions = assets.reduce(
+      (sum: number, asset: AssetPerformance) => sum + asset.conversions,
+      0,
+    );
     const totalImpressions = assets.reduce(
       (sum: number, asset: AssetPerformance) => sum + asset.impressions,
       0,
@@ -563,6 +585,7 @@ export class GoogleAdsService {
       timeRange,
       totalCost,
       totalClicks,
+      totalConversions,
       totalImpressions,
       avgCtr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
       avgRoas: totalCost > 0 ? totalConversionValue / totalCost : 0,
@@ -1462,71 +1485,11 @@ export class GoogleAdsService {
     if (localizedOptions.length === 0 && candidate.targetLanguageCode !== 'en') {
       return '';
     }
-    const headlineSuggestions = [
-      'Free LED Text App',
-      'LED Scroller Maker',
-      'Make LED Signs Free',
-      'Scrolling Text App',
-      'Create LED Text Fast',
-      'LED Banner On Phone',
-      'Free LED Board App',
-      'LED Sign Maker Free',
-      'Bright LED Text App',
-      'LED Message Maker',
-      'Phone LED Display',
-      'Free LED Sign Maker',
-      'Make Scrolling Text',
-      'LED Board For Events',
-      'Easy LED Display App',
-    ];
-    const descriptionSuggestions = [
-      'Create scrolling LED messages on your phone in seconds.',
-      'Make bright LED text for parties, shops, and events.',
-      'Design custom LED signs with simple colors and effects.',
-      'Turn your phone into a clear scrolling LED display.',
-      'Show bold LED messages anywhere with a free app.',
-      'Build moving LED text for quick eye-catching messages.',
-      'Make a free LED board for events, signs, and promos.',
-      'Create colorful scrolling text without extra hardware.',
-      'Use your phone as an LED banner for clear messages.',
-      'Make custom LED display messages fast and free.',
-      'Design bright scrolling text for any event or shop.',
-      'Create an easy LED sign for phones, parties, and ads.',
-      'Turn simple text into a bright moving LED message.',
-      'Make event-ready scrolling text from your phone.',
-      'Create free LED-style messages for screens and signs.',
-    ];
-    const contextSuggestions =
-      localizedOptions.length > 0
-        ? []
-        : candidate.fieldType === 'HEADLINE'
-        ? [
-            source.includes('phone') ? 'LED Text On Phone' : '',
-            source.includes('free') ? 'Free Scrolling Text' : '',
-            source.includes('event') || source.includes('part') ? 'LED Signs For Events' : '',
-            source.includes('board') ? 'LED Board Maker' : '',
-          ]
-        : [
-            source.includes('phone')
-              ? 'Create scrolling LED text right on your phone.'
-              : '',
-            source.includes('event') || source.includes('part')
-              ? 'Make bright LED messages for events, parties, and shops.'
-              : '',
-            source.includes('free')
-              ? 'Create free LED-style scrolling text in seconds.'
-              : '',
-            source.includes('board')
-              ? 'Build a bright LED board message from your phone.'
-              : '',
-          ];
     const baseOptions =
       localizedOptions.length > 0
         ? localizedOptions
-        : candidate.fieldType === 'HEADLINE'
-          ? headlineSuggestions
-          : descriptionSuggestions;
-    const options = this.uniqueStrings([...contextSuggestions, ...baseOptions]);
+        : this.getEnglishFallbackCopyOptions(candidate, source);
+    const options = this.uniqueStrings(baseOptions);
     const startIndex = this.stableIndex(`${candidate.key}:${candidate.text}`, options.length);
 
     for (let offset = 0; offset < options.length; offset += 1) {
@@ -1547,6 +1510,29 @@ export class GoogleAdsService {
     source: string,
   ) {
     const languageCode = candidate.targetLanguageCode.toLowerCase();
+
+    if (languageCode === 'ja') {
+      const headlineOptions = [
+        source.includes('エアコン') ? 'スマホでエアコン操作' : '',
+        source.includes('リモコン') ? 'リモコン操作をスマホで' : '',
+        source.includes('温度') ? '温度調整をすぐに' : '',
+        'エアコンを簡単操作',
+        'スマホで温度調整',
+        'リモコン操作を簡単に',
+        'すぐにエアコン操作',
+        '快適な温度を手元で',
+      ];
+      const descriptionOptions = [
+        'スマホでエアコンをすばやく操作できます。',
+        '温度調整やリモコン操作をアプリで簡単に。',
+        '外出先でもエアコン操作をわかりやすく。',
+        '面倒な設定なしで快適な温度に調整できます。',
+        'スマホを使ってエアコン操作をもっと手軽に。',
+        'いつでも温度調整をスムーズに始められます。',
+      ];
+
+      return candidate.fieldType === 'HEADLINE' ? headlineOptions : descriptionOptions;
+    }
 
     if (languageCode === 'de') {
       const headlineOptions = [
@@ -1664,6 +1650,124 @@ export class GoogleAdsService {
     }
 
     return [];
+  }
+
+  private getEnglishFallbackCopyOptions(
+    candidate: AiTextSuggestionCandidate,
+    source: string,
+  ) {
+    const theme = this.inferCreativeTheme(source);
+    const isHeadline = candidate.fieldType === 'HEADLINE';
+
+    if (theme === 'ac') {
+      return isHeadline
+        ? [
+            source.includes('phone') ? 'Control AC From Phone' : '',
+            source.includes('remote') ? 'AC Remote App' : '',
+            'Control Your AC Fast',
+            'Smart AC Remote App',
+            'Adjust AC From Phone',
+            'Easy AC Remote Control',
+            'AC Control Made Easy',
+            'Cool Room In One Tap',
+          ]
+        : [
+            'Control your AC from your phone in seconds.',
+            'Use your phone as a simple AC remote control.',
+            'Adjust room temperature quickly with one app.',
+            'Manage your air conditioner without the remote.',
+            'Set a comfortable room temperature from your phone.',
+            'Turn your phone into an easy air conditioner remote.',
+          ];
+    }
+
+    if (theme === 'security') {
+      return isHeadline
+        ? [
+            'Protect Your Phone Free',
+            'Fast Antivirus Scan',
+            'Clean Phone Security',
+            'Stop Malware Fast',
+            'Free Virus Cleaner',
+            'Phone Protection App',
+          ]
+        : [
+            'Scan your phone quickly for viruses and malware.',
+            'Keep your device cleaner with simple mobile protection.',
+            'Find risky files fast with a free security scan.',
+            'Protect your phone from threats in just a few taps.',
+            'Clean malware and spyware with an easy mobile tool.',
+          ];
+    }
+
+    if (theme === 'led') {
+      return isHeadline
+        ? [
+            source.includes('phone') ? 'LED Text On Phone' : '',
+            source.includes('free') ? 'Free Scrolling Text' : '',
+            source.includes('event') || source.includes('part') ? 'LED Signs For Events' : '',
+            source.includes('board') ? 'LED Board Maker' : '',
+            'Free LED Text App',
+            'LED Scroller Maker',
+            'Make LED Signs Free',
+            'Scrolling Text App',
+            'Create LED Text Fast',
+            'LED Banner On Phone',
+          ]
+        : [
+            source.includes('phone') ? 'Create scrolling LED text right on your phone.' : '',
+            source.includes('event') || source.includes('part')
+              ? 'Make bright LED messages for events, parties, and shops.'
+              : '',
+            source.includes('free') ? 'Create free LED-style scrolling text in seconds.' : '',
+            source.includes('board') ? 'Build a bright LED board message from your phone.' : '',
+            'Create scrolling LED messages on your phone in seconds.',
+            'Design custom LED signs with simple colors and effects.',
+            'Turn your phone into a clear scrolling LED display.',
+            'Show bold LED messages anywhere with a free app.',
+          ];
+    }
+
+    return isHeadline
+      ? [
+          'Try The App Today',
+          'Simple App Control',
+          'Fast Mobile Tool',
+          'Easy App Experience',
+          'Get Started Fast',
+        ]
+      : [
+          'Use the app to complete the task quickly and easily.',
+          'Try a simpler mobile experience for everyday use.',
+          'Get started in seconds with clear app controls.',
+          'Make the task easier with a simple mobile app.',
+        ];
+  }
+
+  private inferCreativeTheme(text: string) {
+    const normalized = text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
+    if (
+      /(\bled\b|scroller|scrolling|sign|banner|board|message|display)/i.test(normalized)
+    ) {
+      return 'led';
+    }
+
+    if (
+      /(\bac\b|air conditioner|conditioner|remote|climat|climatisation|klima|aire|acondicionado|condicionado|controle remoto|mando|telecommande|エアコン|リモコン|温度|空調|مكيف|الهواء)/i.test(text) ||
+      /(klimaanlage|fernbedienung|steuerung|climatiseur|temperatura)/i.test(normalized)
+    ) {
+      return 'ac';
+    }
+
+    if (/(antivirus|virus|malware|spyware|security|protect|protec|scan|escane|limp|clean)/i.test(normalized)) {
+      return 'security';
+    }
+
+    return 'generic';
   }
 
   private buildFallbackRationale(candidate: AiTextSuggestionCandidate) {
@@ -2208,10 +2312,9 @@ export class GoogleAdsService {
   }
 
   private selectAiReviewAssets(assets: AssetPerformance[], limit: number) {
-    const activeAssets = assets.filter((asset) => asset.impressions > 0);
     const maxItems = Math.max(1, limit);
     const selected = new Map<string, AssetPerformance>();
-    const lowLabelAssets = activeAssets
+    const lowLabelAssets = assets
       .filter((asset) => {
         const mediaType = this.getAssetMediaType(asset);
         const isReviewable =
@@ -2530,6 +2633,27 @@ export class GoogleAdsService {
     const isText = asset.mediaType === 'Text';
     const isImage = asset.mediaType === 'Image';
 
+    if (asset.targetLanguageCode === 'ja') {
+      if (isText) {
+        return asset.fieldType === 'HEADLINE'
+          ? ['スマホでエアコン操作', 'エアコンを簡単操作']
+          : [
+              'スマホでエアコンをすばやく操作できます。',
+              '温度調整やリモコン操作をアプリで簡単に。',
+            ];
+      }
+
+      return isImage
+        ? [
+            'スマホでエアコンを操作する画面を大きく見せる。',
+            '涼しい部屋とアプリ操作を一枚で伝える。',
+          ]
+        : [
+            '最初の2秒でエアコン操作の結果を見せる。',
+            'アプリを開き、温度を変える短いデモを試す。',
+          ];
+    }
+
     if (asset.targetLanguageCode === 'de') {
       if (isText) {
         return asset.fieldType === 'HEADLINE'
@@ -2635,25 +2759,100 @@ export class GoogleAdsService {
           ];
     }
 
+    if (asset.targetLanguageCode !== 'en') {
+      return [];
+    }
+
+    return this.getEnglishFallbackReviewIdeas(asset);
+  }
+
+  private getEnglishFallbackReviewIdeas(asset: AiCreativeAsset) {
+    const isText = asset.mediaType === 'Text';
+    const isImage = asset.mediaType === 'Image';
+    const theme = this.inferCreativeTheme([asset.title, asset.text, asset.type, asset.fieldType].join(' '));
+
+    if (theme === 'ac') {
+      if (isText) {
+        return asset.fieldType === 'HEADLINE'
+          ? ['Control AC From Phone', 'Easy AC Remote App']
+          : [
+              'Control your AC from your phone in seconds.',
+              'Adjust room temperature quickly with one app.',
+            ];
+      }
+
+      return isImage
+        ? [
+            'Show the AC control app clearly on a phone screen.',
+            'Use a cool room scene with a visible app control CTA.',
+          ]
+        : [
+            'Open with the AC changing temperature in the first 2 seconds.',
+            'Show a short demo: open app, choose AC, adjust temperature.',
+          ];
+    }
+
+    if (theme === 'security') {
+      if (isText) {
+        return asset.fieldType === 'HEADLINE'
+          ? ['Fast Antivirus Scan', 'Protect Your Phone Free']
+          : [
+              'Scan your phone quickly for viruses and malware.',
+              'Keep your device cleaner with simple mobile protection.',
+            ];
+      }
+
+      return isImage
+        ? [
+            'Show a clear scan result and phone protection status.',
+            'Use a simple security screen with a short trust-focused CTA.',
+          ]
+        : [
+            'Open with a quick scan result and threat removed.',
+            'Show a short demo: scan, detect risk, clean the phone.',
+          ];
+    }
+
+    if (theme === 'led') {
+      if (isText) {
+        return [
+          asset.fieldType === 'HEADLINE'
+            ? 'Free LED Scroller App'
+            : 'Create bright scrolling LED text on your phone for free.',
+          asset.fieldType === 'HEADLINE'
+            ? 'Make LED Text Free'
+            : 'Design moving LED messages fast with a simple free app.',
+        ];
+      }
+
+      return isImage
+        ? [
+            'Use a high-contrast phone screenshot with the overlay copy "Free LED Text".',
+            'Test a clean product mockup showing the scrolling LED effect and a short CTA.',
+          ]
+        : [
+            'Open with the finished LED scrolling result in the first 2 seconds.',
+            'Test a short demo angle: type text, choose color, show the LED result.',
+          ];
+    }
+
     if (isText) {
-      return [
-        asset.fieldType === 'HEADLINE'
-          ? 'Free LED Scroller App'
-          : 'Create bright scrolling LED text on your phone for free.',
-        asset.fieldType === 'HEADLINE'
-          ? 'Make LED Text Free'
-          : 'Design moving LED messages fast with a simple free app.',
-      ];
+      return asset.fieldType === 'HEADLINE'
+        ? ['Try The App Today', 'Simple App Control']
+        : [
+            'Use the app to complete the task quickly and easily.',
+            'Get started in seconds with clear app controls.',
+          ];
     }
 
     return isImage
       ? [
-          'Use a high-contrast phone screenshot with the overlay copy "Free LED Text".',
-          'Test a clean product mockup showing the scrolling LED effect and a short CTA.',
+          'Show the app value clearly on a phone screen.',
+          'Test a simple product visual with a short CTA.',
         ]
       : [
-          'Open with the finished LED scrolling result in the first 2 seconds.',
-          'Test a short demo angle: type text, choose color, show the LED result.',
+          'Open with the main app benefit in the first 2 seconds.',
+          'Show a short demo of the core action and result.',
         ];
   }
 
@@ -3521,88 +3720,19 @@ export class GoogleAdsService {
   }
 
   private async mutateAds(customerId: string, operations: any[]) {
-    return this.requestGoogleAds(customerId, 'ads:mutate', { operations });
+    return this.googleAdsMutation.mutateAds(customerId, operations);
   }
 
   private async mutateAssets(customerId: string, operations: any[]) {
-    return this.requestGoogleAds(customerId, 'assets:mutate', { operations });
+    return this.googleAdsMutation.mutateAssets(customerId, operations);
   }
 
   private async search(customerId: string, query: string) {
-    return this.requestGoogleAds(customerId, 'googleAds:search', { query });
+    return this.googleAdsQuery.search(customerId, query);
   }
 
   private async searchAll(customerId: string, query: string) {
-    const results: any[] = [];
-    let pageToken: string | undefined;
-
-    do {
-      const response = await this.requestGoogleAds(customerId, 'googleAds:search', {
-        query,
-        ...(pageToken ? { pageToken } : {}),
-      });
-      results.push(...(response.results ?? []));
-      pageToken = response.nextPageToken || undefined;
-    } while (pageToken);
-
-    return { results };
-  }
-
-  private async requestGoogleAds(customerId: string, path: string, payload: unknown) {
-    const auth = new GoogleAuth({
-      keyFile: this.config.keyFilePath,
-      scopes: ['https://www.googleapis.com/auth/adwords'],
-    });
-    let accessToken: Awaited<ReturnType<Awaited<ReturnType<typeof auth.getClient>>['getAccessToken']>>;
-
-    try {
-      const client = await auth.getClient();
-      accessToken = await client.getAccessToken();
-    } catch (error) {
-      throw new InternalServerErrorException({
-        message: `Google Ads auth failed: ${this.formatRuntimeError(error)}`,
-      });
-    }
-
-    if (!accessToken.token) {
-      throw new InternalServerErrorException('Could not get Google access token');
-    }
-
-    const url = `https://googleads.googleapis.com/${this.config.apiVersion}/customers/${customerId}/${path}`;
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken.token}`,
-          'Content-Type': 'application/json',
-          'developer-token': this.config.developerToken,
-          ...(this.config.loginCustomerId
-            ? { 'login-customer-id': this.config.loginCustomerId }
-            : {}),
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new InternalServerErrorException({
-          message: this.formatGoogleAdsError(body),
-          status: response.status,
-          details: body,
-        });
-      }
-
-      return body;
-    } catch (error) {
-      if (error instanceof InternalServerErrorException) {
-        throw error;
-      }
-
-      throw new InternalServerErrorException({
-        message: `Could not reach Google Ads API: ${this.formatRuntimeError(error)}`,
-      });
-    }
+    return this.googleAdsQuery.searchAll(customerId, query);
   }
 
   private fitGoogleAdsCopy(value: string, maxLength: number) {
@@ -4162,31 +4292,6 @@ export class GoogleAdsService {
     return [message, status, code].filter(Boolean).join(' | ');
   }
 
-  private formatGoogleAdsError(body: any) {
-    const baseMessage = String(body?.error?.message ?? 'Google Ads API request failed');
-    const errors = body?.error?.details
-      ?.flatMap((detail: any) => detail?.errors ?? [])
-      ?.map((error: any) => {
-        const errorCode = error?.errorCode
-          ? Object.entries(error.errorCode)
-              .map(([key, value]) => `${key}: ${value}`)
-              .join(', ')
-          : '';
-        const fieldPath = error?.location?.fieldPathElements
-          ?.map((field: any) =>
-            field?.index === undefined ? field?.fieldName : `${field?.fieldName}[${field.index}]`,
-          )
-          ?.filter(Boolean)
-          ?.join('.');
-        return [error?.message, errorCode, fieldPath ? `Field: ${fieldPath}` : '']
-          .filter(Boolean)
-          .join(' | ');
-      })
-      ?.filter(Boolean);
-
-    return errors?.length ? `${baseMessage}: ${errors.join(' / ')}` : baseMessage;
-  }
-
   private async getCreativeGuidance(
     customerId: string,
     googleAdGroupId?: string,
@@ -4362,57 +4467,4 @@ export class GoogleAdsService {
     };
   }
 
-  private loadConfig(): GoogleAdsConfig {
-    const configPath = resolve(
-      process.cwd(),
-      process.env.GOOGLE_ADS_CONFIG_PATH ??
-        '../GoogleAds_extracted/GooogleAds/google-ads.yaml',
-    );
-    const yamlConfig = existsSync(configPath) ? this.readSimpleYaml(configPath) : {};
-    const keyFilePath =
-      process.env.GOOGLE_ADS_KEY_FILE ??
-      yamlConfig.json_key_file_path ??
-      '../GoogleAds_extracted/GooogleAds/key.json';
-
-    const resolvedKeyFilePath = isAbsolute(keyFilePath)
-      ? keyFilePath
-      : resolve(dirname(configPath), keyFilePath);
-
-    const developerToken =
-      process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? yamlConfig.developer_token;
-
-    if (!developerToken) {
-      throw new Error('Missing GOOGLE_ADS_DEVELOPER_TOKEN or developer_token in google-ads.yaml');
-    }
-
-    if (!existsSync(resolvedKeyFilePath)) {
-      throw new Error(`Google Ads key file not found: ${resolvedKeyFilePath}`);
-    }
-
-    return {
-      developerToken,
-      loginCustomerId:
-        process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? yamlConfig.login_customer_id,
-      keyFilePath: resolvedKeyFilePath,
-      apiVersion: process.env.GOOGLE_ADS_API_VERSION ?? 'v22',
-    };
-  }
-
-  private readSimpleYaml(path: string): Record<string, string> {
-    return readFileSync(path, 'utf8')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith('#'))
-      .reduce<Record<string, string>>((config, line) => {
-        const separatorIndex = line.indexOf(':');
-        if (separatorIndex === -1) {
-          return config;
-        }
-
-        const key = line.slice(0, separatorIndex).trim();
-        const value = line.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, '');
-        config[key] = value;
-        return config;
-      }, {});
-  }
 }

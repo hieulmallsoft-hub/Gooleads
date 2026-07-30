@@ -4,10 +4,12 @@ import { GoogleAdsModule } from './google-ads/google-ads.module';
 import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 import { CreativeOperationsModule } from './modules/creative-operations/creative-operations.module';
 import { CampaignGroupsModule } from './modules/campaign-groups/campaign-groups.module';
+import { AuthModule } from './modules/auth/auth.module';
 
 @Module({
   imports: [
     DatabaseModule,
+    AuthModule,
     WorkspacesModule,
     GoogleAdsModule,
     CreativeOperationsModule,

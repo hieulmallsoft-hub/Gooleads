@@ -41,6 +41,7 @@ async function bootstrap() {
       'http://localhost:5173',
       'http://127.0.0.1:5173',
     ],
+    credentials: true,
   });
 
   const port = Number(process.env.PORT ?? 3001);

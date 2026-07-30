@@ -26,6 +26,88 @@ export class GoogleAdsSyncService {
     private readonly accountRegistry: GoogleAdsAccountRegistryService,
   ) {}
 
+  async markTextReplacementsApplied(
+    customerId: string,
+    adGroupId: string,
+    input: {
+      headline?: string;
+      description?: string;
+      headlineReplacements?: Array<{ oldText: string }>;
+      descriptionReplacements?: Array<{ oldText: string }>;
+    },
+    replacedAdResourceNames: string[],
+  ) {
+    const resourceNames = [...new Set(replacedAdResourceNames.filter(Boolean))];
+    if (!resourceNames.length) return 0;
+
+    const headlineTexts = [
+      ...new Set(
+        (input.headlineReplacements ?? [])
+          .map((item) => String(item.oldText ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    const descriptionTexts = [
+      ...new Set(
+        (input.descriptionReplacements ?? [])
+          .map((item) => String(item.oldText ?? '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    const replaceAllHeadlines = Boolean(input.headline?.trim());
+    const replaceAllDescriptions = Boolean(input.description?.trim());
+    if (
+      !replaceAllHeadlines &&
+      !replaceAllDescriptions &&
+      !headlineTexts.length &&
+      !descriptionTexts.length
+    ) {
+      return 0;
+    }
+
+    const disabledLinks: Array<{ id: string }> = await this.dataSource.query(
+      `
+        UPDATE ad_asset_links AS link
+        SET enabled = FALSE, updated_at = NOW()
+        FROM assets AS asset, ads AS ad, ad_groups AS ad_group,
+             campaigns AS campaign, google_ads_accounts AS account
+        WHERE link.asset_id = asset.id
+          AND link.ad_id = ad.id
+          AND ad.ad_group_id = ad_group.id
+          AND ad_group.campaign_id = campaign.id
+          AND campaign.account_id = account.id
+          AND account.customer_id = $1
+          AND ad_group.google_ad_group_id = $2
+          AND ad.resource_name = ANY($3::text[])
+          AND link.enabled = TRUE
+          AND link.performance_label = 'LOW'
+          AND (
+            (
+              link.field_type = 'HEADLINE'
+              AND ($4::boolean OR asset.text_content = ANY($5::text[]))
+            )
+            OR
+            (
+              link.field_type = 'DESCRIPTION'
+              AND ($6::boolean OR asset.text_content = ANY($7::text[]))
+            )
+          )
+        RETURNING link.id
+      `,
+      [
+        customerId,
+        adGroupId,
+        resourceNames,
+        replaceAllHeadlines,
+        headlineTexts,
+        replaceAllDescriptions,
+        descriptionTexts,
+      ],
+    );
+
+    return disabledLinks.length;
+  }
+
   async sync(customerId: string, adGroupId: string, timeRange: string) {
     const accountRepository = this.dataSource.getRepository(GoogleAdsAccountEntity);
     const syncRunRepository = this.dataSource.getRepository(SyncRunEntity);
@@ -263,6 +345,13 @@ export class GoogleAdsSyncService {
         item,
       ]),
     );
+    const scopedAdIds = ads.map((item) => item.id);
+    if (scopedAdIds.length) {
+      await linkRepository.update(
+        { adId: In(scopedAdIds), enabled: true },
+        { enabled: false },
+      );
+    }
     const linkInputs = this.uniqueBy(assetRows, (item) =>
       `${item.adGroupId}:${item.adId || this.parseAdId(item.adResourceName)}:${item.assetId}:${item.fieldType}`,
     )

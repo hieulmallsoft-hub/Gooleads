@@ -17,16 +17,51 @@ import type {
 } from '../../types/googleAds';
 
 const GROUP_COLORS = ['#1a73e8', '#188038', '#f9ab00', '#d93025', '#a142f4', '#007b83'];
+const SELECTED_GROUP_STORAGE_PREFIX = 'ggads:selected-campaign-group:';
+const ALL_CAMPAIGNS_GROUP_ID = '__all__';
+
+export type CampaignGroupSelection = {
+  id: string;
+  name: string;
+  campaignIds: string[];
+};
 
 type CampaignGroupsPanelProps = {
   customerId: string;
   campaigns: Campaign[];
-  onFilterChange: (campaignIds: string[] | null) => void;
+  canEdit: boolean;
+  onFilterChange: (selection: CampaignGroupSelection | null) => void;
 };
+
+function getSelectedGroupStorageKey(customerId: string) {
+  return `${SELECTED_GROUP_STORAGE_PREFIX}${customerId}`;
+}
+
+function readStoredGroupId(customerId: string) {
+  try {
+    return window.localStorage.getItem(getSelectedGroupStorageKey(customerId)) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStoredGroupId(customerId: string, groupId: string) {
+  try {
+    const storageKey = getSelectedGroupStorageKey(customerId);
+    if (groupId) {
+      window.localStorage.setItem(storageKey, groupId);
+    } else {
+      window.localStorage.removeItem(storageKey);
+    }
+  } catch {
+    // The selected group still works for the current session.
+  }
+}
 
 export function CampaignGroupsPanel({
   customerId,
   campaigns,
+  canEdit,
   onFilterChange,
 }: CampaignGroupsPanelProps) {
   const [groups, setGroups] = useState<CampaignGroup[]>([]);
@@ -72,14 +107,20 @@ export function CampaignGroupsPanel({
         `/campaign-groups?${new URLSearchParams({ customerId })}`,
       );
       const body = await parseJsonSafe(response);
-      if (!response.ok) throw new Error(extractApiError(body, 'Could not load campaign groups'));
+      if (!response.ok) throw new Error(extractApiError(body, 'Không thể tải nhóm chiến dịch'));
       const result = body as CampaignGroupResponse;
+      const storedGroupId = readStoredGroupId(customerId);
       setGroups(result.groups);
-      setSelectedGroupId((current) =>
-        current && result.groups.some((group) => group.id === current) ? current : '',
-      );
+      setSelectedGroupId((current) => {
+        const groupIds = new Set(result.groups.map((group) => group.id));
+        if (current && groupIds.has(current)) return current;
+        if (storedGroupId === ALL_CAMPAIGNS_GROUP_ID) return '';
+        if (storedGroupId && groupIds.has(storedGroupId)) return storedGroupId;
+        if (result.groups.length === 1) return result.groups[0].id;
+        return '';
+      });
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Could not load campaign groups');
+      setError(loadError instanceof Error ? loadError.message : 'Không thể tải nhóm chiến dịch');
     } finally {
       setLoading(false);
     }
@@ -92,14 +133,24 @@ export function CampaignGroupsPanel({
   }, [customerId]);
 
   useEffect(() => {
-    onFilterChange(
-      selectedGroup
-        ? selectedGroup.campaigns.map((campaign) => campaign.id)
-        : null,
-    );
-  }, [selectedGroup]);
+    if (!selectedGroup) {
+      onFilterChange(null);
+      return;
+    }
+
+    writeStoredGroupId(customerId, selectedGroup.id);
+    onFilterChange({
+      id: selectedGroup.id,
+      name: selectedGroup.name,
+      campaignIds: selectedGroup.campaigns.map((campaign) => campaign.id),
+    });
+  }, [customerId, selectedGroup]);
 
   async function createGroup() {
+    if (!canEdit) {
+      setError('Bạn chỉ có quyền xem nhóm chiến dịch');
+      return;
+    }
     const name = groupName.trim();
     if (!name) {
       setError('Enter a group name');
@@ -114,25 +165,30 @@ export function CampaignGroupsPanel({
         body: JSON.stringify({ customerId, name, color: groupColor }),
       });
       const body = await parseJsonSafe(response);
-      if (!response.ok) throw new Error(extractApiError(body, 'Could not create campaign group'));
+      if (!response.ok) throw new Error(extractApiError(body, 'Không thể tạo nhóm chiến dịch'));
       setGroupName('');
       setCreateOpen(false);
       await loadGroups();
       setSelectedGroupId(body.id);
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Could not create campaign group');
+      setError(createError instanceof Error ? createError.message : 'Không thể tạo nhóm chiến dịch');
     } finally {
       setSaving(false);
     }
   }
 
   function openMemberEditor() {
+    if (!canEdit) return;
     if (!selectedGroup) return;
     setSelectedCampaignIds(selectedGroup.campaigns.map((campaign) => campaign.id));
     setEditorOpen(true);
   }
 
   async function saveMembers() {
+    if (!canEdit) {
+      setError('Bạn chỉ có quyền xem nhóm chiến dịch');
+      return;
+    }
     if (!selectedGroup) return;
     setSaving(true);
     setError('');
@@ -149,19 +205,23 @@ export function CampaignGroupsPanel({
         }),
       });
       const body = await parseJsonSafe(response);
-      if (!response.ok) throw new Error(extractApiError(body, 'Could not save campaign group'));
+      if (!response.ok) throw new Error(extractApiError(body, 'Không thể lưu nhóm chiến dịch'));
       setGroups((body as CampaignGroupResponse).groups);
       setEditorOpen(false);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not save campaign group');
+      setError(saveError instanceof Error ? saveError.message : 'Không thể lưu nhóm chiến dịch');
     } finally {
       setSaving(false);
     }
   }
 
   async function renameGroup() {
+    if (!canEdit) {
+      setError('Bạn chỉ có quyền xem nhóm chiến dịch');
+      return;
+    }
     if (!selectedGroup) return;
-    const name = window.prompt('Campaign group name', selectedGroup.name)?.trim();
+    const name = window.prompt('Tên nhóm chiến dịch', selectedGroup.name)?.trim();
     if (!name || name === selectedGroup.name) return;
     setSaving(true);
     setError('');
@@ -172,17 +232,21 @@ export function CampaignGroupsPanel({
         body: JSON.stringify({ customerId, name }),
       });
       const body = await parseJsonSafe(response);
-      if (!response.ok) throw new Error(extractApiError(body, 'Could not rename campaign group'));
+      if (!response.ok) throw new Error(extractApiError(body, 'Không thể đổi tên nhóm chiến dịch'));
       await loadGroups();
     } catch (renameError) {
-      setError(renameError instanceof Error ? renameError.message : 'Could not rename campaign group');
+      setError(renameError instanceof Error ? renameError.message : 'Không thể đổi tên nhóm chiến dịch');
     } finally {
       setSaving(false);
     }
   }
 
   async function deleteGroup() {
-    if (!selectedGroup || !window.confirm(`Delete group "${selectedGroup.name}"?`)) return;
+    if (!canEdit) {
+      setError('Bạn chỉ có quyền xem nhóm chiến dịch');
+      return;
+    }
+    if (!selectedGroup || !window.confirm(`Xóa nhóm "${selectedGroup.name}"?`)) return;
     setSaving(true);
     setError('');
     try {
@@ -191,12 +255,13 @@ export function CampaignGroupsPanel({
         { method: 'DELETE' },
       );
       const body = await parseJsonSafe(response);
-      if (!response.ok) throw new Error(extractApiError(body, 'Could not delete campaign group'));
+      if (!response.ok) throw new Error(extractApiError(body, 'Không thể xóa nhóm chiến dịch'));
+      writeStoredGroupId(customerId, '');
       setSelectedGroupId('');
       onFilterChange(null);
       await loadGroups();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : 'Could not delete campaign group');
+      setError(deleteError instanceof Error ? deleteError.message : 'Không thể xóa nhóm chiến dịch');
     } finally {
       setSaving(false);
     }
@@ -206,10 +271,10 @@ export function CampaignGroupsPanel({
     <section className="campaignGroupsPanel">
       <div className="campaignGroupsHeader">
         <div>
-          <h2>Campaign groups</h2>
-          <p>Organize campaigns into custom reporting groups.</p>
+          <h2>Nhóm chiến dịch</h2>
+          <p>Sắp xếp chiến dịch thành các nhóm báo cáo tùy chỉnh.</p>
         </div>
-        <button className="secondaryButton" type="button" onClick={() => setCreateOpen(true)}>
+        <button className="secondaryButton" type="button" onClick={() => setCreateOpen(true)} disabled={!canEdit}>
           <FolderPlus size={16} />
           New group
         </button>
@@ -219,10 +284,13 @@ export function CampaignGroupsPanel({
         <button
           type="button"
           className={!selectedGroupId ? 'active' : ''}
-          onClick={() => setSelectedGroupId('')}
+          onClick={() => {
+            writeStoredGroupId(customerId, ALL_CAMPAIGNS_GROUP_ID);
+            setSelectedGroupId('');
+          }}
         >
           <Folder size={15} />
-          All campaigns
+          Tất cả chiến dịch
           <span>{campaigns.length}</span>
         </button>
         {groups.map((group) => (
@@ -237,7 +305,7 @@ export function CampaignGroupsPanel({
             <span>{group.campaigns.length}</span>
           </button>
         ))}
-        {loading ? <span className="campaignGroupsLoading">Loading groups...</span> : null}
+        {loading ? <span className="campaignGroupsLoading">Đang tải nhóm...</span> : null}
       </div>
 
       {selectedGroup ? (
@@ -249,19 +317,19 @@ export function CampaignGroupsPanel({
               <span>{selectedGroup.campaigns.length} campaigns saved</span>
             </div>
           </div>
-          <div className="groupMetric"><span>Views</span><strong>{formatNumber(metrics.impressions)}</strong></div>
-          <div className="groupMetric"><span>Cost</span><strong>{formatNumber(metrics.cost)}</strong></div>
+          <div className="groupMetric"><span>Lượt hiển thị</span><strong>{formatNumber(metrics.impressions)}</strong></div>
+          <div className="groupMetric"><span>Chi phí</span><strong>{formatNumber(metrics.cost)}</strong></div>
           <div className="groupMetric"><span>CTR</span><strong>{formatPercent(metrics.ctr)}</strong></div>
-          <div className="groupMetric"><span>ROAS</span><strong>{metrics.roas.toFixed(2)}</strong></div>
+          <div className="groupMetric"><span>Giá trị CĐ / chi phí</span><strong>{formatPercent(metrics.roas)}</strong></div>
           <div className="groupActions">
-            <button className="secondaryButton" type="button" onClick={openMemberEditor}>
+            <button className="secondaryButton" type="button" onClick={openMemberEditor} disabled={!canEdit}>
               <Users size={15} />
               Manage campaigns
             </button>
-            <button className="iconButton" type="button" onClick={renameGroup} title="Rename group">
+            <button className="iconButton" type="button" onClick={renameGroup} title="Rename group" disabled={!canEdit}>
               <Pencil size={16} />
             </button>
-            <button className="iconButton dangerIcon" type="button" onClick={deleteGroup} title="Delete group">
+            <button className="iconButton dangerIcon" type="button" onClick={deleteGroup} title="Xóa nhóm" disabled={!canEdit}>
               <Trash2 size={16} />
             </button>
           </div>
@@ -272,13 +340,13 @@ export function CampaignGroupsPanel({
 
       {createOpen ? (
         <div className="groupDialogBackdrop">
-          <div className="groupDialog" role="dialog" aria-modal="true" aria-label="Create campaign group">
+          <div className="groupDialog" role="dialog" aria-modal="true" aria-label="Tạo nhóm chiến dịch">
             <div className="groupDialogHeader">
-              <div><strong>Create campaign group</strong><span>You can add campaigns after creating it.</span></div>
+              <div><strong>Tạo nhóm chiến dịch</strong><span>Bạn có thể thêm chiến dịch sau khi tạo nhóm.</span></div>
               <button className="iconButton" type="button" onClick={() => setCreateOpen(false)}><X size={18} /></button>
             </div>
             <label className="groupNameField">
-              <span>Group name</span>
+              <span>Tên nhóm</span>
               <input value={groupName} onChange={(event) => setGroupName(event.target.value)} autoFocus maxLength={120} />
             </label>
             <div className="colorSwatches" aria-label="Group color">
@@ -296,10 +364,10 @@ export function CampaignGroupsPanel({
               ))}
             </div>
             <div className="groupDialogFooter">
-              <button className="secondaryButton" type="button" onClick={() => setCreateOpen(false)}>Cancel</button>
+              <button className="secondaryButton" type="button" onClick={() => setCreateOpen(false)}>Hủy</button>
               <button className="primaryButton" type="button" onClick={createGroup} disabled={saving}>
                 <FolderPlus size={15} />
-                {saving ? 'Creating...' : 'Create group'}
+                {saving ? 'Đang tạo...' : 'Tạo nhóm'}
               </button>
             </div>
           </div>
@@ -312,13 +380,13 @@ export function CampaignGroupsPanel({
             <div className="groupDialogHeader">
               <div>
                 <strong>Manage {selectedGroup.name}</strong>
-                <span>{selectedCampaignIds.length}/{campaigns.length} selected</span>
+                <span>Đã chọn {selectedCampaignIds.length}/{campaigns.length}</span>
               </div>
               <button className="iconButton" type="button" onClick={() => setEditorOpen(false)}><X size={18} /></button>
             </div>
             <div className="campaignPickerToolbar">
-              <button type="button" onClick={() => setSelectedCampaignIds(campaigns.map((campaign) => campaign.id))}>Select all</button>
-              <button type="button" onClick={() => setSelectedCampaignIds([])}>Clear</button>
+              <button type="button" onClick={() => setSelectedCampaignIds(campaigns.map((campaign) => campaign.id))}>Chọn tất cả</button>
+              <button type="button" onClick={() => setSelectedCampaignIds([])}>Bỏ chọn</button>
             </div>
             <div className="campaignChecklist">
               {campaigns.map((campaign) => {
@@ -341,10 +409,10 @@ export function CampaignGroupsPanel({
               })}
             </div>
             <div className="groupDialogFooter">
-              <button className="secondaryButton" type="button" onClick={() => setEditorOpen(false)}>Cancel</button>
+              <button className="secondaryButton" type="button" onClick={() => setEditorOpen(false)}>Hủy</button>
               <button className="primaryButton" type="button" onClick={saveMembers} disabled={saving}>
                 <Check size={15} />
-                {saving ? 'Saving...' : 'Save campaigns'}
+                {saving ? 'Đang lưu...' : 'Lưu chiến dịch'}
               </button>
             </div>
           </div>

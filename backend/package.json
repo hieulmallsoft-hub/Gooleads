@@ -7,6 +7,7 @@
     "start": "set NODE_OPTIONS=--use-system-ca&& node --use-system-ca ./node_modules/@nestjs/cli/bin/nest.js start",
     "start:dev": "set NODE_OPTIONS=--use-system-ca&& node --use-system-ca ./node_modules/@nestjs/cli/bin/nest.js start --watch",
     "build": "nest build",
+    "test": "tsc --outDir %TEMP%\\ggads-backend-test && node scripts/run-tests.cjs %TEMP%\\ggads-backend-test",
     "db:migrate": "node scripts/migrate.cjs"
   },
   "dependencies": {

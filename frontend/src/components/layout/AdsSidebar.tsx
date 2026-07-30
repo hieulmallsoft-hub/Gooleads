@@ -1,7 +1,9 @@
 import {
   BarChart3,
+  ChartNoAxesCombined,
   Eye,
   FileText,
+  BookOpen,
   Image,
   MousePointerClick,
   Search,
@@ -13,7 +15,7 @@ import {
 import type { OperationsSection } from '../OperationsPanel';
 import type { ViewMode } from '../../types/googleAds';
 
-type AssetTypeFilter = 'ALL' | 'VIDEO';
+type AssetTypeFilter = 'ALL' | 'IMAGE' | 'VIDEO';
 
 type AdsSidebarProps = {
   open: boolean;
@@ -50,13 +52,13 @@ export function AdsSidebar({
       <button
         className={`navBackdrop ${open ? 'visible' : ''}`}
         type="button"
-        aria-label="Close navigation"
+        aria-label="Đóng menu"
         onClick={onClose}
       />
-      <aside className={`adsNav ${open ? 'open' : ''}`} aria-label="Google Ads navigation">
+      <aside className={`adsNav ${open ? 'open' : ''}`} aria-label="Điều hướng Google Ads">
         <div className="navHeader">
-          <span>Workspace</span>
-          <button className="iconButton navClose" type="button" aria-label="Close navigation" onClick={onClose}>
+          <span>Không gian làm việc</span>
+          <button className="iconButton navClose" type="button" aria-label="Đóng menu" onClick={onClose}>
             <X size={18} />
           </button>
         </div>
@@ -67,7 +69,7 @@ export function AdsSidebar({
             onClick={navAction(() => onOpenOperations('overview'))}
           >
             <Eye size={16} />
-            Overview
+            Tổng quan
           </button>
           <button
             type="button"
@@ -75,7 +77,15 @@ export function AdsSidebar({
             onClick={navAction(() => onOpenOperations('recommendations'))}
           >
             <Sparkles size={16} />
-            Recommendations
+            Đề xuất
+          </button>
+          <button
+            type="button"
+            className={operationsSection === 'impact' ? 'active' : ''}
+            onClick={navAction(() => onOpenOperations('impact'))}
+          >
+            <ChartNoAxesCombined size={16} />
+            Theo dõi thay đổi
           </button>
           <div className="navSectionLabel">Google Ads</div>
           <button
@@ -84,7 +94,7 @@ export function AdsSidebar({
             onClick={navAction(onOpenCampaigns)}
           >
             <BarChart3 size={16} />
-            Campaigns
+            Chiến dịch
           </button>
           <button
             type="button"
@@ -92,7 +102,7 @@ export function AdsSidebar({
             onClick={navAction(onOpenAdGroups)}
           >
             <MousePointerClick size={16} />
-            Ad groups
+            Nhóm quảng cáo
           </button>
           <button
             type="button"
@@ -100,8 +110,16 @@ export function AdsSidebar({
             onClick={navAction(() => onOpenAssets('ALL'))}
           >
             <Image size={16} />
-            Assets
-            {!hasSelectedAdGroup ? <span className="navHint">select group</span> : null}
+            Tài nguyên
+            {!hasSelectedAdGroup ? <span className="navHint">chọn nhóm</span> : null}
+          </button>
+          <button
+            type="button"
+            className={!operationsSection && viewMode === 'assets' && assetTypeFilter === 'IMAGE' ? 'active' : ''}
+            onClick={navAction(() => onOpenAssets('IMAGE'))}
+          >
+            <Image size={16} />
+            Hình ảnh
           </button>
           <button
             type="button"
@@ -109,16 +127,16 @@ export function AdsSidebar({
             onClick={navAction(() => onOpenAssets('VIDEO'))}
           >
             <Video size={16} />
-            Videos
+            Video
           </button>
-          <div className="navSectionLabel">Configuration</div>
+          <div className="navSectionLabel">Cấu hình</div>
           <button
             type="button"
             className={operationsSection === 'keywords' ? 'active' : ''}
             onClick={navAction(() => onOpenOperations('keywords'))}
           >
             <Search size={16} />
-            Keywords & rules
+            Từ khóa và quy tắc
           </button>
           <button
             type="button"
@@ -126,12 +144,20 @@ export function AdsSidebar({
             onClick={navAction(() => onOpenOperations('settings'))}
           >
             <Settings size={16} />
-            Settings
+            Cài đặt
+          </button>
+          <button
+            type="button"
+            className={operationsSection === 'guide' ? 'active' : ''}
+            onClick={navAction(() => onOpenOperations('guide'))}
+          >
+            <BookOpen size={16} />
+            Hướng dẫn sử dụng
           </button>
         </nav>
         <div className="navFootnote">
           <FileText size={14} />
-          Changes require approval
+          Thay đổi cần được phê duyệt
         </div>
       </aside>
     </>

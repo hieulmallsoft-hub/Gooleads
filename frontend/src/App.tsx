@@ -1,23 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  FileText,
-  Image,
+  MousePointerClick,
   Plus,
   RefreshCw,
-  Sparkles,
-  Video,
 } from 'lucide-react';
 import { OperationsPanel, type OperationsSection } from './components/OperationsPanel';
+import { ChangeImpactPanel } from './features/change-impact/ChangeImpactPanel';
+import { UserGuidePage } from './features/guide/UserGuidePage';
+import { LoginPage } from './components/auth/LoginPage';
 import { AdsSidebar } from './components/layout/AdsSidebar';
 import { AdsTopbar } from './components/layout/AdsTopbar';
+import type { AppNotification } from './components/layout/NotificationBell';
 import { AssetWorkflow } from './components/workflow/AssetWorkflow';
 import { DataContext } from './components/workflow/DataContext';
 import { DateRangeFilter } from './components/filters/DateRangeFilter';
 import { PerformanceSummary } from './features/performance/PerformanceSummary';
 import { PerformanceTable } from './features/performance/PerformanceTable';
-import { CampaignGroupsPanel } from './features/campaign-groups/CampaignGroupsPanel';
-import { apiFetch, extractApiError, parseJsonSafe } from './api/client';
+import {
+  CampaignGroupsPanel,
+  type CampaignGroupSelection,
+} from './features/campaign-groups/CampaignGroupsPanel';
+import { AiCreativeReviewPanel } from './features/assets/AiCreativeReviewPanel';
+import { AiTextSuggestionsPanel } from './features/assets/AiTextSuggestionsPanel';
+import { MediaReplacementPanel } from './features/assets/MediaReplacementPanel';
+import {
+  apiFetch,
+  AUTH_SESSION_EXPIRED_EVENT,
+  extractApiError,
+  parseJsonSafe,
+} from './api/client';
 import {
   AD_GROUP_STORAGE_KEY,
   AUTO_AI_STORAGE_KEY,
@@ -25,6 +37,7 @@ import {
   DESCRIPTION_MAX_LENGTH,
   HEADLINE_MAX_LENGTH,
   PAGE_SIZE,
+  VIEW_STATE_STORAGE_KEY,
 } from './config/googleAds';
 import {
   assetTitle,
@@ -33,7 +46,6 @@ import {
 } from './utils/assets';
 import {
   formatNumber,
-  formatPercent,
 } from './utils/format';
 import {
   getReplacementImageSpec,
@@ -43,13 +55,14 @@ import {
   getInitialAdGroupOptions,
   getInitialCustomerOptions,
   normalizeNumericId,
-  toCustomerOptions,
 } from './utils/storage';
 import { formatTimeRangeLabel } from './utils/dateRange';
 import type {
   AdGroup,
   AdGroupResponse,
   AdGroupSortKey,
+  AuthMeResponse,
+  AuthUser,
   AiCreativeRecommendation,
   AiReviewResponse,
   AiTextSuggestionsResponse,
@@ -72,23 +85,180 @@ import type {
   ViewMode,
 } from './types/googleAds';
 
+type AssetTypeFilter = 'ALL' | 'IMAGE' | 'VIDEO';
+type AssetLabelFilter = 'ALL' | 'LOW' | 'GOOD' | 'BEST' | 'LEARNING' | 'UNKNOWN';
+
+const ASSET_LABEL_FILTERS: Array<{ value: AssetLabelFilter; label: string }> = [
+  { value: 'ALL', label: 'Tất cả nhãn' },
+  { value: 'LOW', label: 'LOW' },
+  { value: 'GOOD', label: 'GOOD' },
+  { value: 'BEST', label: 'BEST' },
+  { value: 'LEARNING', label: 'LEARNING' },
+  { value: 'UNKNOWN', label: 'UNKNOWN' },
+];
+
+type StoredViewState = {
+  customerId?: string;
+  adGroupId?: string;
+  assetTypeFilter?: AssetTypeFilter;
+  assetLabelFilter?: AssetLabelFilter;
+  operationsSection?: OperationsSection | null;
+  selectedCampaign?: { id: string; name: string } | null;
+  timeRange?: string;
+  viewMode?: ViewMode;
+};
+
+function readStoredViewState(): StoredViewState {
+  try {
+    const raw = window.localStorage.getItem(VIEW_STATE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as StoredViewState) : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeStoredNumericId(value: unknown) {
+  return normalizeNumericId(String(value ?? ''));
+}
+
+function normalizeStoredViewMode(value: unknown): ViewMode {
+  if (value === 'adGroups' || value === 'assets') return value;
+  return 'campaigns';
+}
+
+function normalizeStoredOperationsSection(value: unknown): OperationsSection | null | undefined {
+  if (value === null) return null;
+  if (
+    value === 'overview' ||
+    value === 'recommendations' ||
+    value === 'impact' ||
+    value === 'keywords' ||
+    value === 'settings'
+    || value === 'guide'
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function normalizeStoredAssetTypeFilter(value: unknown): AssetTypeFilter {
+  if (value === 'IMAGE' || value === 'VIDEO') return value;
+  return 'ALL';
+}
+
+function normalizeStoredAssetLabelFilter(value: unknown): AssetLabelFilter {
+  if (
+    value === 'LOW' ||
+    value === 'GOOD' ||
+    value === 'BEST' ||
+    value === 'LEARNING' ||
+    value === 'UNKNOWN'
+  ) {
+    return value;
+  }
+  return 'ALL';
+}
+
+function normalizeStoredTimeRange(value: unknown) {
+  const stored = String(value ?? '').trim();
+  return stored || 'LAST_7_DAYS';
+}
+
+function normalizeStoredCampaign(value: unknown): Campaign | null {
+  if (!value || typeof value !== 'object') return null;
+  const campaign = value as { id?: unknown; name?: unknown };
+  const id = normalizeStoredNumericId(campaign.id);
+  const name = String(campaign.name ?? '').trim();
+  if (!id || !name) return null;
+
+  return {
+    id,
+    name,
+    impressions: 0,
+    clicks: 0,
+    ctr: 0,
+    cost: 0,
+    conversions: 0,
+    conversionValue: 0,
+    roas: 0,
+  };
+}
+
+function formatAutomationNotificationDate(value: unknown) {
+  const date = new Date(String(value ?? ''));
+  if (Number.isNaN(date.getTime())) return 'AI định kỳ';
+
+  return new Intl.DateTimeFormat('en-GB', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function toAutomationNotification(value: unknown): AppNotification {
+  const item = value && typeof value === 'object'
+    ? (value as Record<string, unknown>)
+    : {};
+  const severity =
+    item.severity === 'critical' || item.severity === 'warning' || item.severity === 'info'
+      ? item.severity
+      : 'info';
+  const recommendations = Array.isArray(item.recommendations)
+    ? item.recommendations.map((recommendation) => String(recommendation))
+    : [];
+
+  return {
+    id: String(item.id ?? `automation-${String(item.createdAtLabel ?? Date.now())}`),
+    severity,
+    title: String(item.title ?? 'AI định kỳ vừa chạy'),
+    message: String(item.message ?? 'AI định kỳ vừa cập nhật Google Ads'),
+    targetLabel: String(item.targetLabel ?? 'AI định kỳ'),
+    recommendations,
+    createdAtLabel: formatAutomationNotificationDate(item.createdAtLabel),
+  };
+}
+
 export default function App() {
+  const initialViewState = readStoredViewState();
   const initialCustomerOptions = getInitialCustomerOptions();
+  const initialStoredCustomerId = normalizeStoredNumericId(initialViewState.customerId);
+  const seededCustomerOptions =
+    initialStoredCustomerId &&
+    !initialCustomerOptions.some((option) => option.value === initialStoredCustomerId)
+      ? [...initialCustomerOptions, { value: initialStoredCustomerId, label: initialStoredCustomerId }]
+      : initialCustomerOptions;
   const initialAdGroupOptions = getInitialAdGroupOptions();
-  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>(initialCustomerOptions);
-  const [customerId, setCustomerId] = useState(() => initialCustomerOptions[0]?.value ?? '');
+  const initialStoredAdGroupId = normalizeStoredNumericId(initialViewState.adGroupId);
+  const [customerOptions, setCustomerOptions] = useState<CustomerOption[]>(seededCustomerOptions);
+  const [customerId, setCustomerId] = useState(
+    () => initialStoredCustomerId || seededCustomerOptions[0]?.value || '',
+  );
   const [adGroupOptions, setAdGroupOptions] = useState<CustomerOption[]>(initialAdGroupOptions);
   const [newCustomerId, setNewCustomerId] = useState('');
   const [customerInputError, setCustomerInputError] = useState('');
-  const [timeRange, setTimeRange] = useState('LAST_7_DAYS');
+  const [timeRange, setTimeRange] = useState(() => normalizeStoredTimeRange(initialViewState.timeRange));
   const [navOpen, setNavOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('campaigns');
-  const [operationsSection, setOperationsSection] = useState<OperationsSection | null>('overview');
-  const [assetTypeFilter, setAssetTypeFilter] = useState<'ALL' | 'VIDEO'>('ALL');
-  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
-  const [campaignGroupFilterIds, setCampaignGroupFilterIds] = useState<string[] | null>(null);
-  const [adGroupId, setAdGroupId] = useState(() => initialAdGroupOptions[0]?.value ?? '');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => normalizeStoredViewMode(initialViewState.viewMode));
+  const [operationsSection, setOperationsSection] = useState<OperationsSection | null>(() => {
+    const restored = normalizeStoredOperationsSection(initialViewState.operationsSection);
+    return restored === undefined ? 'overview' : restored;
+  });
+  const [assetTypeFilter, setAssetTypeFilter] = useState<AssetTypeFilter>(() =>
+    normalizeStoredAssetTypeFilter(initialViewState.assetTypeFilter),
+  );
+  const [assetLabelFilter, setAssetLabelFilter] = useState<AssetLabelFilter>(() =>
+    normalizeStoredAssetLabelFilter(initialViewState.assetLabelFilter),
+  );
+  const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(() =>
+    normalizeStoredCampaign(initialViewState.selectedCampaign),
+  );
+  const [campaignGroupFilter, setCampaignGroupFilter] = useState<CampaignGroupSelection | null>(null);
+  const [adGroupId, setAdGroupId] = useState(
+    () => initialStoredAdGroupId || initialAdGroupOptions[0]?.value || '',
+  );
   const activeAssetScopeRef = useRef('');
+  const customerResetMountedRef = useRef(false);
   const [searchText, setSearchText] = useState('');
   const [data, setData] = useState<CampaignResponse | null>(null);
   const [adGroupData, setAdGroupData] = useState<AdGroupResponse | null>(null);
@@ -126,6 +296,7 @@ export default function App() {
   const [aiTextError, setAiTextError] = useState('');
   const [autoAiRunKey, setAutoAiRunKey] = useState('');
   const [autoAiEnabled, setAutoAiEnabled] = useState(false);
+  const [automationNotifications, setAutomationNotifications] = useState<AppNotification[]>([]);
   const aiReviewCacheRef = useRef(new Map<string, AiReviewResponse>());
   const aiTextCacheRef = useRef(new Map<string, AiTextSuggestionsResponse>());
   const [mediaReplacementTarget, setMediaReplacementTarget] = useState<Asset | null>(null);
@@ -136,8 +307,150 @@ export default function App() {
   const [mediaReplaceLoading, setMediaReplaceLoading] = useState(false);
   const [mediaReplaceError, setMediaReplaceError] = useState('');
   const [mediaReplaceStatus, setMediaReplaceStatus] = useState('');
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const canEdit = authUser?.role === 'ADMIN' || authUser?.role === 'EDITOR';
+
+  const selectedAdGroup = useMemo(
+    () => adGroupData?.adGroups.find((adGroup) => adGroup.id === adGroupId) ?? null,
+    [adGroupData, adGroupId],
+  );
+  const assetCampaignOptions = useMemo(() => {
+    const campaignsById = new Map<string, { id: string; name: string }>();
+
+    for (const campaign of data?.campaigns ?? []) {
+      campaignsById.set(campaign.id, { id: campaign.id, name: campaign.name });
+    }
+
+    for (const adGroup of adGroupData?.adGroups ?? []) {
+      if (!campaignsById.has(adGroup.campaignId)) {
+        campaignsById.set(adGroup.campaignId, {
+          id: adGroup.campaignId,
+          name: adGroup.campaignName || `Chiến dịch ${adGroup.campaignId}`,
+        });
+      }
+    }
+
+    return Array.from(campaignsById.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [adGroupData, data]);
+  const adGroupSelectOptions = useMemo(() => {
+    const optionsById = new Map<
+      string,
+      { value: string; label: string; campaignId: string; campaignName: string }
+    >();
+    const activeCampaignId = selectedCampaign?.id ?? selectedAdGroup?.campaignId ?? '';
+
+    for (const adGroup of adGroupData?.adGroups ?? []) {
+      if (activeCampaignId && adGroup.campaignId !== activeCampaignId) {
+        continue;
+      }
+
+      optionsById.set(adGroup.id, {
+        value: adGroup.id,
+        label: `${adGroup.name || `Nhóm quảng cáo ${adGroup.id}`} (${adGroup.id})`,
+        campaignId: adGroup.campaignId,
+        campaignName: adGroup.campaignName || `Chiến dịch ${adGroup.campaignId}`,
+      });
+    }
+
+    for (const option of adGroupOptions) {
+      if (activeCampaignId) {
+        continue;
+      }
+
+      const normalizedId = normalizeNumericId(option.value);
+      if (normalizedId && !optionsById.has(normalizedId)) {
+        optionsById.set(normalizedId, {
+          value: normalizedId,
+          label: option.label || normalizedId,
+          campaignId: '',
+          campaignName: '',
+        });
+      }
+    }
+
+    if (!activeCampaignId && adGroupId && !optionsById.has(adGroupId)) {
+      optionsById.set(adGroupId, {
+        value: adGroupId,
+        label: `Nhóm quảng cáo ${adGroupId}`,
+        campaignId: '',
+        campaignName: '',
+      });
+    }
+
+    return Array.from(optionsById.values());
+  }, [adGroupData, adGroupId, adGroupOptions, selectedAdGroup, selectedCampaign]);
+  const selectedAssetCampaignId = selectedAdGroup?.campaignId ?? selectedCampaign?.id ?? '';
+  const selectedAdGroupLabel =
+    selectedAdGroup?.name ||
+    adGroupSelectOptions.find((option) => option.value === adGroupId)?.label ||
+    (adGroupId ? `Nhóm quảng cáo ${adGroupId}` : 'Chọn nhóm quảng cáo');
+  const canEditSelectedCampaign =
+    authUser?.role === 'ADMIN' ||
+    Boolean(
+      authUser?.role === 'EDITOR' &&
+        authUser.accountAccess.some((access) => access.customerId === customerId),
+    );
+  const canManageCampaignGroups = Boolean(
+    authUser?.permissions.includes('campaign_groups.manage'),
+  );
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadCurrentUser() {
+      setAuthLoading(true);
+      setAuthError('');
+      try {
+        const response = await apiFetch('/auth/me');
+        const body = await parseJsonSafe(response);
+        if (!response.ok) {
+          setAuthUser(null);
+          return;
+        }
+        if (!cancelled) {
+          setAuthUser((body as AuthMeResponse).user);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setAuthUser(null);
+          setAuthError(err instanceof Error ? err.message : 'Không thể kiểm tra phiên đăng nhập');
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthLoading(false);
+        }
+      }
+    }
+
+    void loadCurrentUser();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setAuthUser(null);
+      setAuthError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    };
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handleSessionExpired);
+  }, []);
+
+  async function handleLogout() {
+    try {
+      await apiFetch('/auth/logout', { method: 'POST' });
+    } finally {
+      setAuthUser(null);
+      setAuthError('');
+    }
+  }
+
+  useEffect(() => {
+    if (!authUser) return;
+
     let cancelled = false;
 
     async function loadCustomerAccounts() {
@@ -145,7 +458,7 @@ export default function App() {
         const response = await apiFetch('/google-ads/accounts');
       const body = await parseJsonSafe(response);
         if (!response.ok) {
-          throw new Error(extractApiError(body, 'Could not load Google Ads accounts'));
+          throw new Error(extractApiError(body, 'Không thể tải tài khoản Google Ads'));
         }
 
         if (cancelled) return;
@@ -179,7 +492,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authUser]);
 
   useEffect(() => {
     try {
@@ -191,7 +504,38 @@ export default function App() {
     }
   }, [customerId]);
 
+  useEffect(() => {
+    const state: StoredViewState = {
+      customerId,
+      adGroupId,
+      assetTypeFilter,
+      assetLabelFilter,
+      operationsSection,
+      selectedCampaign: selectedCampaign
+        ? { id: selectedCampaign.id, name: selectedCampaign.name }
+        : null,
+      timeRange,
+      viewMode,
+    };
+
+    try {
+      window.localStorage.setItem(VIEW_STATE_STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // Ignore localStorage failures; reload will simply use the default page.
+    }
+  }, [
+    adGroupId,
+    assetLabelFilter,
+    assetTypeFilter,
+    customerId,
+    operationsSection,
+    selectedCampaign,
+    timeRange,
+    viewMode,
+  ]);
+
   function updateAutoAiEnabled(enabled: boolean) {
+    if (!canEditSelectedCampaign) return;
     setAutoAiEnabled(enabled);
     setAutoAiRunKey('');
     try {
@@ -229,6 +573,10 @@ export default function App() {
   }
 
   function selectMediaReplacement(asset: Asset) {
+    if (!canEditSelectedCampaign) {
+      setMediaReplaceError('Bạn chỉ có quyền xem, không thể thay đổi hình ảnh/video');
+      return;
+    }
     setMediaReplacementTarget(asset);
     setReplacementImageFile(null);
     setReplacementImageInfo(null);
@@ -258,7 +606,7 @@ export default function App() {
       );
       const body = await parseJsonSafe(response);
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not save AI approval'));
+        throw new Error(extractApiError(body, 'Không thể lưu phê duyệt AI'));
       }
     } finally {
       setDecisionLoadingIds((current) => current.filter((id) => id !== suggestionId));
@@ -266,6 +614,10 @@ export default function App() {
   }
 
   async function toggleTextSuggestionApproval(asset: LowTextSuggestion) {
+    if (!canEditSelectedCampaign) {
+      setAiTextError('Bạn chỉ có quyền xem, không thể phê duyệt đề xuất AI');
+      return;
+    }
     const approved = !selectedTextSuggestionKeys.includes(asset.key);
     setAiTextError('');
     try {
@@ -280,11 +632,15 @@ export default function App() {
       setTextChangeRequest(null);
       setReplaceConfirmed(false);
     } catch (err) {
-      setAiTextError(err instanceof Error ? err.message : 'Could not save AI approval');
+      setAiTextError(err instanceof Error ? err.message : 'Không thể lưu phê duyệt AI');
     }
   }
 
   async function toggleAllTextSuggestionApprovals() {
+    if (!canEditSelectedCampaign) {
+      setAiTextError('Bạn chỉ có quyền xem, không thể phê duyệt đề xuất AI');
+      return;
+    }
     const approveAll = selectedLowTextSuggestions.length !== lowTextSuggestions.length;
     const targets = approveAll ? lowTextSuggestions : selectedLowTextSuggestions;
     setAiTextError('');
@@ -306,11 +662,15 @@ export default function App() {
       setTextChangeRequest(null);
       setReplaceConfirmed(false);
     } catch (err) {
-      setAiTextError(err instanceof Error ? err.message : 'Could not save AI approvals');
+      setAiTextError(err instanceof Error ? err.message : 'Không thể lưu các phê duyệt AI');
     }
   }
 
   async function toggleCreativeSuggestionApproval(item: AiCreativeRecommendation) {
+    if (!canEditSelectedCampaign) {
+      setAiReviewError('Bạn chỉ có quyền xem, không thể phê duyệt đề xuất AI');
+      return;
+    }
     const approved = !approvedCreativeSuggestionIds.includes(item.suggestionId);
     setAiReviewError('');
     try {
@@ -321,7 +681,7 @@ export default function App() {
           : current.filter((id) => id !== item.suggestionId),
       );
     } catch (err) {
-      setAiReviewError(err instanceof Error ? err.message : 'Could not save AI approval');
+      setAiReviewError(err instanceof Error ? err.message : 'Không thể lưu phê duyệt AI');
     }
   }
 
@@ -335,13 +695,13 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not load Google Ads data'));
+        throw new Error(extractApiError(body, 'Không thể tải dữ liệu Google Ads'));
       }
 
       setData(body);
     } catch (err) {
       setData(null);
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
       setLoading(false);
     }
@@ -357,22 +717,40 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not load ad groups'));
+        throw new Error(extractApiError(body, 'Không thể tải nhóm quảng cáo'));
       }
 
       setAdGroupData(body);
     } catch (err) {
       setAdGroupData(null);
-      setAdGroupError(err instanceof Error ? err.message : 'Unknown error');
+      setAdGroupError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
       setAdGroupLoading(false);
     }
   }
 
+  function campaignFromId(campaignId: string, fallbackName?: string): Campaign {
+    return data?.campaigns.find((campaign) => campaign.id === campaignId) ?? {
+      id: campaignId,
+      name: fallbackName || `Chiến dịch ${campaignId}`,
+      impressions: 0,
+      clicks: 0,
+      ctr: 0,
+      cost: 0,
+      conversions: 0,
+      conversionValue: 0,
+      roas: 0,
+    };
+  }
+
+  function campaignFromAdGroup(adGroup: AdGroup): Campaign {
+    return campaignFromId(adGroup.campaignId, adGroup.campaignName);
+  }
+
   async function loadAssets(adGroupOverride?: string) {
     const normalizedAdGroupId = normalizeNumericId(adGroupOverride ?? adGroupId);
     if (!normalizedAdGroupId) {
-      setAssetError('Enter an ad group ID to review asset performance');
+      setAssetError('Hãy chọn nhóm quảng cáo để xem hiệu quả tài nguyên');
       return;
     }
 
@@ -399,7 +777,7 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not load asset data'));
+        throw new Error(extractApiError(body, 'Không thể tải dữ liệu tài nguyên'));
       }
 
       if (activeAssetScopeRef.current !== requestScope) return;
@@ -421,25 +799,39 @@ export default function App() {
       setMediaReplaceError('');
       setMediaReplaceStatus('');
       setAdGroupId(normalizedAdGroupId);
+      const loadedAdGroup = adGroupData?.adGroups.find(
+        (adGroup) => adGroup.id === normalizedAdGroupId,
+      );
+      if (loadedAdGroup) {
+        setSelectedCampaign(campaignFromAdGroup(loadedAdGroup));
+      }
       setAdGroupOptions((currentOptions) => {
+        const matchingAdGroup = adGroupData?.adGroups.find(
+          (adGroup) => adGroup.id === normalizedAdGroupId,
+        );
+        const optionLabel =
+          matchingAdGroup?.name
+            ? `${matchingAdGroup.name} (${normalizedAdGroupId})`
+            : normalizedAdGroupId;
         if (currentOptions.some((option) => option.value === normalizedAdGroupId)) {
           return currentOptions;
         }
-        return [...currentOptions, { value: normalizedAdGroupId, label: normalizedAdGroupId }];
+        return [...currentOptions, { value: normalizedAdGroupId, label: optionLabel }];
       });
     } catch (err) {
       if (activeAssetScopeRef.current !== requestScope) return;
       setAssetData(null);
       setAssetLoadVersion((version) => version + 1);
-      setAssetError(err instanceof Error ? err.message : 'Unknown error');
+      setAssetError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
       if (activeAssetScopeRef.current === requestScope) setAssetLoading(false);
     }
   }
 
-  function openAdGroupAssets(adGroup: AdGroup) {
+  function openAdGroupAssets(adGroup: AdGroup, filter: AssetTypeFilter = 'ALL') {
     setOperationsSection(null);
-    setAssetTypeFilter('ALL');
+    setAssetTypeFilter(filter);
+    setSelectedCampaign(campaignFromAdGroup(adGroup));
     setAdGroupId(adGroup.id);
     setAdGroupOptions((currentOptions) => {
       if (currentOptions.some((option) => option.value === adGroup.id)) {
@@ -458,7 +850,7 @@ export default function App() {
     setViewMode('adGroups');
   }
 
-  function openAssetsById(targetAdGroupId: string, filter: 'ALL' | 'VIDEO' = 'ALL') {
+  function openAssetsById(targetAdGroupId: string, filter: AssetTypeFilter = 'ALL') {
     const normalizedAdGroupId = normalizeNumericId(targetAdGroupId);
     if (!normalizedAdGroupId) return;
     setOperationsSection(null);
@@ -469,6 +861,10 @@ export default function App() {
   }
 
   async function generateAiReview(adGroupOverride?: string, options: { force?: boolean } = {}) {
+    if (!canEditSelectedCampaign) {
+      setAiReviewError('Bạn chỉ có quyền xem. Hãy nhờ quản trị viên cấp quyền chỉnh sửa để tạo đánh giá AI.');
+      return;
+    }
     const normalizedAdGroupId = normalizeNumericId(
       typeof adGroupOverride === 'string' ? adGroupOverride : adGroupId,
     );
@@ -484,7 +880,7 @@ export default function App() {
       : '';
 
     if (loadedAssetScope !== requestScope) {
-      setAiReviewError('Load assets for this ad group before running AI review');
+      setAiReviewError('Hãy tải tài nguyên của nhóm quảng cáo trước khi chạy đánh giá AI');
       return;
     }
 
@@ -516,7 +912,7 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not generate AI review'));
+        throw new Error(extractApiError(body, 'Không thể tạo đánh giá AI'));
       }
 
       if (activeAssetScopeRef.current !== requestScope) return;
@@ -532,13 +928,17 @@ export default function App() {
       if (activeAssetScopeRef.current !== requestScope) return;
       setAiReview(null);
       setApprovedCreativeSuggestionIds([]);
-      setAiReviewError(err instanceof Error ? err.message : 'Unknown error');
+      setAiReviewError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
       if (activeAssetScopeRef.current === requestScope) setAiReviewLoading(false);
     }
   }
 
   async function generateAiTextSuggestions(adGroupOverride?: string, options: { force?: boolean } = {}) {
+    if (!canEditSelectedCampaign) {
+      setAiTextError('Bạn chỉ có quyền xem. Hãy nhờ quản trị viên cấp quyền chỉnh sửa để tạo đề xuất AI.');
+      return;
+    }
     const normalizedAdGroupId = normalizeNumericId(
       typeof adGroupOverride === 'string' ? adGroupOverride : adGroupId,
     );
@@ -554,7 +954,7 @@ export default function App() {
       : '';
 
     if (loadedAssetScope !== requestScope) {
-      setAiTextError('Load assets for this ad group before generating AI suggestions');
+      setAiTextError('Hãy tải tài nguyên của nhóm quảng cáo trước khi tạo đề xuất AI');
       return;
     }
 
@@ -592,7 +992,7 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not generate AI text suggestions'));
+        throw new Error(extractApiError(body, 'Không thể tạo đề xuất nội dung bằng AI'));
       }
 
       if (activeAssetScopeRef.current !== requestScope) return;
@@ -610,40 +1010,44 @@ export default function App() {
       if (activeAssetScopeRef.current !== requestScope) return;
       setAiTextSuggestions(null);
       setSelectedTextSuggestionKeys([]);
-      setAiTextError(err instanceof Error ? err.message : 'Unknown error');
+      setAiTextError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
       if (activeAssetScopeRef.current === requestScope) setAiTextLoading(false);
     }
   }
 
   async function replaceMediaAsset() {
+    if (!canEditSelectedCampaign) {
+      setMediaReplaceError('Bạn chỉ có quyền xem, không thể thay thế nội dung đa phương tiện');
+      return;
+    }
     const normalizedAdGroupId = normalizeNumericId(adGroupId);
     const mediaType = mediaReplacementTarget
       ? getMediaReplacementType(mediaReplacementTarget)
       : '';
 
     if (!normalizedAdGroupId) {
-      setMediaReplaceError('Enter an ad group ID before replacing media');
+      setMediaReplaceError('Hãy nhập ID nhóm quảng cáo trước khi thay thế');
       return;
     }
 
     if (!mediaReplacementTarget || !mediaType || !mediaReplacementTarget.resourceName) {
-      setMediaReplaceError('Choose an IMAGE or VIDEO row from the asset table first');
+      setMediaReplaceError('Hãy chọn một dòng HÌNH ẢNH hoặc VIDEO trong bảng tài nguyên trước');
       return;
     }
 
     if (mediaType === 'IMAGE' && !replacementImageFile) {
-      setMediaReplaceError('Upload a replacement image file');
+      setMediaReplaceError('Hãy tải lên hình ảnh thay thế');
       return;
     }
 
     if (mediaType === 'VIDEO' && !replacementVideoUrl.trim()) {
-      setMediaReplaceError('Enter a replacement YouTube video URL or ID');
+      setMediaReplaceError('Hãy nhập URL hoặc ID video YouTube thay thế');
       return;
     }
 
     if (!mediaReplaceConfirmed) {
-      setMediaReplaceError('Confirm the media replacement before updating Google Ads');
+      setMediaReplaceError('Hãy xác nhận thay thế trước khi cập nhật Google Ads');
       return;
     }
 
@@ -680,13 +1084,13 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not replace media asset'));
+        throw new Error(extractApiError(body, 'Không thể thay tài nguyên hình ảnh/video'));
       }
 
       const result = body as ReplaceMediaResponse;
       const replacements = result.replacedAds.reduce((sum, ad) => sum + ad.replacements, 0);
       setMediaReplaceStatus(
-        `${result.message}. Replaced ${replacements} ${mediaType.toLowerCase()} reference${replacements === 1 ? '' : 's'} with ${result.newAssetResourceName}.`,
+        `${result.message}. Đã thay ${replacements} vị trí tham chiếu bằng ${result.newAssetResourceName}.`,
       );
       setMediaReplaceConfirmed(false);
       setReplacementImageFile(null);
@@ -694,7 +1098,7 @@ export default function App() {
       setReplacementVideoUrl('');
       await loadAssets();
     } catch (err) {
-      setMediaReplaceError(err instanceof Error ? err.message : 'Unknown error');
+      setMediaReplaceError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
       setMediaReplaceLoading(false);
     }
@@ -735,6 +1139,10 @@ export default function App() {
   }
 
   async function createTextChangeRequest() {
+    if (!canEditSelectedCampaign) {
+      setReplaceError('Bạn chỉ có quyền xem, không thể thay đổi văn bản');
+      return;
+    }
     const {
       normalizedAdGroupId,
       headline,
@@ -744,17 +1152,17 @@ export default function App() {
     } = buildTextReplacementPayload();
 
     if (!normalizedAdGroupId) {
-      setReplaceError('Enter an ad group ID before preparing a change request');
+      setReplaceError('Hãy nhập ID nhóm quảng cáo trước khi chuẩn bị yêu cầu thay đổi');
       return;
     }
 
     if (headline.length > HEADLINE_MAX_LENGTH) {
-      setReplaceError(`Headline override must be ${HEADLINE_MAX_LENGTH} characters or fewer`);
+      setReplaceError(`Tiêu đề thay thế không được vượt quá ${HEADLINE_MAX_LENGTH} ký tự`);
       return;
     }
 
     if (description.length > DESCRIPTION_MAX_LENGTH) {
-      setReplaceError(`Description override must be ${DESCRIPTION_MAX_LENGTH} characters or fewer`);
+      setReplaceError(`Mô tả thay thế không được vượt quá ${DESCRIPTION_MAX_LENGTH} ký tự`);
       return;
     }
 
@@ -764,7 +1172,7 @@ export default function App() {
       headlineReplacements.length === 0 &&
       descriptionReplacements.length === 0
     ) {
-      setReplaceError('Select at least one AI suggestion or enter an override before creating a preview');
+      setReplaceError('Hãy chọn ít nhất một đề xuất AI hoặc nhập nội dung thay thế trước khi xem trước');
       return;
     }
 
@@ -791,29 +1199,33 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not prepare change request'));
+        throw new Error(extractApiError(body, 'Không thể chuẩn bị yêu cầu thay đổi'));
       }
 
       const request = body as TextChangeRequest;
       const plannedTexts = request.items.reduce((sum, item) => sum + item.replacementCount, 0);
       setTextChangeRequest(request);
-      setReplaceStatus(`Preview ready. ${request.items.length} ad${request.items.length === 1 ? '' : 's'} and ${plannedTexts} text asset${plannedTexts === 1 ? '' : 's'} prepared. Review it before applying.`);
+      setReplaceStatus(`Bản xem trước đã sẵn sàng: ${request.items.length} quảng cáo và ${plannedTexts} nội dung văn bản. Hãy kiểm tra trước khi áp dụng.`);
       setAdGroupId(normalizedAdGroupId);
     } catch (err) {
-      setReplaceError(err instanceof Error ? err.message : 'Unknown error');
+      setReplaceError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
       setReplaceLoading(false);
     }
   }
 
   async function applyTextChangeRequest() {
+    if (!canEditSelectedCampaign) {
+      setReplaceError('Bạn chỉ có quyền xem, không thể áp dụng thay đổi');
+      return;
+    }
     if (!textChangeRequest) {
-      setReplaceError('Create a preview before applying changes');
+      setReplaceError('Hãy tạo bản xem trước trước khi áp dụng thay đổi');
       return;
     }
 
     if (!replaceConfirmed) {
-      setReplaceError('Confirm the preview before applying it in Google Ads');
+      setReplaceError('Hãy xác nhận bản xem trước trước khi áp dụng lên Google Ads');
       return;
     }
 
@@ -828,7 +1240,7 @@ export default function App() {
       const body = await parseJsonSafe(response);
 
       if (!response.ok) {
-        throw new Error(extractApiError(body, 'Could not apply change request'));
+        throw new Error(extractApiError(body, 'Không thể áp dụng yêu cầu thay đổi'));
       }
 
       const applyResponse = body as TextChangeRequestApplyResponse;
@@ -838,39 +1250,96 @@ export default function App() {
         0,
       );
       setReplaceStatus(
-        `${result.message}. Applied ${changedTexts} text asset${changedTexts === 1 ? '' : 's'} from approved request ${applyResponse.changeRequest.id}.`,
+        `${result.message}. Đã áp dụng ${changedTexts} nội dung văn bản từ yêu cầu ${applyResponse.changeRequest.id}.`,
       );
       setReplaceConfirmed(false);
       setSelectedTextSuggestionKeys([]);
       await loadAssets();
       setTextChangeRequest(applyResponse.changeRequest);
     } catch (err) {
-      setReplaceError(err instanceof Error ? err.message : 'Unknown error');
+      setReplaceError(err instanceof Error ? err.message : 'Lỗi không xác định');
     } finally {
       setReplaceLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadCampaigns();
-  }, [customerId, timeRange]);
+    if (authUser) {
+      void loadCampaigns();
+    }
+  }, [authUser, customerId, timeRange]);
 
   useEffect(() => {
+    if (!authUser || !customerId) {
+      setAutomationNotifications([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadAutomationNotifications() {
+      try {
+        const response = await apiFetch(
+          `/creative-operations/automation/notifications?${new URLSearchParams({ customerId })}`,
+        );
+        const body = await parseJsonSafe(response);
+        if (!response.ok || cancelled) return;
+
+        const items = Array.isArray(body.notifications) ? body.notifications : [];
+        setAutomationNotifications(items.map(toAutomationNotification));
+      } catch {
+        if (!cancelled) {
+          setAutomationNotifications([]);
+        }
+      }
+    }
+
+    void loadAutomationNotifications();
+    const timer = window.setInterval(() => void loadAutomationNotifications(), 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authUser, customerId]);
+
+  useEffect(() => {
+    if (!customerResetMountedRef.current) {
+      customerResetMountedRef.current = true;
+      return;
+    }
+
     setSelectedCampaign(null);
-    setCampaignGroupFilterIds(null);
+    setCampaignGroupFilter(null);
   }, [customerId]);
 
   useEffect(() => {
-    if (viewMode === 'adGroups') {
+    if (authUser && viewMode === 'adGroups') {
       void loadAdGroups();
     }
-  }, [customerId, timeRange, viewMode]);
+  }, [authUser, customerId, timeRange, viewMode]);
 
   useEffect(() => {
-    if (viewMode === 'assets' && adGroupId.trim()) {
+    if (authUser && viewMode === 'assets') {
+      void loadAdGroups();
+    }
+  }, [authUser, customerId, timeRange, viewMode]);
+
+  useEffect(() => {
+    if (authUser && viewMode === 'assets' && adGroupId.trim()) {
       void loadAssets();
     }
-  }, [customerId, timeRange]);
+  }, [authUser, customerId, timeRange]);
+
+  useEffect(() => {
+    if (
+      viewMode === 'assets' &&
+      selectedAdGroup &&
+      selectedCampaign?.id !== selectedAdGroup.campaignId
+    ) {
+      setSelectedCampaign(campaignFromAdGroup(selectedAdGroup));
+    }
+  }, [data, selectedAdGroup, selectedCampaign, viewMode]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -885,8 +1354,10 @@ export default function App() {
     adGroupSortDir,
     assetSortKey,
     assetSortDir,
+    assetLabelFilter,
     rowsPerPage,
     viewMode,
+    campaignGroupFilter,
   ]);
 
   useEffect(() => {
@@ -915,7 +1386,7 @@ export default function App() {
     const normalizedId = normalizeNumericId(newCustomerId);
 
     if (!/^\d{10}$/.test(normalizedId)) {
-      setCustomerInputError('Customer ID must have 10 digits');
+      setCustomerInputError('ID khách hàng phải có 10 chữ số');
       return;
     }
 
@@ -935,7 +1406,7 @@ export default function App() {
       setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortKey(key);
-      setSortDir(key === 'name' || key === 'id' ? 'asc' : 'desc');
+      setSortDir(key === 'name' || key === 'id' || key === 'status' ? 'asc' : 'desc');
     }
   }
 
@@ -965,8 +1436,8 @@ export default function App() {
     const keyword = searchText.trim().toLowerCase();
     let list = data?.campaigns ?? [];
 
-    if (campaignGroupFilterIds) {
-      const groupCampaignIds = new Set(campaignGroupFilterIds);
+    if (campaignGroupFilter) {
+      const groupCampaignIds = new Set(campaignGroupFilter.campaignIds);
       list = list.filter((campaign) => groupCampaignIds.has(campaign.id));
     }
 
@@ -974,7 +1445,8 @@ export default function App() {
       list = list.filter(
         (campaign) =>
           campaign.name.toLowerCase().includes(keyword) ||
-          campaign.id.toLowerCase().includes(keyword),
+          campaign.id.toLowerCase().includes(keyword) ||
+          String(campaign.status ?? '').toLowerCase().includes(keyword),
       );
     }
 
@@ -987,7 +1459,7 @@ export default function App() {
           : Number(aVal ?? 0) - Number(bVal ?? 0);
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [data, searchText, sortKey, sortDir, campaignGroupFilterIds]);
+  }, [data, searchText, sortKey, sortDir, campaignGroupFilter]);
 
   const filteredAdGroups = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -1027,6 +1499,16 @@ export default function App() {
       list = list.filter((asset) => getMediaReplacementType(asset) === 'VIDEO');
     }
 
+    if (assetTypeFilter === 'IMAGE') {
+      list = list.filter((asset) => getMediaReplacementType(asset) === 'IMAGE');
+    }
+
+    if (assetLabelFilter !== 'ALL') {
+      list = list.filter(
+        (asset) => (asset.performanceLabel || 'UNKNOWN').toUpperCase() === assetLabelFilter,
+      );
+    }
+
     if (keyword) {
       list = list.filter((asset) =>
         [assetTitle(asset), asset.id, asset.type, asset.fieldType, asset.performanceLabel]
@@ -1045,7 +1527,7 @@ export default function App() {
           : Number(aVal ?? 0) - Number(bVal ?? 0);
       return assetSortDir === 'asc' ? cmp : -cmp;
     });
-  }, [assetData, searchText, assetSortKey, assetSortDir, assetTypeFilter]);
+  }, [assetData, searchText, assetSortKey, assetSortDir, assetTypeFilter, assetLabelFilter]);
 
   const bestCampaign = useMemo(() => {
     return filteredCampaigns.reduce<Campaign | null>((best, campaign) => {
@@ -1055,15 +1537,6 @@ export default function App() {
       return best;
     }, null);
   }, [filteredCampaigns]);
-
-  const bestAsset = useMemo(() => {
-    return filteredAssets.reduce<Asset | null>((best, asset) => {
-      if (!best || asset.roas > best.roas) {
-        return asset;
-      }
-      return best;
-    }, null);
-  }, [filteredAssets]);
 
   const campaignViews = data?.totalImpressions ?? 0;
   const aiRecommendations = aiReview?.recommendations ?? [];
@@ -1148,6 +1621,7 @@ export default function App() {
   useEffect(() => {
     if (
       !autoAiEnabled ||
+      !canEditSelectedCampaign ||
       viewMode !== 'assets' ||
       !assetData ||
       !assetFingerprint ||
@@ -1176,6 +1650,7 @@ export default function App() {
     assetLoadVersion,
     autoAiEnabled,
     autoAiRunKey,
+    canEditSelectedCampaign,
     customerId,
     lowTextCandidates.length,
     viewMode,
@@ -1201,11 +1676,130 @@ export default function App() {
   const paginatedAssets = filteredAssets.slice(pageStart, pageEnd);
   const selectedTimeLabel =
     {
-      TODAY: 'Today',
-      YESTERDAY: 'Yesterday',
+      TODAY: 'Hôm nay',
+      YESTERDAY: 'Hôm qua',
       LAST_7_DAYS: 'Last 7 days',
       THIS_MONTH: 'This month',
     }[timeRange] ?? formatTimeRangeLabel(timeRange);
+  const monitorNotifications = useMemo<AppNotification[]>(() => {
+    const notifications: AppNotification[] = [];
+    const campaignRows = filteredCampaigns;
+    const adGroupRows = filteredAdGroups;
+    const assetRows = filteredAssets;
+    const avgCampaignRoas = campaignRows.length
+      ? campaignRows.reduce((sum, campaign) => sum + campaign.roas, 0) / campaignRows.length
+      : 0;
+    const avgCampaignCost = campaignRows.length
+      ? campaignRows.reduce((sum, campaign) => sum + campaign.cost, 0) / campaignRows.length
+      : 0;
+    const avgAdGroupRoas = adGroupRows.length
+      ? adGroupRows.reduce((sum, adGroup) => sum + adGroup.roas, 0) / adGroupRows.length
+      : 0;
+    const avgAdGroupCost = adGroupRows.length
+      ? adGroupRows.reduce((sum, adGroup) => sum + adGroup.cost, 0) / adGroupRows.length
+      : 0;
+
+    campaignRows
+      .filter((campaign) =>
+        campaign.cost >= Math.max(avgCampaignCost * 0.75, 1) &&
+        campaign.roas < Math.max(avgCampaignRoas * 0.7, 0.25),
+      )
+      .sort((a, b) => b.cost - a.cost)
+      .slice(0, 3)
+      .forEach((campaign) => {
+        notifications.push({
+          id: `campaign-low-roas-${campaign.id}-${timeRange}`,
+          severity: campaign.roas < Math.max(avgCampaignRoas * 0.45, 0.15) ? 'critical' : 'warning',
+          title: 'Chiến dịch đang thấp hơn mục tiêu ROAS',
+          message: `${campaign.name} has ROAS ${campaign.roas.toFixed(2)} with ${formatNumber(campaign.cost)} cost in ${selectedTimeLabel}.`,
+          targetLabel: 'Chiến dịch',
+          createdAtLabel: selectedTimeLabel,
+          recommendations: [
+            'Mở nhóm quảng cáo để tìm phân khúc lưu lượng kém hiệu quả nhất.',
+            'Check LOW assets and refresh copy or media before scaling spend.',
+            'Compare this campaign against the best ROAS campaign in the same group.',
+          ],
+        });
+      });
+
+    campaignRows
+      .filter((campaign) => campaign.conversions === 0 && campaign.cost >= Math.max(avgCampaignCost, 5))
+      .sort((a, b) => b.cost - a.cost)
+      .slice(0, 2)
+      .forEach((campaign) => {
+        notifications.push({
+          id: `campaign-no-conv-${campaign.id}-${timeRange}`,
+          severity: 'critical',
+          title: 'Spend without conversions',
+          message: `${campaign.name} spent ${formatNumber(campaign.cost)} but has no conversions in ${selectedTimeLabel}.`,
+          targetLabel: 'Chiến dịch',
+          createdAtLabel: selectedTimeLabel,
+          recommendations: [
+            'Review search terms, placements, and audience quality.',
+            'Pause weak ad groups or reduce spend until conversion quality returns.',
+            'Ask AI for new creative angles before replacing active assets.',
+          ],
+        });
+      });
+
+    adGroupRows
+      .filter((adGroup) =>
+        adGroup.cost >= Math.max(avgAdGroupCost * 0.8, 1) &&
+        adGroup.roas < Math.max(avgAdGroupRoas * 0.65, 0.2),
+      )
+      .sort((a, b) => b.cost - a.cost)
+      .slice(0, 3)
+      .forEach((adGroup) => {
+        notifications.push({
+          id: `adgroup-low-roas-${adGroup.id}-${timeRange}`,
+          severity: adGroup.roas < Math.max(avgAdGroupRoas * 0.4, 0.12) ? 'critical' : 'warning',
+          title: 'Nhóm quảng cáo cần được xem lại nội dung',
+          message: `${adGroup.name} in ${adGroup.campaignName} has ROAS ${adGroup.roas.toFixed(2)} and ${formatNumber(adGroup.clicks)} clicks.`,
+          targetLabel: 'Nhóm quảng cáo',
+          createdAtLabel: selectedTimeLabel,
+          recommendations: [
+            'Mở tài nguyên của nhóm quảng cáo này và tạo đánh giá AI.',
+            'Prioritize LOW-label headline, image, and video assets.',
+            'Test one sharper benefit-led headline before replacing all copy.',
+          ],
+        });
+      });
+
+    if (assetData) {
+      const lowAssets = assetRows.filter((asset) => asset.performanceLabel === 'LOW');
+      const lowMediaAssets = lowAssets.filter((asset) => getMediaReplacementType(asset));
+      const lowTextAssets = lowAssets.filter(
+        (asset) => asset.fieldType === 'HEADLINE' || asset.fieldType === 'DESCRIPTION',
+      );
+
+      if (lowAssets.length >= 3) {
+        notifications.push({
+          id: `assets-many-low-${assetData.adGroupId}-${assetData.timeRange}`,
+          severity: lowAssets.length >= 6 ? 'critical' : 'warning',
+          title: 'Many LOW assets detected',
+          message: `${selectedAdGroupLabel} has ${lowAssets.length} LOW assets from ${formatNumber(assetRows.reduce((sum, asset) => sum + asset.impressions, 0))} views.`,
+          targetLabel: 'Tài nguyên',
+          createdAtLabel: selectedTimeLabel,
+          recommendations: [
+            lowTextAssets.length ? 'Tạo đề xuất AI cho tiêu đề/mô tả hiệu quả THẤP.' : 'Nội dung văn bản đang ổn định; hãy tập trung vào hình ảnh/video.',
+            lowMediaAssets.length ? 'Thay hình ảnh/video hiệu quả thấp bằng hình sản phẩm rõ ràng hơn.' : 'Không có hình ảnh/video hiệu quả thấp trong bộ lọc hiện tại.',
+            'Chỉ áp dụng thay đổi đã phê duyệt và theo dõi trong giai đoạn tiếp theo.',
+          ],
+        });
+      }
+    }
+
+    return [...automationNotifications, ...notifications.slice(0, 8)].slice(0, 10);
+  }, [
+    assetData,
+    automationNotifications,
+    filteredAdGroups,
+    filteredAssets,
+    filteredCampaigns,
+    selectedAdGroupLabel,
+    selectedTimeLabel,
+    timeRange,
+  ]);
   const activeError =
     viewMode === 'assets'
       ? assetError
@@ -1225,6 +1819,7 @@ export default function App() {
   const aiTextDisabled =
     aiTextLoading ||
     assetLoading ||
+    !canEditSelectedCampaign ||
     !assetData ||
     lowTextCandidates.length === 0 ||
     !adGroupId.trim();
@@ -1232,11 +1827,13 @@ export default function App() {
     replaceLoading ||
     aiTextLoading ||
     assetLoading ||
+    !canEditSelectedCampaign ||
     !hasTextReplacementInput ||
     !adGroupId.trim();
   const applyTextChangeDisabled =
     replaceLoading ||
     assetLoading ||
+    !canEditSelectedCampaign ||
     !textChangeRequest ||
     textChangeRequest.status !== 'PENDING' ||
     !replaceConfirmed;
@@ -1247,6 +1844,7 @@ export default function App() {
   const mediaReplaceDisabled =
     mediaReplaceLoading ||
     assetLoading ||
+    !canEditSelectedCampaign ||
     !mediaReplaceConfirmed ||
     !mediaReplacementTarget ||
     !mediaReplacementType ||
@@ -1255,13 +1853,32 @@ export default function App() {
   const searchPlaceholder =
     viewMode === 'assets'
       ? assetTypeFilter === 'VIDEO'
-        ? 'Search video, label, or ID'
-        : 'Search asset, type, label, or ID'
+        ? 'Tìm video, nhãn hoặc ID'
+        : assetTypeFilter === 'IMAGE'
+          ? 'Tìm hình ảnh, nhãn hoặc ID'
+          : 'Tìm tài nguyên, loại, nhãn hoặc ID'
       : viewMode === 'adGroups'
-        ? 'Search ad group, campaign, or ID'
-        : 'Search campaign or ID';
+        ? 'Tìm nhóm quảng cáo, chiến dịch hoặc ID'
+        : 'Tìm chiến dịch hoặc ID';
   const approvedChangeCount =
     approvedCreativeSuggestionIds.length + selectedLowTextSuggestions.length;
+
+  if (authLoading) {
+    return (
+      <main className="loginScreen">
+        <section className="loginPanel compactLoginPanel">
+          <strong>Đang kiểm tra phiên đăng nhập...</strong>
+        </section>
+      </main>
+    );
+  }
+
+  if (!authUser) {
+    return <LoginPage initialError={authError} onAuthenticated={(user) => {
+      setAuthUser(user);
+      setAuthError('');
+    }} />;
+  }
 
   return (
     <div className="adsApp">
@@ -1270,9 +1887,12 @@ export default function App() {
         searchText={searchText}
         searchPlaceholder={searchPlaceholder}
         showSearch={!operationsSection}
+        notifications={monitorNotifications}
+        currentUser={authUser}
         onSearchChange={setSearchText}
         onMenuToggle={() => setNavOpen((current) => !current)}
         onOpenSettings={() => setOperationsSection('settings')}
+        onLogout={handleLogout}
       />
 
       <div className="adsBody">
@@ -1299,25 +1919,37 @@ export default function App() {
               void openAssetsById(adGroupId, filter);
             } else {
               setOperationsSection(null);
-              setViewMode('adGroups');
+              setAssetTypeFilter(filter);
+              setViewMode('assets');
+              void loadAdGroups();
             }
           }}
         />
 
         <main className="shell">
         {operationsSection ? (
-          <OperationsPanel
-            section={operationsSection}
-            customerId={customerId}
-            request={apiFetch}
-            onOpenAssets={(targetAdGroupId) => openAssetsById(targetAdGroupId)}
-          />
+          operationsSection === 'impact' ? (
+            <ChangeImpactPanel customerId={customerId} />
+          ) : operationsSection === 'guide' ? (
+            <UserGuidePage />
+          ) : (
+            <OperationsPanel
+              section={operationsSection}
+              customerId={customerId}
+              request={apiFetch}
+              currentUser={authUser}
+              campaigns={data?.campaigns ?? []}
+              onOpenAssets={(targetAdGroupId) => openAssetsById(targetAdGroupId)}
+            />
+          )
         ) : (
         <>
         <DataContext
           viewMode={viewMode}
+          assetTypeFilter={assetTypeFilter}
           selectedCampaign={selectedCampaign}
           adGroupId={adGroupId}
+          adGroupLabel={selectedAdGroupLabel}
           onClearCampaign={() => setSelectedCampaign(null)}
           onOpenCampaigns={() => {
             setSelectedCampaign(null);
@@ -1327,23 +1959,35 @@ export default function App() {
         />
         <section className="pageHeader">
           <div className="pageTitleBlock">
-            <h1>{viewMode === 'assets' ? assetTypeFilter === 'VIDEO' ? 'Videos' : 'Assets' : viewMode === 'adGroups' ? 'Ad groups' : 'Campaigns'}</h1>
+            <h1>
+              {viewMode === 'assets'
+                ? assetTypeFilter === 'VIDEO'
+                  ? 'Videos'
+                  : assetTypeFilter === 'IMAGE'
+                    ? 'Images'
+                    : 'Tài nguyên'
+                : viewMode === 'adGroups'
+                  ? 'Nhóm quảng cáo'
+                  : 'Chiến dịch'}
+            </h1>
             <p>
               {viewMode === 'assets'
                 ? assetTypeFilter === 'VIDEO'
-                  ? 'Review video performance and open the replacement workflow for the selected ad group.'
-                  : 'Review LOW-label text, image, and video assets, then approve exactly what should change.'
+                  ? 'Kiểm tra hiệu quả video và mở quy trình thay thế cho nhóm quảng cáo đã chọn.'
+                  : assetTypeFilter === 'IMAGE'
+                    ? 'Kiểm tra hiệu quả hình ảnh và mở quy trình thay thế cho nhóm quảng cáo đã chọn.'
+                    : 'Review LOW-label text, image, and video assets, then approve exactly what should change.'
                 : viewMode === 'adGroups'
-                  ? 'Select an ad group to open its assets and run AI review.'
+                  ? 'Chọn nhóm quảng cáo để mở tài nguyên và chạy đánh giá AI.'
                   : 'Review campaigns by views and open ad groups for asset-level work.'}
             </p>
           </div>
 
           <div className="controls">
             <label className="field">
-              <span>Customer ID</span>
+              <span>ID khách hàng</span>
               <select
-                aria-label="Customer ID"
+                aria-label="ID khách hàng"
                 value={customerId}
                 onChange={(event) => setCustomerId(event.target.value)}
               >
@@ -1357,7 +2001,7 @@ export default function App() {
             {viewMode === 'campaigns' ? (
               <>
                 <label className="field customerAdd">
-                  <span>New customer ID</span>
+                  <span>ID khách hàng mới</span>
                   <input
                     aria-label="Add customer ID"
                     value={newCustomerId}
@@ -1382,29 +2026,93 @@ export default function App() {
               </>
             ) : null}
             {viewMode === 'assets' ? (
-              <label className="field customerAdd">
-                <span>Ad group ID</span>
-                <input
-                  aria-label="Ad group ID"
-                  list="saved-ad-group-ids"
-                  value={adGroupId}
-                  onChange={(event) => setAdGroupId(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      void loadAssets();
-                    }
-                  }}
-                  placeholder="123456789"
-                />
-                <datalist id="saved-ad-group-ids">
-                  {adGroupOptions.map((adGroup) => (
-                    <option key={adGroup.value} value={adGroup.value}>
-                      {adGroup.label}
+              <>
+                <label className="field customerAdd campaignSelectField">
+                  <span>Chiến dịch</span>
+                  <select
+                    aria-label="Chiến dịch"
+                    value={selectedAssetCampaignId}
+                    onChange={(event) => {
+                      const nextCampaignId = event.target.value;
+                      const nextCampaign = assetCampaignOptions.find(
+                        (campaign) => campaign.id === nextCampaignId,
+                      );
+
+                      setSelectedCampaign(
+                        nextCampaign
+                          ? campaignFromId(nextCampaign.id, nextCampaign.name)
+                          : null,
+                      );
+                      setAdGroupId('');
+                      setAssetData(null);
+                      setAssetError('');
+                    }}
+                    disabled={adGroupLoading && assetCampaignOptions.length === 0}
+                  >
+                    <option value="">
+                      {adGroupLoading ? 'Đang tải chiến dịch...' : 'Tất cả chiến dịch'}
                     </option>
-                  ))}
-                </datalist>
-              </label>
+                    {assetCampaignOptions.map((campaign) => (
+                      <option key={campaign.id} value={campaign.id}>
+                        {campaign.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field customerAdd adGroupSelectField">
+                  <span>Nhóm quảng cáo</span>
+                  <select
+                    aria-label="Nhóm quảng cáo"
+                    value={adGroupId}
+                    onChange={(event) => {
+                      const nextAdGroupId = event.target.value;
+                      setAdGroupId(nextAdGroupId);
+                      setAssetError('');
+
+                      if (!nextAdGroupId) {
+                        setAssetData(null);
+                        return;
+                      }
+
+                      const selected = adGroupData?.adGroups.find(
+                        (adGroup) => adGroup.id === nextAdGroupId,
+                      );
+                      if (selected) {
+                        openAdGroupAssets(selected, assetTypeFilter);
+                      } else {
+                        openAssetsById(nextAdGroupId, assetTypeFilter);
+                      }
+                    }}
+                    disabled={adGroupLoading && adGroupSelectOptions.length === 0}
+                  >
+                    <option value="">
+                      {adGroupLoading
+                        ? 'Đang tải nhóm quảng cáo...'
+                        : selectedAssetCampaignId
+                          ? 'Chọn nhóm quảng cáo'
+                          : 'Chọn chiến dịch hoặc nhóm quảng cáo'}
+                    </option>
+                    {adGroupSelectOptions.map((adGroup) => (
+                      <option key={adGroup.value} value={adGroup.value}>
+                        {adGroup.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="secondaryButton"
+                  type="button"
+                  onClick={() => {
+                    setOperationsSection(null);
+                    setSelectedCampaign(null);
+                    setViewMode('adGroups');
+                    void loadAdGroups();
+                  }}
+                >
+                  <MousePointerClick size={15} />
+                  Chọn
+                </button>
+              </>
             ) : null}
             <button
               className="primaryButton"
@@ -1421,7 +2129,7 @@ export default function App() {
               disabled={activeLoading || replaceLoading}
             >
               <RefreshCw size={15} className={activeLoading ? 'spin' : ''} />
-              {activeLoading ? 'Loading...' : 'Load data'}
+              {activeLoading ? 'Đang tải...' : 'Tải dữ liệu'}
             </button>
           </div>
         </section>
@@ -1429,17 +2137,36 @@ export default function App() {
         <section className="filters">
           <div className="filterGroup">
             <DateRangeFilter value={timeRange} onChange={setTimeRange} />
+            {viewMode === 'assets' ? (
+              <div className="segment labelSegment" aria-label="Asset label filter">
+                {ASSET_LABEL_FILTERS.map((filter) => (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    className={assetLabelFilter === filter.value ? 'active' : ''}
+                    onClick={() => setAssetLabelFilter(filter.value)}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="filterGroup alignRight">
             <span className="filterChip">
               {viewMode === 'assets'
-                ? 'Asset status: All but removed'
+                ? 'Trạng thái tài nguyên: Tất cả trừ đã xóa'
                 : viewMode === 'adGroups'
-                  ? 'Ad group status: Enabled'
-                  : 'Campaign status: Enabled'}
+                  ? 'Trạng thái nhóm quảng cáo: Đang bật'
+                  : 'Trạng thái chiến dịch: Đang bật'}
             </span>
-            <span className="filterCount">{activeListLength} rows</span>
+            {viewMode === 'campaigns' ? (
+              <span className="filterChip activeViewChip">
+                Chế độ xem: {campaignGroupFilter?.name ?? 'Tất cả chiến dịch'}
+              </span>
+            ) : null}
+            <span className="filterCount">{activeListLength} dòng</span>
           </div>
         </section>
 
@@ -1459,485 +2186,150 @@ export default function App() {
           </div>
         ) : null}
 
-        {viewMode === 'campaigns' ? (
-          <CampaignGroupsPanel
-            customerId={customerId}
-            campaigns={data?.campaigns ?? []}
-            onFilterChange={setCampaignGroupFilterIds}
-          />
-        ) : null}
-
-        {viewMode === 'assets' ? (
-          <section className="creativeReview">
-            <div className="editorHeader">
-              <div>
-                <h2>AI creative review</h2>
-                <p>
-                  {aiReview
-                    ? `${aiRecommendations.length} AI recommendations from ${aiReview.model}`
-                    : assetData
-                      ? autoAiEnabled
-                        ? 'Auto AI is on for this customer; use Generate to refresh'
-                        : 'Manual mode. Click Generate when you want to call AI'
-                      : 'Load assets first'}
-                </p>
-              </div>
-              <div className="editorTools">
-                <span className="pill">Manual approval</span>
-                <label className={`autoAiToggle${autoAiEnabled ? ' active' : ''}`}>
-                  <input
-                    type="checkbox"
-                    checked={autoAiEnabled}
-                    onChange={(event) => updateAutoAiEnabled(event.target.checked)}
-                  />
-                  <span>Auto AI</span>
-                </label>
-                <button
-                  className="primaryButton editorAction"
-                  type="button"
-                  onClick={() => generateAiReview(undefined, { force: true })}
-                  disabled={!assetData || assetLoading || aiReviewLoading}
-                >
-                  {aiReviewLoading ? (
-                    <RefreshCw size={15} className="spin" />
-                  ) : (
-                    <Sparkles size={15} />
-                  )}
-                  {aiReviewLoading ? 'Asking AI...' : 'Generate AI review'}
-                </button>
-              </div>
-            </div>
-
-            {aiReviewError ? <div className="inlineError">{aiReviewError}</div> : null}
-
-            {aiRecommendations.length > 0 ? (
-              <div className="creativeGrid">
-                {aiRecommendations.map((item, index) => {
-                  const previewUrl = item.asset?.previewUrl ?? '';
-                  const reviewAsset = item.asset;
-                  const matchingMediaAsset =
-                    reviewAsset && assetData
-                      ? assetData.assets.find((asset) => {
-                          const mediaType = getMediaReplacementType(asset);
-                          const sameId = Boolean(asset.id && reviewAsset.id && asset.id === reviewAsset.id);
-                          const sameText = Boolean(asset.text && reviewAsset.text && asset.text === reviewAsset.text);
-                          const samePlacement =
-                            asset.fieldType === reviewAsset.fieldType ||
-                            asset.type === reviewAsset.type;
-
-                          return Boolean(mediaType && (sameId || sameText) && samePlacement);
-                        }) ?? null
-                      : null;
-                  const matchingMediaType = matchingMediaAsset
-                    ? getMediaReplacementType(matchingMediaAsset)
-                    : '';
-                  const isApproved = approvedCreativeSuggestionIds.includes(item.suggestionId);
-                  const decisionLoading = decisionLoadingIds.includes(item.suggestionId);
-                  const MediaIcon =
-                    item.mediaType === 'Video'
-                      ? Video
-                      : item.mediaType === 'Image'
-                        ? Image
-                        : FileText;
-
-                  return (
-                    <article className="creativeCard" key={`${item.assetKey}-${index}`}>
-                      <div className="assetPreview">
-                        {previewUrl ? (
-                          <img src={previewUrl} alt="" loading="lazy" />
-                        ) : (
-                          <span className="assetPreviewIcon">
-                            <MediaIcon size={22} />
-                          </span>
-                        )}
-                        <span className="rankBadge">#{index + 1}</span>
-                      </div>
-                      <div className="creativeBody">
-                        <div className="creativeMeta">
-                          <label className="suggestionSelect">
-                            <input
-                              type="checkbox"
-                              checked={isApproved}
-                              disabled={decisionLoading}
-                              onChange={() => void toggleCreativeSuggestionApproval(item)}
-                            />
-                            <span>{decisionLoading ? 'Saving...' : 'Approve idea'}</span>
-                          </label>
-                          <span className="textType">{item.mediaType}</span>
-                          <span>{item.priority}</span>
-                          <span>{item.confidence} confidence</span>
-                        </div>
-                        <strong>{item.title}</strong>
-                        <div className="ideaList">
-                          {item.replacementIdeas.map((idea) => (
-                            <span key={idea}>{idea}</span>
-                          ))}
-                        </div>
-                        {matchingMediaAsset && matchingMediaType ? (
-                          <div className="creativeActions">
-                            <button
-                              className="tableActionButton inlineReplaceButton"
-                              type="button"
-                              onClick={() => selectMediaReplacement(matchingMediaAsset)}
-                              title={`Select this ${matchingMediaType.toLowerCase()} for replacement`}
-                            >
-                              {matchingMediaType === 'VIDEO' ? <Video size={13} /> : <Image size={13} />}
-                              Use in Replace panel
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : assetData && !aiReviewLoading && !aiReview ? (
-              <div className="emptySuggestions">Click Generate AI review to call AI for these assets.</div>
-            ) : null}
-          </section>
-        ) : null}
-
-        {viewMode === 'assets' ? (
-          <section className="assetEditor">
-            <div className="editorHeader">
-              <div>
-                <h2>Replace image/video asset</h2>
-                <p>
-                  {mediaReplacementTarget
-                    ? `${mediaReplacementType} selected - ${formatNumber(mediaReplacementTarget.impressions)} views`
-                    : 'Choose an IMAGE or VIDEO row from the table'}
-                </p>
-              </div>
-              <span className="pill">Google Ads update</span>
-            </div>
-
-            {mediaReplacementTarget ? (
-              <div className="mediaReplaceGrid">
-                <div className="mediaTarget">
-                  <div className="assetPreview compactPreview">
-                    {mediaReplacementPreviewUrl ? (
-                      <img src={mediaReplacementPreviewUrl} alt="" />
-                    ) : (
-                      <span className="assetPreviewIcon">
-                        {mediaReplacementType === 'VIDEO' ? <Video size={22} /> : <Image size={22} />}
-                      </span>
-                    )}
-                  </div>
-                  <div>
-                    <span className="textType">{mediaReplacementType}</span>
-                    <strong>{assetTitle(mediaReplacementTarget)}</strong>
-                    <p>
-                      {formatPercent(mediaReplacementTarget.ctr)} CTR · {mediaReplacementTarget.roas.toFixed(2)} ROAS · {mediaReplacementTarget.performanceLabel || 'No label'}
-                    </p>
-                  </div>
-                </div>
-
-                {mediaReplacementType === 'IMAGE' ? (
-                  <label className="editorField">
-                    <span>New image</span>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      onChange={async (event) => {
-                        const file = event.target.files?.[0] ?? null;
-                        setReplacementImageFile(file);
-                        setReplacementImageInfo(null);
-                        setMediaReplaceError('');
-                        setMediaReplaceStatus('');
-                        if (!file) {
-                          return;
-                        }
-
-                        try {
-                          const normalizedImage = await normalizeImageForGoogleAds(
-                            file,
-                            getReplacementImageSpec(mediaReplacementTarget),
-                          );
-                          setReplacementImageFile(normalizedImage.file);
-                          setReplacementImageInfo(normalizedImage.info);
-                        } catch (err) {
-                          setReplacementImageFile(null);
-                          setMediaReplaceError(
-                            err instanceof Error ? err.message : 'Could not read replacement image',
-                          );
-                        }
-                      }}
-                    />
-                    {replacementImageInfo ? (
-                      <span className="imageSpecNote">
-                        {replacementImageInfo.adjusted ? 'Auto-cropped' : 'Ready'} for {replacementImageInfo.specLabel}: {replacementImageInfo.originalWidth}x{replacementImageInfo.originalHeight}{' to '}{replacementImageInfo.outputWidth}x{replacementImageInfo.outputHeight}
-                      </span>
-                    ) : null}
-                  </label>
-                ) : (
-                  <label className="editorField">
-                    <span>New YouTube video</span>
-                    <input
-                      value={replacementVideoUrl}
-                      onChange={(event) => {
-                        setReplacementVideoUrl(event.target.value);
-                        setMediaReplaceError('');
-                        setMediaReplaceStatus('');
-                      }}
-                      placeholder="https://youtu.be/..."
-                    />
-                  </label>
-                )}
-              </div>
-            ) : (
-              <div className="emptySuggestions">Pick an image or video asset using the Replace button in the table.</div>
-            )}
-
-            <div className="editorFooter">
-              <label className="confirmRow">
-                <input
-                  type="checkbox"
-                  checked={mediaReplaceConfirmed}
-                  onChange={(event) => {
-                    setMediaReplaceConfirmed(event.target.checked);
-                    setMediaReplaceError('');
-                  }}
-                />
-                <span>Apply this media replacement in Google Ads</span>
-              </label>
-              <button
-                className="primaryButton editorAction"
-                type="button"
-                onClick={replaceMediaAsset}
-                disabled={mediaReplaceDisabled}
-              >
-                {mediaReplaceLoading ? (
-                  <RefreshCw size={15} className="spin" />
-                ) : (
-                  <Sparkles size={15} />
-                )}
-                {mediaReplaceLoading ? 'Updating...' : 'Replace media'}
-              </button>
-            </div>
-
-            {mediaReplaceError ? <div className="inlineError">{mediaReplaceError}</div> : null}
-            {mediaReplaceStatus ? <div className="inlineSuccess">{mediaReplaceStatus}</div> : null}
-          </section>
-        ) : null}
-
-        {viewMode === 'assets' ? (
-          <section className="assetEditor">
-            <div className="editorHeader">
-              <div>
-                <h2>AI text suggestions</h2>
-                <p>
-                  {assetData
-                    ? `${lowTextAssetCount} LOW text rows - ${formatNumber(totalLowTextImpressions)} views`
-                    : 'Load assets first'}
-                </p>
-              </div>
-              <div className="editorTools">
-                <span className="pill">Manual approval</span>
-                <span className="pill">
-                  {aiTextSuggestions
-                    ? `${aiTextSuggestions.source.toUpperCase()} ${aiTextSuggestions.model}`
-                    : 'AI provider'}
-                </span>
-                <label className={`autoAiToggle${autoAiEnabled ? ' active' : ''}`}>
-                  <input
-                    type="checkbox"
-                    checked={autoAiEnabled}
-                    onChange={(event) => updateAutoAiEnabled(event.target.checked)}
-                  />
-                  <span>Auto AI</span>
-                </label>
-                <button
-                  className="tableActionButton aiTextButton"
-                  type="button"
-                  onClick={() => generateAiTextSuggestions(undefined, { force: true })}
-                  disabled={aiTextDisabled}
-                >
-                  {aiTextLoading ? (
-                    <RefreshCw size={14} className="spin" />
-                  ) : (
-                    <Sparkles size={14} />
-                  )}
-                  {aiTextLoading ? 'Asking AI...' : 'Generate AI suggestions'}
-                </button>
-              </div>
-            </div>
-
-            {lowTextSuggestions.length > 0 ? (
-              <div className="suggestionList">
-                <div className="approvalToolbar">
-                  <span>{selectedLowTextSuggestions.length}/{lowTextSuggestions.length} approved for update</span>
-                  <button
-                    className="tableActionButton"
-                    type="button"
-                    onClick={() => void toggleAllTextSuggestionApprovals()}
-                    disabled={decisionLoadingIds.length > 0}
-                  >
-                    {selectedLowTextSuggestions.length === lowTextSuggestions.length ? 'Clear selected' : 'Select all'}
-                  </button>
-                </div>
-                {lowTextSuggestions.map((asset) => {
-                  const isSelected = selectedTextSuggestionSet.has(asset.key);
-
-                  return (
-                    <article className={`suggestionRow${isSelected ? ' selected' : ''}`} key={asset.key}>
-                      <div className="suggestionMeta">
-                        <label className="suggestionSelect">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => void toggleTextSuggestionApproval(asset)}
-                            disabled={decisionLoadingIds.includes(asset.suggestionId)}
-                          />
-                          <span>Approve</span>
-                        </label>
-                        <span className="textType">{asset.fieldType}</span>
-                        <span>{formatNumber(asset.impressions)} impr.</span>
-                        <span>{asset.priority}</span>
-                        <span>{asset.confidence} confidence</span>
-                      </div>
-                      <div className="suggestionCopy">
-                        <div>
-                          <span>Current</span>
-                          <strong>{asset.text}</strong>
-                        </div>
-                        <div>
-                          <span>AI suggestion</span>
-                          <strong>{asset.suggestion}</strong>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : assetData && lowTextCandidates.length > 0 ? (
-              <div className="emptySuggestions">Click Generate AI suggestions to call AI for these LOW text assets.</div>
-            ) : assetData ? (
-              <div className="emptySuggestions">No LOW headline/description assets found.</div>
-            ) : null}
-
-            <div className="editorGrid">
-              <label className="editorField">
-                <span>Headline override {replacementHeadline.length}/{HEADLINE_MAX_LENGTH}</span>
-                <input
-                  value={replacementHeadline}
-                  maxLength={HEADLINE_MAX_LENGTH}
-                  onChange={(event) => {
-                    setReplacementHeadline(event.target.value.slice(0, HEADLINE_MAX_LENGTH));
-                    setReplaceError('');
-                    setReplaceStatus('');
-                    setTextChangeRequest(null);
-                    setReplaceConfirmed(false);
-                  }}
-                  placeholder="Optional headline"
-                />
-              </label>
-              <label className="editorField">
-                <span>Description override {replacementDescription.length}/{DESCRIPTION_MAX_LENGTH}</span>
-                <input
-                  value={replacementDescription}
-                  maxLength={DESCRIPTION_MAX_LENGTH}
-                  onChange={(event) => {
-                    setReplacementDescription(event.target.value.slice(0, DESCRIPTION_MAX_LENGTH));
-                    setReplaceError('');
-                    setReplaceStatus('');
-                    setTextChangeRequest(null);
-                    setReplaceConfirmed(false);
-                  }}
-                  placeholder="Optional description"
-                />
-              </label>
-            </div>
-
-            {textChangeRequest ? (
-              <div className={`changePreview status-${textChangeRequest.status.toLowerCase()}`}>
-                <div className="changePreviewHeader">
-                  <div>
-                    <strong>Change request preview</strong>
-                    <span>{textChangeRequest.id}</span>
-                  </div>
-                  <span className="pill">{textChangeRequest.status}</span>
-                </div>
-                <div className="changePreviewList">
-                  {textChangeRequest.items.map((item, index) => {
-                    const changes = item.beforePayload.changes ?? [];
-                    return (
-                      <article className="changePreviewItem" key={item.id}>
-                        <div className="changePreviewMeta">
-                          <span>Ad #{index + 1}</span>
-                          <span>{item.replacementCount} replacement{item.replacementCount === 1 ? '' : 's'}</span>
-                          <span>{item.status}</span>
-                        </div>
-                        <div className="changePreviewCopy">
-                          {changes.map((change, changeIndex) => (
-                            <div key={`${item.id}-${change.fieldType}-${changeIndex}`}>
-                              <span>{change.fieldType}</span>
-                              <strong>{change.oldText}</strong>
-                              <strong>{change.newText}</strong>
-                            </div>
-                          ))}
-                        </div>
-                        {item.errorMessage ? <p>{item.errorMessage}</p> : null}
-                      </article>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="editorFooter">
-              {textChangeRequest?.status === 'PENDING' ? (
-                <label className="confirmRow">
-                  <input
-                    type="checkbox"
-                    checked={replaceConfirmed}
-                    onChange={(event) => {
-                      setReplaceConfirmed(event.target.checked);
-                      setReplaceError('');
-                    }}
-                  />
-                  <span>I reviewed this preview and want to apply it in Google Ads</span>
-                </label>
-              ) : (
-                <span className="editorHint">Create a preview before applying anything to Google Ads.</span>
-              )}
-              <button
-                className="primaryButton editorAction"
-                type="button"
-                onClick={textChangeRequest?.status === 'PENDING'
-                  ? applyTextChangeRequest
-                  : createTextChangeRequest}
-                disabled={textChangeRequest?.status === 'PENDING'
-                  ? applyTextChangeDisabled
-                  : createTextChangeDisabled}
-              >
-                {replaceLoading ? (
-                  <RefreshCw size={15} className="spin" />
-                ) : (
-                  <Sparkles size={15} />
-                )}
-                {replaceLoading
-                  ? textChangeRequest?.status === 'PENDING' ? 'Applying...' : 'Preparing...'
-                  : textChangeRequest?.status === 'PENDING' ? 'Apply in Google Ads' : 'Create preview'}
-              </button>
-            </div>
-
-            {replaceError ? <div className="inlineError">{replaceError}</div> : null}
-            {aiTextError ? <div className="inlineError">{aiTextError}</div> : null}
-            {replaceStatus ? <div className="inlineSuccess">{replaceStatus}</div> : null}
-          </section>
-        ) : null}
-
         <PerformanceSummary
           viewMode={viewMode}
+          timeRange={timeRange}
           campaignData={data}
           adGroupData={adGroupData}
           assetData={assetData}
+          campaigns={filteredCampaigns}
+          adGroups={filteredAdGroups}
+          assets={filteredAssets}
           campaignLoading={loading}
           adGroupLoading={adGroupLoading}
           assetLoading={assetLoading}
           campaignViews={campaignViews}
           bestCampaign={bestCampaign}
         />
+
+        {viewMode === 'campaigns' ? (
+          <CampaignGroupsPanel
+            customerId={customerId}
+            campaigns={data?.campaigns ?? []}
+            canEdit={canManageCampaignGroups}
+            onFilterChange={setCampaignGroupFilter}
+          />
+        ) : null}
+
+        {viewMode === 'assets' ? (
+          <AiCreativeReviewPanel
+            assetData={assetData}
+            assetLoading={assetLoading}
+            aiReview={aiReview}
+            aiRecommendations={aiRecommendations}
+            aiReviewLoading={aiReviewLoading}
+            aiReviewError={aiReviewError}
+            autoAiEnabled={autoAiEnabled}
+            canEdit={canEditSelectedCampaign}
+            approvedCreativeSuggestionIds={approvedCreativeSuggestionIds}
+            decisionLoadingIds={decisionLoadingIds}
+            onAutoAiChange={updateAutoAiEnabled}
+            onGenerate={() => generateAiReview(undefined, { force: true })}
+            onToggleApproval={(item) => void toggleCreativeSuggestionApproval(item)}
+            onUseMediaIdea={selectMediaReplacement}
+          />
+        ) : null}
+
+        {viewMode === 'assets' ? (
+          <MediaReplacementPanel
+            target={mediaReplacementTarget}
+            mediaType={mediaReplacementType}
+            previewUrl={mediaReplacementPreviewUrl}
+            replacementImageInfo={replacementImageInfo}
+            replacementVideoUrl={replacementVideoUrl}
+            confirmed={mediaReplaceConfirmed}
+            loading={mediaReplaceLoading}
+            disabled={mediaReplaceDisabled}
+            canEdit={canEditSelectedCampaign}
+            error={mediaReplaceError}
+            status={mediaReplaceStatus}
+            onImageFileChange={async (file) => {
+              setReplacementImageFile(file);
+              setReplacementImageInfo(null);
+              setMediaReplaceError('');
+              setMediaReplaceStatus('');
+              if (!file || !mediaReplacementTarget) {
+                return;
+              }
+
+              try {
+                const normalizedImage = await normalizeImageForGoogleAds(
+                  file,
+                  getReplacementImageSpec(mediaReplacementTarget),
+                );
+                setReplacementImageFile(normalizedImage.file);
+                setReplacementImageInfo(normalizedImage.info);
+              } catch (err) {
+                setReplacementImageFile(null);
+                setMediaReplaceError(
+                  err instanceof Error ? err.message : 'Không thể đọc hình ảnh thay thế',
+                );
+              }
+            }}
+            onVideoUrlChange={(value) => {
+              setReplacementVideoUrl(value);
+              setMediaReplaceError('');
+              setMediaReplaceStatus('');
+            }}
+            onConfirmedChange={(confirmed) => {
+              setMediaReplaceConfirmed(confirmed);
+              setMediaReplaceError('');
+            }}
+            onReplace={replaceMediaAsset}
+          />
+        ) : null}
+
+        {viewMode === 'assets' ? (
+          <AiTextSuggestionsPanel
+            assetData={assetData}
+            aiTextSuggestions={aiTextSuggestions}
+            lowTextAssetCount={lowTextAssetCount}
+            totalLowTextImpressions={totalLowTextImpressions}
+            lowTextCandidateCount={lowTextCandidates.length}
+            lowTextSuggestions={lowTextSuggestions}
+            selectedLowTextSuggestions={selectedLowTextSuggestions}
+            selectedTextSuggestionSet={selectedTextSuggestionSet}
+            decisionLoadingIds={decisionLoadingIds}
+            replacementHeadline={replacementHeadline}
+            replacementDescription={replacementDescription}
+            textChangeRequest={textChangeRequest}
+            replaceConfirmed={replaceConfirmed}
+            autoAiEnabled={autoAiEnabled}
+            canEdit={canEditSelectedCampaign}
+            aiTextLoading={aiTextLoading}
+            aiTextDisabled={aiTextDisabled}
+            replaceLoading={replaceLoading}
+            createTextChangeDisabled={createTextChangeDisabled}
+            applyTextChangeDisabled={applyTextChangeDisabled}
+            replaceError={replaceError}
+            aiTextError={aiTextError}
+            replaceStatus={replaceStatus}
+            onAutoAiChange={updateAutoAiEnabled}
+            onGenerate={() => generateAiTextSuggestions(undefined, { force: true })}
+            onToggleApproval={(asset) => void toggleTextSuggestionApproval(asset)}
+            onToggleAllApprovals={() => void toggleAllTextSuggestionApprovals()}
+            onHeadlineChange={(value) => {
+              setReplacementHeadline(value.slice(0, HEADLINE_MAX_LENGTH));
+              setReplaceError('');
+              setReplaceStatus('');
+              setTextChangeRequest(null);
+              setReplaceConfirmed(false);
+            }}
+            onDescriptionChange={(value) => {
+              setReplacementDescription(value.slice(0, DESCRIPTION_MAX_LENGTH));
+              setReplaceError('');
+              setReplaceStatus('');
+              setTextChangeRequest(null);
+              setReplaceConfirmed(false);
+            }}
+            onReplaceConfirmedChange={(confirmed) => {
+              setReplaceConfirmed(confirmed);
+              setReplaceError('');
+            }}
+            onCreatePreview={createTextChangeRequest}
+            onApplyPreview={applyTextChangeRequest}
+          />
+        ) : null}
 
         <PerformanceTable
           viewMode={viewMode}
@@ -1969,6 +2361,7 @@ export default function App() {
           totalPages={totalPages}
           rowsPerPage={rowsPerPage}
           activeLoading={activeLoading}
+          canEdit={viewMode === 'assets' ? canEditSelectedCampaign : canEdit}
           onCampaignSort={handleSort}
           onAdGroupSort={handleAdGroupSort}
           onAssetSort={handleAssetSort}

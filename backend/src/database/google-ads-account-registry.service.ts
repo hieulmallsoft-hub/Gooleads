@@ -5,6 +5,19 @@ import { CreativePolicyScopeEntity } from './entities/creative-policy-scope.enti
 import { CreativePolicyEntity } from './entities/creative-policy.entity';
 import { GoogleAdsAccountEntity } from './entities/google-ads-account.entity';
 
+function normalizeCustomerId(value: string | null | undefined) {
+  const normalized = String(value ?? '').replace(/\D/g, '');
+  return /^\d{10}$/.test(normalized) ? normalized : null;
+}
+
+function configuredLoginCustomerId() {
+  return normalizeCustomerId(
+    process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ??
+      process.env.GOOGLE_ADS_MANAGER_CUSTOMER_ID ??
+      process.env.GOOGLE_ADS_MCC_CUSTOMER_ID,
+  );
+}
+
 @Injectable()
 export class GoogleAdsAccountRegistryService {
   constructor(private readonly dataSource: DataSource) {}
@@ -22,14 +35,15 @@ export class GoogleAdsAccountRegistryService {
   }
 
   async getOrCreate(customerId: string) {
+    const normalizedCustomerId = normalizeCustomerId(customerId) ?? customerId;
     const existing = await this.dataSource
       .getRepository(GoogleAdsAccountEntity)
-      .findOneBy({ customerId });
+      .findOneBy({ customerId: normalizedCustomerId });
     if (existing) return existing;
 
     return this.dataSource.transaction(async (manager) => {
       const accountRepository = manager.getRepository(GoogleAdsAccountEntity);
-      const concurrent = await accountRepository.findOneBy({ customerId });
+      const concurrent = await accountRepository.findOneBy({ customerId: normalizedCustomerId });
       if (concurrent) return concurrent;
 
       const workspaceRepository = manager.getRepository(WorkspaceEntity);
@@ -44,9 +58,9 @@ export class GoogleAdsAccountRegistryService {
 
       const account = await accountRepository.save({
         workspaceId: workspace.id,
-        customerId,
-        loginCustomerId: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ?? null,
-        displayName: `Google Ads ${customerId}`,
+        customerId: normalizedCustomerId,
+        loginCustomerId: configuredLoginCustomerId(),
+        displayName: `Google Ads ${normalizedCustomerId}`,
         currencyCode: null,
         timeZone: workspace.timezone,
         status: 'ACTIVE',

@@ -9,6 +9,12 @@ export class AppUserEntity extends UuidTimestampEntity {
   @Column({ name: 'display_name', type: 'varchar', length: 200 })
   displayName!: string;
 
+  @Column({ name: 'password_hash', type: 'text', nullable: true })
+  passwordHash!: string | null;
+
   @Column({ type: 'varchar', length: 30 })
   status!: string;
+
+  @Column({ name: 'last_login_at', type: 'timestamptz', nullable: true })
+  lastLoginAt!: Date | null;
 }

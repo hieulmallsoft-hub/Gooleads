@@ -1,9 +1,11 @@
+import { useMemo, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
   ChevronLeft,
   ChevronRight,
   Image,
+  SlidersHorizontal,
   Video,
 } from 'lucide-react';
 import {
@@ -60,6 +62,7 @@ type PerformanceTableProps = {
   totalPages: number;
   rowsPerPage: number;
   activeLoading: boolean;
+  canEdit: boolean;
   onCampaignSort: (key: SortKey) => void;
   onAdGroupSort: (key: AdGroupSortKey) => void;
   onAssetSort: (key: AssetSortKey) => void;
@@ -70,41 +73,65 @@ type PerformanceTableProps = {
   onRowsPerPageChange: (rowsPerPage: number) => void;
 };
 
+type AssetStaticColumnKey = 'ctr' | 'label' | 'assessment' | 'action' | 'replace';
+type AssetVisibleColumnKey = AssetSortKey | AssetStaticColumnKey;
+
 const rowsPerPageOptions = [10, 25, 50, 100];
 
 const campaignColumns: { key: SortKey; label: string }[] = [
-  { key: 'name', label: 'Campaign' },
+  { key: 'name', label: 'Chiến dịch' },
   { key: 'id', label: 'ID' },
-  { key: 'impressions', label: 'Views' },
-  { key: 'clicks', label: 'Clicks' },
+  { key: 'status', label: 'Trạng thái' },
+  { key: 'impressions', label: 'Lượt hiển thị' },
+  { key: 'clicks', label: 'Lượt nhấp' },
   { key: 'ctr', label: 'CTR' },
-  { key: 'cost', label: 'Cost' },
-  { key: 'conversionValue', label: 'Conv. Value' },
-  { key: 'roas', label: 'ROAS' },
+  { key: 'cost', label: 'Chi phí' },
+  { key: 'conversionValue', label: 'Giá trị chuyển đổi' },
+  { key: 'roas', label: 'Giá trị CĐ / chi phí' },
 ];
 
+const googleStatusLabel: Record<string, string> = {
+  ENABLED: 'Đang hoạt động',
+  PAUSED: 'Đã tạm dừng',
+  REMOVED: 'Đã xóa',
+  UNKNOWN: 'Không xác định',
+};
+
 const adGroupColumns: { key: AdGroupSortKey; label: string }[] = [
-  { key: 'name', label: 'Ad group' },
-  { key: 'campaignName', label: 'Campaign' },
-  { key: 'status', label: 'Status' },
-  { key: 'impressions', label: 'Views' },
-  { key: 'clicks', label: 'Clicks' },
+  { key: 'name', label: 'Nhóm quảng cáo' },
+  { key: 'campaignName', label: 'Chiến dịch' },
+  { key: 'status', label: 'Trạng thái' },
+  { key: 'impressions', label: 'Lượt hiển thị' },
+  { key: 'clicks', label: 'Lượt nhấp' },
   { key: 'ctr', label: 'CTR' },
-  { key: 'cost', label: 'Cost' },
-  { key: 'conversionValue', label: 'Conv. Value' },
-  { key: 'roas', label: 'ROAS' },
+  { key: 'cost', label: 'Chi phí' },
+  { key: 'conversionValue', label: 'Giá trị chuyển đổi' },
+  { key: 'roas', label: 'Giá trị CĐ / chi phí' },
 ];
 
 const assetColumns: { key: AssetSortKey; label: string }[] = [
-  { key: 'fieldType', label: 'Placement' },
-  { key: 'type', label: 'Type' },
-  { key: 'impressions', label: 'Impr.' },
-  { key: 'clicks', label: 'Clicks' },
-  { key: 'cost', label: 'Cost' },
-  { key: 'conversions', label: 'Conv.' },
-  { key: 'conversionValue', label: 'Conv. Value' },
-  { key: 'roas', label: 'ROAS' },
-  { key: 'score', label: 'Score' },
+  { key: 'fieldType', label: 'Vị trí' },
+  { key: 'type', label: 'Loại' },
+  { key: 'impressions', label: 'Lượt hiển thị' },
+  { key: 'clicks', label: 'Lượt nhấp' },
+  { key: 'cost', label: 'Chi phí' },
+  { key: 'conversions', label: 'Chuyển đổi' },
+  { key: 'conversionValue', label: 'Giá trị chuyển đổi' },
+  { key: 'roas', label: 'Giá trị CĐ / chi phí' },
+  { key: 'score', label: 'Điểm' },
+];
+
+const assetStaticColumns: { key: AssetStaticColumnKey; label: string }[] = [
+  { key: 'ctr', label: 'CTR' },
+  { key: 'label', label: 'Nhãn' },
+  { key: 'assessment', label: 'Đánh giá' },
+  { key: 'action', label: 'Hành động' },
+  { key: 'replace', label: 'Thay thế' },
+];
+
+const defaultAssetColumnKeys: AssetVisibleColumnKey[] = [
+  ...assetColumns.map((column) => column.key),
+  ...assetStaticColumns.map((column) => column.key),
 ];
 
 function SortHeader<T extends string>({
@@ -131,6 +158,46 @@ function SortHeader<T extends string>({
       </span>
     </th>
   );
+}
+
+function EmptyTableState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="tableEmptyState">
+      <strong>{title}</strong>
+      <span>{description}</span>
+    </div>
+  );
+}
+
+function renderAssetSortableCell(asset: Asset, key: AssetSortKey) {
+  switch (key) {
+    case 'fieldType':
+      return asset.fieldType || '-';
+    case 'type':
+      return asset.type || '-';
+    case 'impressions':
+      return formatNumber(asset.impressions);
+    case 'clicks':
+      return formatNumber(asset.clicks);
+    case 'cost':
+      return formatNumber(asset.cost);
+    case 'conversions':
+      return formatNumber(asset.conversions);
+    case 'conversionValue':
+      return formatNumber(asset.conversionValue);
+    case 'roas':
+      return <span className={`roas ${roasClass(asset.roas)}`}>{formatPercent(asset.roas)}</span>;
+    case 'score':
+      return asset.score;
+    default:
+      return '-';
+  }
 }
 
 export function PerformanceTable(props: PerformanceTableProps) {
@@ -164,6 +231,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
     totalPages,
     rowsPerPage,
     activeLoading,
+    canEdit,
     onCampaignSort,
     onAdGroupSort,
     onAssetSort,
@@ -173,6 +241,64 @@ export function PerformanceTable(props: PerformanceTableProps) {
     onPageChange,
     onRowsPerPageChange,
   } = props;
+  const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const [visibleAssetColumnKeys, setVisibleAssetColumnKeys] = useState<AssetVisibleColumnKey[]>(
+    defaultAssetColumnKeys,
+  );
+  const visibleAssetColumnSet = useMemo(
+    () => new Set(visibleAssetColumnKeys),
+    [visibleAssetColumnKeys],
+  );
+  const visibleSortableAssetColumns = assetColumns.filter((column) =>
+    visibleAssetColumnSet.has(column.key),
+  );
+  const visibleStaticAssetColumns = assetStaticColumns.filter((column) =>
+    visibleAssetColumnSet.has(column.key),
+  );
+  const assetTableColSpan =
+    1 + visibleSortableAssetColumns.length + visibleStaticAssetColumns.length;
+
+  function toggleAssetColumn(key: AssetVisibleColumnKey) {
+    setVisibleAssetColumnKeys((current) =>
+      current.includes(key)
+        ? current.filter((columnKey) => columnKey !== key)
+        : [...current, key],
+    );
+  }
+
+  function renderAssetStaticCell(asset: Asset, key: AssetStaticColumnKey) {
+    const mediaType = getMediaReplacementType(asset);
+
+    switch (key) {
+      case 'ctr':
+        return formatPercent(asset.ctr);
+      case 'label':
+        return asset.performanceLabel || '-';
+      case 'assessment':
+        return (
+          <span className={`assessment ${assessmentClass(asset.assessment)}`}>
+            {asset.assessment || '-'}
+          </span>
+        );
+      case 'action':
+        return asset.action || '-';
+      case 'replace':
+        return mediaType
+          ? (
+            <button
+              className="tableActionButton"
+              type="button"
+              onClick={() => onSelectMedia(asset)}
+              disabled={!canEdit}
+            >
+              Chọn
+            </button>
+          )
+          : '-';
+      default:
+        return '-';
+    }
+  }
 
   return (
     <section className="tableWrap">
@@ -180,28 +306,61 @@ export function PerformanceTable(props: PerformanceTableProps) {
         <div>
           <h2>
             {viewMode === 'assets'
-              ? 'Assets in ad group'
+              ? 'Tài nguyên trong nhóm quảng cáo'
               : viewMode === 'adGroups'
-                ? selectedCampaign ? `Ad groups in ${selectedCampaign.name}` : 'Ad groups'
-                : 'Campaigns'}
+                ? selectedCampaign ? `Nhóm quảng cáo trong ${selectedCampaign.name}` : 'Nhóm quảng cáo'
+                : 'Chiến dịch'}
           </h2>
           <p>
             {viewMode === 'assets'
               ? assetData
-                ? `${filteredAssetCount}/${assetData.assets.length} assets visible`
-                : 'Enter an ad group ID to load assets'
+                ? `Đang hiển thị ${filteredAssetCount}/${assetData.assets.length} tài nguyên`
+                : 'Chọn nhóm quảng cáo để tải tài nguyên'
               : viewMode === 'adGroups'
                 ? adGroupData
-                  ? `${filteredAdGroupCount}/${adGroupData.adGroups.length} ad groups visible`
-                  : 'Load ad groups to choose an ad group'
+                  ? `Đang hiển thị ${filteredAdGroupCount}/${adGroupData.adGroups.length} nhóm quảng cáo`
+                  : 'Tải nhóm quảng cáo để chọn tài nguyên'
                 : campaignData
-                  ? `${filteredCampaignCount}/${campaignData.campaigns.length} campaigns visible`
-                  : 'No data loaded'}
+                  ? `Đang hiển thị ${filteredCampaignCount}/${campaignData.campaigns.length} chiến dịch`
+                  : 'Chưa có dữ liệu'}
           </p>
         </div>
-        <span className="pill">
-          {viewMode === 'assets' && assetData ? `Ad group ${assetData.adGroupId}` : timeRange}
-        </span>
+        <div className="tableHeaderActions">
+          {viewMode === 'assets' ? (
+            <div className="columnSelector">
+              <button
+                className="tableActionButton columnSelectorButton"
+                type="button"
+                onClick={() => setColumnMenuOpen((open) => !open)}
+                aria-expanded={columnMenuOpen}
+              >
+                <SlidersHorizontal size={14} />
+                Cột
+              </button>
+              {columnMenuOpen ? (
+                <div className="columnMenu">
+                  <label className="columnOption disabled">
+                    <input type="checkbox" checked disabled />
+                    Tài nguyên
+                  </label>
+                  {[...assetColumns, ...assetStaticColumns].map((column) => (
+                    <label className="columnOption" key={column.key}>
+                      <input
+                        type="checkbox"
+                        checked={visibleAssetColumnSet.has(column.key)}
+                        onChange={() => toggleAssetColumn(column.key)}
+                      />
+                      {column.label}
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <span className="pill">
+            {viewMode === 'assets' && assetData ? `Nhóm quảng cáo ${assetData.adGroupId}` : timeRange}
+          </span>
+        </div>
       </div>
 
       <div className="tableScroll">
@@ -209,8 +368,8 @@ export function PerformanceTable(props: PerformanceTableProps) {
           <table>
             <thead>
               <tr>
-                <th>Asset</th>
-                {assetColumns.map((column) => (
+                <th>Tài nguyên</th>
+                {visibleSortableAssetColumns.map((column) => (
                   <SortHeader
                     key={column.key}
                     column={column}
@@ -219,11 +378,9 @@ export function PerformanceTable(props: PerformanceTableProps) {
                     onSort={onAssetSort}
                   />
                 ))}
-                <th>CTR</th>
-                <th>Label</th>
-                <th>Assessment</th>
-                <th>Action</th>
-                <th>Replace</th>
+                {visibleStaticAssetColumns.map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -240,50 +397,51 @@ export function PerformanceTable(props: PerformanceTableProps) {
                             className="tableActionButton inlineReplaceButton"
                             type="button"
                             onClick={() => onSelectMedia(asset)}
+                            disabled={!canEdit}
                           >
                             <MediaIcon size={13} />
-                            Replace {mediaType.toLowerCase()}
+                            Thay {mediaType === 'VIDEO' ? 'video' : 'hình ảnh'}
                           </button>
                         ) : null}
                       </div>
                     </td>
-                    <td>{asset.fieldType || '-'}</td>
-                    <td>{asset.type || '-'}</td>
-                    <td>{formatNumber(asset.impressions)}</td>
-                    <td>{formatNumber(asset.clicks)}</td>
-                    <td>{formatNumber(asset.cost)}</td>
-                    <td>{formatNumber(asset.conversions)}</td>
-                    <td>{formatNumber(asset.conversionValue)}</td>
-                    <td><span className={`roas ${roasClass(asset.roas)}`}>{asset.roas.toFixed(2)}</span></td>
-                    <td>{asset.score}</td>
-                    <td>{formatPercent(asset.ctr)}</td>
-                    <td>{asset.performanceLabel || '-'}</td>
-                    <td title={asset.reason}>
-                      <span className={`assessment ${assessmentClass(asset.assessment)}`}>
-                        {asset.assessment || '-'}
-                      </span>
-                    </td>
-                    <td title={asset.reason}>{asset.action || '-'}</td>
-                    <td>
-                      {mediaType
-                        ? <button className="tableActionButton" type="button" onClick={() => onSelectMedia(asset)}>Select</button>
-                        : '-'}
-                    </td>
+                    {visibleSortableAssetColumns.map((column) => (
+                      <td key={column.key}>{renderAssetSortableCell(asset, column.key)}</td>
+                    ))}
+                    {visibleStaticAssetColumns.map((column) => (
+                      <td key={column.key} title={column.key === 'assessment' || column.key === 'action' ? asset.reason : undefined}>
+                        {renderAssetStaticCell(asset, column.key)}
+                      </td>
+                    ))}
                   </tr>
                 );
               })}
               {assetLoading ? Array.from({ length: 6 }).map((_, index) => (
                 <tr key={`asset-sk-${index}`} className="skeleton-row">
-                  {Array.from({ length: 15 }).map((__, cell) => (
+                  {Array.from({ length: assetTableColSpan }).map((__, cell) => (
                     <td key={cell}><div className={`skeleton ${cell > 1 ? 'xs' : cell === 1 ? 'sm' : ''}`} /></td>
                   ))}
                 </tr>
               )) : null}
               {!assetLoading && !assetData ? (
-                <tr><td colSpan={15} className="empty">Enter an ad group ID and load asset data.</td></tr>
+                <tr>
+                  <td colSpan={assetTableColSpan} className="empty">
+                    <EmptyTableState
+                      title="Chưa chọn nhóm quảng cáo"
+                      description="Chọn chiến dịch và nhóm quảng cáo ở phía trên, sau đó bấm Tải dữ liệu để xem tài nguyên."
+                    />
+                  </td>
+                </tr>
               ) : null}
               {!assetLoading && assetData && filteredAssetCount === 0 ? (
-                <tr><td colSpan={15} className="empty">No matching assets found.</td></tr>
+                <tr>
+                  <td colSpan={assetTableColSpan} className="empty">
+                    <EmptyTableState
+                      title="Không có tài nguyên phù hợp"
+                      description="Thử đổi từ khóa, bộ lọc nhãn, loại tài nguyên hoặc khoảng ngày đang chọn."
+                    />
+                  </td>
+                </tr>
               ) : null}
             </tbody>
           </table>
@@ -300,7 +458,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                     onSort={onAdGroupSort}
                   />
                 ))}
-                <th>Assets</th>
+                <th>Tài nguyên</th>
               </tr>
             </thead>
             <tbody>
@@ -320,7 +478,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                 >
                   <td>
                     <div className="assetCell">
-                      <span className="assetName">{adGroup.name || `Ad group ${adGroup.id}`}</span>
+                      <span className="assetName">{adGroup.name || `Nhóm quảng cáo ${adGroup.id}`}</span>
                       <span className="rowSubtext">{adGroup.id}</span>
                     </div>
                   </td>
@@ -336,7 +494,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                   <td>{formatPercent(adGroup.ctr ?? 0)}</td>
                   <td>{formatNumber(adGroup.cost)}</td>
                   <td>{formatNumber(adGroup.conversionValue)}</td>
-                  <td><span className={`roas ${roasClass(adGroup.roas)}`}>{adGroup.roas.toFixed(2)}</span></td>
+                  <td><span className={`roas ${roasClass(adGroup.roas)}`}>{formatPercent(adGroup.roas)}</span></td>
                   <td>
                     <button
                       className="tableActionButton"
@@ -346,7 +504,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                         onOpenAdGroup(adGroup);
                       }}
                     >
-                      Open assets
+                      Mở tài nguyên
                     </button>
                   </td>
                 </tr>
@@ -359,10 +517,24 @@ export function PerformanceTable(props: PerformanceTableProps) {
                 </tr>
               )) : null}
               {!adGroupLoading && !adGroupData ? (
-                <tr><td colSpan={10} className="empty">Load ad groups to choose an ad group.</td></tr>
+                <tr>
+                  <td colSpan={10} className="empty">
+                    <EmptyTableState
+                      title="Chưa tải nhóm quảng cáo"
+                      description="Bấm Tải dữ liệu để lấy danh sách nhóm quảng cáo theo chiến dịch và khoảng ngày hiện tại."
+                    />
+                  </td>
+                </tr>
               ) : null}
               {!adGroupLoading && adGroupData && filteredAdGroupCount === 0 ? (
-                <tr><td colSpan={10} className="empty">No matching ad groups found.</td></tr>
+                <tr>
+                  <td colSpan={10} className="empty">
+                    <EmptyTableState
+                      title="Không có nhóm quảng cáo phù hợp"
+                      description="Thử đổi từ khóa, chiến dịch hoặc khoảng ngày đang chọn."
+                    />
+                  </td>
+                </tr>
               ) : null}
             </tbody>
           </table>
@@ -401,6 +573,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                   >
                     <td>{campaign.name}</td>
                     <td>{campaign.id}</td>
+                    <td><span className={`entityStatus ${String(campaign.status ?? 'UNKNOWN').toLowerCase()}`}>{googleStatusLabel[campaign.status ?? 'UNKNOWN'] ?? campaign.status}</span></td>
                     <td>{formatNumber(campaign.impressions ?? 0)}</td>
                     <td>{formatNumber(campaign.clicks ?? 0)}</td>
                     <td>{formatPercent(campaign.ctr ?? 0)}</td>
@@ -408,7 +581,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                     <td>{formatNumber(campaign.conversionValue)}</td>
                     <td>
                       <div className="roas-cell">
-                        <span className={`roas ${className}`}>{campaign.roas.toFixed(2)}</span>
+                        <span className={`roas ${className}`}>{formatPercent(campaign.roas)}</span>
                         <span className="roas-bar-wrap">
                           <span className={`roas-bar ${className}`} style={{ width: `${barWidth}%` }} />
                         </span>
@@ -419,16 +592,30 @@ export function PerformanceTable(props: PerformanceTableProps) {
               })}
               {campaignLoading ? Array.from({ length: 6 }).map((_, index) => (
                 <tr key={`campaign-sk-${index}`} className="skeleton-row">
-                  {Array.from({ length: 8 }).map((__, cell) => (
+                  {Array.from({ length: campaignColumns.length }).map((__, cell) => (
                     <td key={cell}><div className={`skeleton ${cell > 1 ? 'xs' : cell === 1 ? 'sm' : ''}`} /></td>
                   ))}
                 </tr>
               )) : null}
               {!campaignLoading && !campaignData ? (
-                <tr><td colSpan={8} className="empty">Enter a customer ID and load data.</td></tr>
+                <tr>
+                  <td colSpan={campaignColumns.length} className="empty">
+                    <EmptyTableState
+                      title="Chưa có dữ liệu campaign"
+                      description="Chọn ID khách hàng rồi bấm Tải dữ liệu để tải chiến dịch."
+                    />
+                  </td>
+                </tr>
               ) : null}
               {!campaignLoading && campaignData && filteredCampaignCount === 0 ? (
-                <tr><td colSpan={8} className="empty">No matching campaigns found.</td></tr>
+                <tr>
+                  <td colSpan={campaignColumns.length} className="empty">
+                    <EmptyTableState
+                      title="Không có campaign phù hợp"
+                      description="Thử đổi tìm kiếm, campaign group hoặc khoảng ngày đang chọn."
+                    />
+                  </td>
+                </tr>
               ) : null}
             </tbody>
           </table>
@@ -438,9 +625,9 @@ export function PerformanceTable(props: PerformanceTableProps) {
       {activeListLength > 0 ? (
         <div className="pagination">
           <div className="paginationMeta">
-            <span>Showing {pageStart + 1}-{pageEnd} / {activeListLength}</span>
+            <span>Đang hiển thị {pageStart + 1}-{pageEnd} / {activeListLength}</span>
             <label>
-              Rows per page
+              Số dòng mỗi trang
               <select
                 value={rowsPerPage}
                 onChange={(event) => onRowsPerPageChange(Number(event.target.value))}
