@@ -26,4 +26,18 @@ export class AuthController {
   me(@Req() request: RequestWithUser) {
     return this.authService.me(request.user);
   }
+
+  @UseGuards(AuthGuard)
+  @Post('change-password')
+  changePassword(
+    @Body() body: unknown,
+    @Req() request: RequestWithUser,
+    @Res({ passthrough: true }) response: unknown,
+  ) {
+    return this.authService.changePassword(
+      request.user.id,
+      (body ?? {}) as Record<string, unknown>,
+      response as any,
+    );
+  }
 }

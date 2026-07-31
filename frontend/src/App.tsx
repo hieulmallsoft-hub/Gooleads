@@ -1950,6 +1950,10 @@ export default function App() {
               currentUser={authUser}
               campaigns={data?.campaigns ?? []}
               onOpenAssets={(targetAdGroupId) => openAssetsById(targetAdGroupId)}
+              onPasswordChanged={() => {
+                setAuthUser(null);
+                setAuthError('Đổi mật khẩu thành công. Vui lòng đăng nhập lại bằng mật khẩu mới.');
+              }}
             />
           )
         ) : (

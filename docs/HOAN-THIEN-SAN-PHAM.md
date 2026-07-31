@@ -162,3 +162,27 @@ SYNC_QUEUE_POLL_INTERVAL_MS=2000
 ```
 
 Migration liên quan: `007_background_sync_jobs.sql`.
+
+## 9. Đổi mật khẩu người dùng
+
+- Mỗi người dùng có thể vào **Cài đặt → Đổi mật khẩu**.
+- Người dùng phải nhập đúng mật khẩu hiện tại.
+- Mật khẩu mới phải có ít nhất 10 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.
+- Backend lưu mật khẩu bằng hàm băm `scrypt`, không lưu mật khẩu rõ.
+- Sau khi đổi thành công, backend thu hồi toàn bộ session của người dùng và xóa cookie hiện tại.
+- Giao diện đưa người dùng về màn đăng nhập để đăng nhập lại bằng mật khẩu mới.
+- API: `POST /auth/change-password`.
+
+## 10. Dữ liệu khi triển khai sang server mới
+
+Migration chỉ tạo cấu trúc bảng, không tự chuyển dữ liệu từ PostgreSQL cũ. Nếu tạo database
+`ggads` mới trên server thì tổng quan, lịch sử, đề xuất và dữ liệu đồng bộ ban đầu đều bằng 0.
+
+Có hai cách đưa dữ liệu vào:
+
+1. Sao lưu database PostgreSQL cũ bằng `pg_dump` rồi phục hồi vào server bằng `pg_restore`.
+2. Giữ database mới và đồng bộ lại dữ liệu trực tiếp từ Google Ads. Cách này không khôi phục
+   người dùng, lịch sử thay đổi và các quyết định AI đã lưu ở database cũ.
+
+Trước khi đưa vào sử dụng chính thức cần chọn một trong hai cách. Không nên vừa phát sinh dữ
+liệu mới trên server vừa phục hồi đè database cũ vì có thể tạo xung đột hoặc mất dữ liệu mới.

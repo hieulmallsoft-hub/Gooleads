@@ -154,6 +154,7 @@ type Props = {
   currentUser: AuthUser;
   campaigns: Campaign[];
   onOpenAssets: (adGroupId: string) => void;
+  onPasswordChanged: () => void;
 };
 
 const TERM_TYPES = [
@@ -201,6 +202,7 @@ export function OperationsPanel({
   request,
   currentUser,
   onOpenAssets,
+  onPasswordChanged,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -240,6 +242,12 @@ export function OperationsPanel({
     password: '',
     role: 'VIEWER',
   });
+  const [passwordDraft, setPasswordDraft] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const canManageUsers = currentUser.role === 'ADMIN';
   const canManagePolicy = currentUser.permissions.includes('rules.manage');
   const canRunPeriodicAi = currentUser.permissions.includes('automation.manage');
@@ -299,6 +307,50 @@ export function OperationsPanel({
     const body = await parseJsonSafe(response);
     if (!response.ok) throw new Error(errorMessage(body, 'Không thể tải người dùng'));
     setAccessUsers((body.users ?? []) as AccessUser[]);
+  }
+
+  async function changePassword() {
+    setError('');
+    setNotice('');
+    if (
+      !passwordDraft.currentPassword ||
+      !passwordDraft.newPassword ||
+      !passwordDraft.confirmPassword
+    ) {
+      setError('Vui lòng nhập đầy đủ ba trường mật khẩu.');
+      return;
+    }
+    if (passwordDraft.newPassword !== passwordDraft.confirmPassword) {
+      setError('Mật khẩu xác nhận không khớp.');
+      return;
+    }
+    if (passwordDraft.newPassword.length < 10) {
+      setError('Mật khẩu mới phải có ít nhất 10 ký tự.');
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const response = await request('/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(passwordDraft),
+      });
+      const body = await parseJsonSafe(response);
+      if (!response.ok) {
+        throw new Error(errorMessage(body, 'Không thể đổi mật khẩu'));
+      }
+      setPasswordDraft({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: '',
+      });
+      onPasswordChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể đổi mật khẩu');
+    } finally {
+      setPasswordSaving(false);
+    }
   }
 
   async function loadSection() {
@@ -781,6 +833,68 @@ export function OperationsPanel({
 
       {section === 'settings' && settings ? (
         <>
+          <section className="operationsSection">
+            <div className="sectionTitle">
+              <div>
+                <h2>Đổi mật khẩu</h2>
+                <p>Sau khi đổi thành công, tất cả phiên đăng nhập cũ sẽ bị đăng xuất.</p>
+              </div>
+              <span>{currentUser.email}</span>
+            </div>
+            <div className="settingsGrid">
+              <label>
+                <span>Mật khẩu hiện tại</span>
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  value={passwordDraft.currentPassword}
+                  onChange={(event) => setPasswordDraft((current) => ({
+                    ...current,
+                    currentPassword: event.target.value,
+                  }))}
+                />
+              </label>
+              <label>
+                <span>Mật khẩu mới</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordDraft.newPassword}
+                  onChange={(event) => setPasswordDraft((current) => ({
+                    ...current,
+                    newPassword: event.target.value,
+                  }))}
+                />
+              </label>
+              <label>
+                <span>Nhập lại mật khẩu mới</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordDraft.confirmPassword}
+                  onChange={(event) => setPasswordDraft((current) => ({
+                    ...current,
+                    confirmPassword: event.target.value,
+                  }))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void changePassword();
+                  }}
+                />
+              </label>
+            </div>
+            <div className="settingsActions">
+              <span>Ít nhất 10 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.</span>
+              <button
+                className="primaryButton"
+                type="button"
+                disabled={passwordSaving}
+                onClick={() => void changePassword()}
+              >
+                <Save size={15} />
+                {passwordSaving ? 'Đang đổi...' : 'Đổi mật khẩu'}
+              </button>
+            </div>
+          </section>
           {canManageUsers ? (
             <section className="operationsSection">
               <div className="sectionTitle">

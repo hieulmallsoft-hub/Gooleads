@@ -30,6 +30,12 @@ type LoginInput = {
   password?: string;
 };
 
+type ChangePasswordInput = {
+  currentPassword?: unknown;
+  newPassword?: unknown;
+  confirmPassword?: unknown;
+};
+
 type CreateUserInput = {
   email?: string;
   displayName?: string;
@@ -116,6 +122,48 @@ export class AuthService {
 
   me(user: AuthenticatedUser) {
     return { user };
+  }
+
+  async changePassword(
+    userId: string,
+    input: ChangePasswordInput,
+    response: ResponseLike,
+  ) {
+    const currentPassword = String(input.currentPassword ?? '');
+    const newPassword = String(input.newPassword ?? '');
+    const confirmPassword = String(input.confirmPassword ?? '');
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      throw new BadRequestException(
+        'Vui lòng nhập mật khẩu hiện tại, mật khẩu mới và xác nhận mật khẩu',
+      );
+    }
+    if (newPassword !== confirmPassword) {
+      throw new BadRequestException('Mật khẩu xác nhận không khớp');
+    }
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
+    }
+    this.assertStrongPassword(newPassword);
+
+    const userRepository = this.dataSource.getRepository(AppUserEntity);
+    const user = await userRepository.findOneBy({ id: userId });
+    if (
+      !user ||
+      user.status !== 'ACTIVE' ||
+      !verifyPassword(currentPassword, user.passwordHash)
+    ) {
+      throw new UnauthorizedException('Mật khẩu hiện tại không đúng');
+    }
+
+    user.passwordHash = hashPassword(newPassword);
+    await userRepository.save(user);
+    await this.revokeUserSessions(user.id);
+    this.clearSessionCookie(response);
+
+    return {
+      ok: true,
+      message: 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.',
+    };
   }
 
   async listUsers() {
