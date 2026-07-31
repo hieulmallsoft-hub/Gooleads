@@ -199,6 +199,20 @@ export class CreativeOperationsController {
     );
   }
 
+  @Get('automation/scope/campaigns/:campaignId')
+  getAutomationCampaignScope(
+    @Param('campaignId') campaignId: string,
+    @Query('customerId') inputCustomerId: string | undefined,
+    @Query('days') days: string | undefined,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.service.getAutomationCampaignScope(
+      this.customerIdForUser(inputCustomerId, request.user),
+      campaignId,
+      days,
+    );
+  }
+
   @Post('automation/run')
   @RequirePermissions('automation.manage')
   runAutomationNow(

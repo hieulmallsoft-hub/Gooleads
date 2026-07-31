@@ -1089,6 +1089,94 @@ export class CreativeOperationsService {
     return this.getAutomationScope(account, policy.id);
   }
 
+  async getAutomationCampaignScope(
+    customerId: string,
+    googleCampaignIdValue: string,
+    inputDays?: string,
+  ) {
+    const account = await this.getAccount(customerId);
+    const policy = await this.getPolicy(account.workspaceId);
+    const googleCampaignId = String(googleCampaignIdValue ?? '').replace(/\D/g, '');
+    if (!googleCampaignId) {
+      throw new BadRequestException('ID chiến dịch không hợp lệ');
+    }
+    const campaign = await this.dataSource.getRepository(CampaignEntity).findOneBy({
+      accountId: account.id,
+      googleCampaignId,
+    });
+    if (!campaign) {
+      throw new NotFoundException('Không tìm thấy chiến dịch trong dữ liệu đã đồng bộ');
+    }
+    const days = Math.round(this.clampNumber(inputDays, 14, 1, 90));
+    const scopes = await this.dataSource
+      .getRepository(CreativePolicyScopeEntity)
+      .findBy({ policyId: policy.id });
+    const selectedAdGroupIds = new Set(
+      scopes.map((scope) => scope.adGroupId).filter(Boolean),
+    );
+    const rows: Array<Record<string, unknown>> = await this.dataSource.query(
+      `
+        SELECT
+          ag.id,
+          ag.google_ad_group_id,
+          ag.name,
+          ag.status,
+          COALESCE(metrics.impressions, 0)::float8 AS impressions,
+          COALESCE(metrics.clicks, 0)::float8 AS clicks,
+          COALESCE(metrics.cost_micros, 0)::float8 AS cost_micros,
+          COALESCE(metrics.conversions, 0)::float8 AS conversions,
+          COALESCE(metrics.conversion_value, 0)::float8 AS conversion_value
+        FROM ad_groups ag
+        LEFT JOIN LATERAL (
+          SELECT
+            SUM(impressions)::float8 AS impressions,
+            SUM(clicks)::float8 AS clicks,
+            SUM(cost_micros)::float8 AS cost_micros,
+            SUM(conversions)::float8 AS conversions,
+            SUM(conversion_value)::float8 AS conversion_value
+          FROM ad_group_daily_metrics
+          WHERE ad_group_id = ag.id
+            AND metric_date >= CURRENT_DATE - (($2::int - 1) * INTERVAL '1 day')
+        ) metrics ON true
+        WHERE ag.campaign_id = $1
+        ORDER BY ag.name ASC
+      `,
+      [campaign.id, days],
+    );
+    const campaignMetricRows: Array<Record<string, unknown>> =
+      await this.dataSource.query(
+        `
+          SELECT
+            COALESCE(SUM(impressions), 0)::float8 AS impressions,
+            COALESCE(SUM(clicks), 0)::float8 AS clicks,
+            COALESCE(SUM(cost_micros), 0)::float8 AS cost_micros,
+            COALESCE(SUM(conversions), 0)::float8 AS conversions,
+            COALESCE(SUM(conversion_value), 0)::float8 AS conversion_value
+          FROM campaign_daily_metrics
+          WHERE campaign_id = $1
+            AND metric_date >= CURRENT_DATE - (($2::int - 1) * INTERVAL '1 day')
+        `,
+        [campaign.id, days],
+      );
+
+    return {
+      campaign: {
+        id: campaign.googleCampaignId,
+        name: campaign.name,
+        status: campaign.status,
+        metrics: this.serializeAutomationMetrics(campaignMetricRows[0] ?? {}),
+      },
+      days,
+      adGroups: rows.map((row) => ({
+        id: String(row.google_ad_group_id ?? ''),
+        name: String(row.name ?? ''),
+        status: String(row.status ?? ''),
+        selected: selectedAdGroupIds.has(String(row.id ?? '')),
+        metrics: this.serializeAutomationMetrics(row),
+      })),
+    };
+  }
+
   private async getAutomationScope(
     account: GoogleAdsAccountEntity,
     policyId: string,
@@ -1120,16 +1208,20 @@ export class CreativeOperationsService {
         name: campaign.name,
         status: campaign.status,
         selected: selectedCampaignIds.has(campaign.id),
-        adGroups: adGroups
-          .filter((adGroup) => adGroup.campaignId === campaign.id)
-          .sort((a, b) => a.name.localeCompare(b.name))
-          .map((adGroup) => ({
-            id: adGroup.googleAdGroupId,
-            name: adGroup.name,
-            status: adGroup.status,
-            selected: selectedAdGroupIds.has(adGroup.id),
-          })),
+        adGroupCount: adGroups.filter(
+          (adGroup) => adGroup.campaignId === campaign.id,
+        ).length,
+        selectedAdGroupIds: adGroups
+          .filter(
+            (adGroup) =>
+              adGroup.campaignId === campaign.id &&
+              selectedAdGroupIds.has(adGroup.id),
+          )
+          .map((adGroup) => adGroup.googleAdGroupId),
       })),
+      selectedAdGroupIds: adGroups
+        .filter((adGroup) => selectedAdGroupIds.has(adGroup.id))
+        .map((adGroup) => adGroup.googleAdGroupId),
       selectedCampaignCount: campaigns.filter((campaign) =>
         selectedCampaignIds.has(campaign.id),
       ).length,
@@ -1169,6 +1261,23 @@ export class CreativeOperationsService {
         .map((item) => String(item ?? '').replace(/\D/g, ''))
         .filter((item) => /^\d+$/.test(item)),
     )];
+  }
+
+  private serializeAutomationMetrics(row: Record<string, unknown>) {
+    const impressions = Number(row.impressions ?? 0);
+    const clicks = Number(row.clicks ?? 0);
+    const cost = Number(row.cost_micros ?? 0) / 1_000_000;
+    const conversions = Number(row.conversions ?? 0);
+    const conversionValue = Number(row.conversion_value ?? 0);
+    return {
+      impressions,
+      clicks,
+      ctr: impressions > 0 ? clicks / impressions : 0,
+      cost,
+      conversions,
+      conversionValue,
+      roas: cost > 0 ? conversionValue / cost : 0,
+    };
   }
 
   private impactMetrics(row: Record<string, unknown>, prefix: 'before' | 'after') {

@@ -3580,6 +3580,19 @@ tbody tr:hover td:first-child {
   gap: 10px;
 }
 
+.automationScopeCampaignRow {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.automationScopeCampaignMain label {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+
 .automationScopeCampaign input {
   margin-top: 3px;
 }
@@ -3598,6 +3611,42 @@ tbody tr:hover td:first-child {
   display: grid;
   gap: 8px;
   padding: 12px 18px 14px 38px;
+}
+
+.automationCampaignDetail {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.automationMetrics {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+.automationMetrics > div {
+  background: #f8fafd;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.automationMetrics span,
+.automationAdGroupMetrics small {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.automationAdGroupMetrics {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(4, minmax(90px, auto));
+  margin-left: auto;
+  text-align: right;
 }
 
 .campaignAccessEditor {
@@ -3837,7 +3886,7 @@ tbody tr:hover td:first-child {
   .tableScroll { overflow-x: auto; }
   .card-value { font-size: 24px; }
   th, td { padding: 9px 10px; }
-  .operationsMetrics, .activityGrid, .settingsGrid, .queueCopy, .termComposer { grid-template-columns: 1fr; }
+  .operationsMetrics, .activityGrid, .settingsGrid, .queueCopy, .termComposer, .automationMetrics { grid-template-columns: 1fr; }
   .operationsMetrics > div, .activityGrid > div { border-right: 0; }
   .recommendationToolbar, .settingsActions { align-items: stretch; flex-direction: column; }
   .statusTabs { width: 100%; overflow-x: auto; }

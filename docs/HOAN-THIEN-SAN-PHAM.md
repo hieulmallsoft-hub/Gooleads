@@ -225,3 +225,17 @@ Content-Type: application/json
   "adGroupIds": ["1001", "1002"]
 }
 ```
+
+### Tải nhóm quảng cáo theo từng chiến dịch
+
+- Màn Automation ban đầu chỉ tải và hiển thị danh sách chiến dịch, không trả toàn bộ nhóm quảng cáo của mọi chiến dịch.
+- Khi quản trị viên bấm **Chọn nhóm quảng cáo**, frontend mới gọi API chi tiết cho đúng một chiến dịch.
+- Danh sách chi tiết hiển thị hiệu quả 14 ngày của chiến dịch và từng nhóm quảng cáo: lượt hiển thị, lượt nhấp, CTR, chi phí, chuyển đổi và ROAS.
+- Các chỉ số lấy từ dữ liệu đã đồng bộ trong PostgreSQL nên việc mở danh sách không phát sinh request Google Ads và không tiêu tốn thêm quota.
+- Nhóm quảng cáo của chiến dịch khác không được tải hoặc hiển thị. Người dùng đóng chi tiết rồi mở chiến dịch khác khi cần.
+
+API tải chi tiết một chiến dịch:
+
+```http
+GET /creative-operations/automation/scope/campaigns/2001?customerId=1234567890&days=14
+```

@@ -38,16 +38,11 @@ const settingsResponse = {
         name: 'Chiến dịch AC',
         status: 'ENABLED',
         selected: false,
-        adGroups: [
-          {
-            id: '1001',
-            name: 'Nhóm Việt Nam',
-            status: 'ENABLED',
-            selected: false,
-          },
-        ],
+        adGroupCount: 1,
+        selectedAdGroupIds: [],
       },
     ],
+    selectedAdGroupIds: [],
     selectedCampaignCount: 0,
     selectedAdGroupCount: 0,
   },
@@ -127,6 +122,40 @@ describe('OperationsPanel đổi mật khẩu', () => {
       if (path.startsWith('/creative-operations/settings')) {
         return new Response(JSON.stringify(settingsResponse), { status: 200 });
       }
+      if (path.includes('/automation/scope/campaigns/2001')) {
+        return new Response(JSON.stringify({
+          campaign: {
+            id: '2001',
+            name: 'Chiến dịch AC',
+            status: 'ENABLED',
+            metrics: {
+              impressions: 1000,
+              clicks: 100,
+              ctr: 0.1,
+              cost: 50,
+              conversions: 20,
+              conversionValue: 100,
+              roas: 2,
+            },
+          },
+          days: 14,
+          adGroups: [{
+            id: '1001',
+            name: 'Nhóm Việt Nam',
+            status: 'ENABLED',
+            selected: false,
+            metrics: {
+              impressions: 1000,
+              clicks: 100,
+              ctr: 0.1,
+              cost: 50,
+              conversions: 20,
+              conversionValue: 100,
+              roas: 2,
+            },
+          }],
+        }), { status: 200 });
+      }
       if (path.startsWith('/creative-operations/automation/scope')) {
         return new Response(JSON.stringify(settingsResponse.automationScope), {
           status: 200,
@@ -161,6 +190,8 @@ describe('OperationsPanel đổi mật khẩu', () => {
     await user.click(
       screen.getByLabelText('Cho phép Automation trong chiến dịch Chiến dịch AC'),
     );
+    await user.click(screen.getByRole('button', { name: 'Chọn nhóm quảng cáo' }));
+    expect(await screen.findByText(/10\.00% CTR/)).toBeInTheDocument();
     await user.click(
       screen.getByLabelText('Cho phép Automation trong nhóm quảng cáo Nhóm Việt Nam'),
     );
