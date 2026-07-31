@@ -25,6 +25,7 @@ import { CreativeAutomationService } from './creative-automation.service';
 import { CreateCreativeTermDto } from './dto/create-creative-term.dto';
 import { UpdateCreativeSettingsDto } from './dto/update-creative-settings.dto';
 import { UpdateCreativeTermDto } from './dto/update-creative-term.dto';
+import { UpdateAutomationScopeDto } from './dto/update-automation-scope.dto';
 
 const TERM_TYPES = new Set([
   'KEYWORD',
@@ -797,6 +798,7 @@ export class CreativeOperationsService {
           take: 5,
         })
       : [];
+    const automationScope = await this.getAutomationScope(account, policy.id);
     return {
       account: {
         customerId: account.customerId,
@@ -808,6 +810,7 @@ export class CreativeOperationsService {
       policy,
       schedule,
       recentAutomationRuns,
+      automationScope,
       providers: {
         googleAdsConfigured: Boolean(
           account.lastSyncedAt ||
@@ -961,7 +964,7 @@ export class CreativeOperationsService {
 
     const savedPolicy = await this.dataSource.getRepository(CreativePolicyEntity).save(policy);
     if (input.automationEnabled) {
-      await this.ensurePolicyAccountScope(savedPolicy.id, account.id);
+      await this.assertAutomationHasSelectedAdGroups(savedPolicy.id, account.id);
     }
     await this.automationService.ensureSchedule(savedPolicy, {
       enabled: Boolean(input.automationEnabled),
@@ -977,20 +980,13 @@ export class CreativeOperationsService {
     const policy = await this.getPolicy(account.workspaceId);
     policy.approvalMode = 'AUTO';
     await this.dataSource.getRepository(CreativePolicyEntity).save(policy);
-    await this.ensurePolicyAccountScope(policy.id, account.id);
+    await this.assertAutomationHasSelectedAdGroups(policy.id, account.id);
     const schedule = await this.automationService.ensureSchedule(policy, {
       enabled: true,
       intervalDays: policy.reviewIntervalDays,
       timezone: account.timeZone,
     });
-    const maxChangesOverride = Math.round(
-      this.clampNumber(
-        process.env.AUTOMATION_RUN_NOW_MAX_CHANGES,
-        5000,
-        1,
-        50000,
-      ),
-    );
+    const maxChangesOverride = policy.maxChangesPerRun;
     const run = await this.automationService.runSchedule(schedule.id, {
       force: true,
       now: new Date(),
@@ -1008,6 +1004,171 @@ export class CreativeOperationsService {
 
   private async getAccount(customerId: string) {
     return this.accountRegistry.getOrCreate(customerId);
+  }
+
+  async updateAutomationScope(
+    customerId: string,
+    input: UpdateAutomationScopeDto,
+  ) {
+    const account = await this.getAccount(customerId);
+    const policy = await this.getPolicy(account.workspaceId);
+    const campaignIds = this.normalizeGoogleIdList(input.campaignIds);
+    const adGroupIds = this.normalizeGoogleIdList(input.adGroupIds);
+    const campaigns = await this.dataSource
+      .getRepository(CampaignEntity)
+      .findBy({ accountId: account.id });
+    const campaignByGoogleId = new Map(
+      campaigns.map((campaign) => [campaign.googleCampaignId, campaign]),
+    );
+    const selectedCampaigns = campaignIds.map((id) => campaignByGoogleId.get(id));
+    if (selectedCampaigns.some((campaign) => !campaign)) {
+      throw new BadRequestException(
+        'Có chiến dịch không thuộc tài khoản hoặc chưa được đồng bộ',
+      );
+    }
+
+    const allAdGroups = campaigns.length
+      ? await this.dataSource.getRepository(AdGroupEntity).findBy({
+          campaignId: In(campaigns.map((campaign) => campaign.id)),
+        })
+      : [];
+    const adGroupByGoogleId = new Map(
+      allAdGroups.map((adGroup) => [adGroup.googleAdGroupId, adGroup]),
+    );
+    const selectedCampaignInternalIds = new Set(
+      selectedCampaigns
+        .filter((campaign): campaign is CampaignEntity => Boolean(campaign))
+        .map((campaign) => campaign.id),
+    );
+    const selectedAdGroups = adGroupIds.map((id) => adGroupByGoogleId.get(id));
+    if (
+      selectedAdGroups.some(
+        (adGroup) =>
+          !adGroup || !selectedCampaignInternalIds.has(adGroup.campaignId),
+      )
+    ) {
+      throw new BadRequestException(
+        'Mỗi nhóm quảng cáo phải thuộc một chiến dịch đã chọn',
+      );
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(CreativePolicyScopeEntity);
+      const currentScopes = await repository.findBy({ policyId: policy.id });
+      const accountCampaignIds = new Set(campaigns.map((campaign) => campaign.id));
+      const accountAdGroupIds = new Set(allAdGroups.map((adGroup) => adGroup.id));
+      const accountScopes = currentScopes.filter(
+        (scope) =>
+          scope.accountId === account.id ||
+          Boolean(scope.campaignId && accountCampaignIds.has(scope.campaignId)) ||
+          Boolean(scope.adGroupId && accountAdGroupIds.has(scope.adGroupId)),
+      );
+      if (accountScopes.length) await repository.remove(accountScopes);
+
+      const rows = [
+        ...selectedCampaigns
+          .filter((campaign): campaign is CampaignEntity => Boolean(campaign))
+          .map((campaign) => ({
+            policyId: policy.id,
+            accountId: null,
+            campaignId: campaign.id,
+            adGroupId: null,
+          })),
+        ...selectedAdGroups
+          .filter((adGroup): adGroup is AdGroupEntity => Boolean(adGroup))
+          .map((adGroup) => ({
+            policyId: policy.id,
+            accountId: null,
+            campaignId: null,
+            adGroupId: adGroup.id,
+          })),
+      ];
+      if (rows.length) await repository.save(rows);
+    });
+
+    return this.getAutomationScope(account, policy.id);
+  }
+
+  private async getAutomationScope(
+    account: GoogleAdsAccountEntity,
+    policyId: string,
+  ) {
+    const campaigns = await this.dataSource
+      .getRepository(CampaignEntity)
+      .find({
+        where: { accountId: account.id },
+        order: { name: 'ASC' },
+      });
+    const adGroups = campaigns.length
+      ? await this.dataSource.getRepository(AdGroupEntity).findBy({
+          campaignId: In(campaigns.map((campaign) => campaign.id)),
+        })
+      : [];
+    const scopes = await this.dataSource
+      .getRepository(CreativePolicyScopeEntity)
+      .findBy({ policyId });
+    const selectedCampaignIds = new Set(
+      scopes.map((scope) => scope.campaignId).filter(Boolean),
+    );
+    const selectedAdGroupIds = new Set(
+      scopes.map((scope) => scope.adGroupId).filter(Boolean),
+    );
+
+    return {
+      campaigns: campaigns.map((campaign) => ({
+        id: campaign.googleCampaignId,
+        name: campaign.name,
+        status: campaign.status,
+        selected: selectedCampaignIds.has(campaign.id),
+        adGroups: adGroups
+          .filter((adGroup) => adGroup.campaignId === campaign.id)
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((adGroup) => ({
+            id: adGroup.googleAdGroupId,
+            name: adGroup.name,
+            status: adGroup.status,
+            selected: selectedAdGroupIds.has(adGroup.id),
+          })),
+      })),
+      selectedCampaignCount: campaigns.filter((campaign) =>
+        selectedCampaignIds.has(campaign.id),
+      ).length,
+      selectedAdGroupCount: adGroups.filter((adGroup) =>
+        selectedAdGroupIds.has(adGroup.id),
+      ).length,
+    };
+  }
+
+  private async assertAutomationHasSelectedAdGroups(
+    policyId: string,
+    accountId: string,
+  ) {
+    const campaigns = await this.dataSource
+      .getRepository(CampaignEntity)
+      .findBy({ accountId });
+    const adGroups = campaigns.length
+      ? await this.dataSource.getRepository(AdGroupEntity).findBy({
+          campaignId: In(campaigns.map((campaign) => campaign.id)),
+        })
+      : [];
+    const allowedIds = new Set(adGroups.map((adGroup) => adGroup.id));
+    const scopes = await this.dataSource
+      .getRepository(CreativePolicyScopeEntity)
+      .findBy({ policyId });
+    if (!scopes.some((scope) => scope.adGroupId && allowedIds.has(scope.adGroupId))) {
+      throw new BadRequestException(
+        'Hãy chọn ít nhất một nhóm quảng cáo trong phạm vi Automation',
+      );
+    }
+  }
+
+  private normalizeGoogleIdList(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(
+      value
+        .map((item) => String(item ?? '').replace(/\D/g, ''))
+        .filter((item) => /^\d+$/.test(item)),
+    )];
   }
 
   private impactMetrics(row: Record<string, unknown>, prefix: 'before' | 'after') {
@@ -1045,18 +1206,6 @@ export class CreativeOperationsService {
     });
     if (!policy) throw new NotFoundException('Creative policy is not configured');
     return policy;
-  }
-
-  private async ensurePolicyAccountScope(policyId: string, accountId: string) {
-    const repository = this.dataSource.getRepository(CreativePolicyScopeEntity);
-    const existing = await repository.findOneBy({ policyId, accountId });
-    if (existing) return existing;
-    return repository.save({
-      policyId,
-      accountId,
-      campaignId: null,
-      adGroupId: null,
-    });
   }
 
   private async getAccountAdGroups(accountId: string, googleAdGroupId?: string) {

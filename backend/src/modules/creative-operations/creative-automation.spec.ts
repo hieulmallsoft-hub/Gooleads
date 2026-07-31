@@ -51,3 +51,92 @@ test('automation uses heartbeat instead of start time when detecting an interrup
   assert.equal(instance.isStaleRunningRun(activeRun, now), false);
   assert.equal(instance.isStaleRunningRun(interruptedRun, now), true);
 });
+
+test('automation only targets explicitly selected enabled ad groups', async () => {
+  const values: Record<string, unknown[]> = {
+    CreativePolicyScopeEntity: [
+      { policyId: 'policy-1', adGroupId: 'group-db-1' },
+      { policyId: 'policy-1', adGroupId: 'group-db-paused' },
+    ],
+    AdGroupEntity: [
+      {
+        id: 'group-db-1',
+        campaignId: 'campaign-db-1',
+        googleAdGroupId: '1001',
+        name: 'Được phép',
+        status: 'ENABLED',
+      },
+      {
+        id: 'group-db-paused',
+        campaignId: 'campaign-db-1',
+        googleAdGroupId: '1002',
+        name: 'Đã tạm dừng',
+        status: 'PAUSED',
+      },
+    ],
+    CampaignEntity: [
+      {
+        id: 'campaign-db-1',
+        accountId: 'account-1',
+        googleCampaignId: '2001',
+        name: 'Chiến dịch được phép',
+        status: 'ENABLED',
+      },
+    ],
+    GoogleAdsAccountEntity: [
+      {
+        id: 'account-1',
+        customerId: '1234567890',
+        status: 'ACTIVE',
+      },
+    ],
+  };
+  const dataSource = {
+    getRepository(entity: { name: string }) {
+      return {
+        findBy: async () => values[entity.name] ?? [],
+      };
+    },
+  };
+  const instance = new CreativeAutomationService(
+    dataSource as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  ) as any;
+
+  const targets = await instance.getAutomationTargets(
+    { id: 'policy-1' },
+    'LAST_7_DAYS',
+  );
+
+  assert.deepEqual(targets, [
+    {
+      customerId: '1234567890',
+      campaignId: '2001',
+      campaignName: 'Chiến dịch được phép',
+      adGroupId: '1001',
+      adGroupName: 'Được phép',
+    },
+  ]);
+});
+
+test('automation fails closed when no ad group scope is selected', async () => {
+  const instance = new CreativeAutomationService(
+    {
+      getRepository() {
+        return { findBy: async () => [] };
+      },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  ) as any;
+
+  assert.deepEqual(
+    await instance.getAutomationTargets({ id: 'policy-1' }, 'LAST_7_DAYS'),
+    [],
+  );
+});

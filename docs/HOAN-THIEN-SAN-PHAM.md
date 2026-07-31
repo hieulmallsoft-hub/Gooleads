@@ -198,3 +198,27 @@ Migration `008_creative_term_scopes.sql` bổ sung phạm vi cho quy tắc từ 
 
 Migration này sửa lỗi API `creative-operations/terms` trả `Internal server error` trên database
 được tạo hoàn toàn bằng migration. Migration chỉ bổ sung cột và index, không xóa quy tắc hiện có.
+
+## 12. Phạm vi Automation theo chiến dịch và nhóm quảng cáo
+
+- Chỉ quản trị viên có quyền thêm hoặc xóa phạm vi Automation.
+- Quản trị viên chọn chiến dịch trước, sau đó tích riêng từng nhóm quảng cáo bên trong.
+- Chọn chiến dịch không tự động chọn toàn bộ nhóm quảng cáo hiện tại hoặc tương lai.
+- Worker chỉ xử lý các `ad_group_id` đã được lưu trong `creative_policy_scopes`.
+- Không có nhóm quảng cáo được chọn thì Automation không chạy và API bật/chạy ngay trả lỗi rõ ràng.
+- Chiến dịch hoặc nhóm quảng cáo đang tạm dừng sẽ bị bỏ qua.
+- Sau bước đồng bộ, worker kiểm tra lại trạng thái trong PostgreSQL trước khi gọi AI và áp dụng.
+- Nút Chạy ngay tuân thủ `max_changes_per_run` trong chính sách.
+- Danh sách cấu hình đọc từ PostgreSQL, không gọi thêm Google Ads khi mở Cài đặt.
+
+API lưu phạm vi:
+
+```http
+PUT /creative-operations/automation/scope?customerId=1234567890
+Content-Type: application/json
+
+{
+  "campaignIds": ["2001"],
+  "adGroupIds": ["1001", "1002"]
+}
+```

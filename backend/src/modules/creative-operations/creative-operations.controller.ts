@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -14,6 +15,7 @@ import {
 import { CreateCreativeTermDto } from './dto/create-creative-term.dto';
 import { UpdateCreativeSettingsDto } from './dto/update-creative-settings.dto';
 import { UpdateCreativeTermDto } from './dto/update-creative-term.dto';
+import { UpdateAutomationScopeDto } from './dto/update-automation-scope.dto';
 import { CreativeOperationsService } from './creative-operations.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { RequirePermissions } from '../auth/permissions.decorator';
@@ -179,6 +181,19 @@ export class CreativeOperationsController {
     @Req() request: { user: AuthenticatedUser },
   ) {
     return this.service.updateAutomationSettings(
+      this.customerIdForUser(inputCustomerId, request.user),
+      input,
+    );
+  }
+
+  @Put('automation/scope')
+  @RequirePermissions('users.manage')
+  updateAutomationScope(
+    @Query('customerId') inputCustomerId: string | undefined,
+    @Body() input: UpdateAutomationScopeDto,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.service.updateAutomationScope(
       this.customerIdForUser(inputCustomerId, request.user),
       input,
     );

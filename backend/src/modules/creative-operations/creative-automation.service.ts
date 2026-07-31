@@ -9,6 +9,8 @@ import { DataSource, In, IsNull, LessThanOrEqual } from 'typeorm';
 import { AutomationRunItemEntity } from '../../database/entities/automation-run-item.entity';
 import { AutomationRunEntity } from '../../database/entities/automation-run.entity';
 import { AutomationScheduleEntity } from '../../database/entities/automation-schedule.entity';
+import { AdGroupEntity } from '../../database/entities/ad-group.entity';
+import { CampaignEntity } from '../../database/entities/campaign.entity';
 import { CreativePolicyScopeEntity } from '../../database/entities/creative-policy-scope.entity';
 import { CreativePolicyEntity } from '../../database/entities/creative-policy.entity';
 import { GoogleAdsAccountEntity } from '../../database/entities/google-ads-account.entity';
@@ -314,6 +316,17 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     maxChanges: number,
   ) {
     await this.googleAdsSyncService.sync(target.customerId, target.adGroupId, timeRange);
+    if (!(await this.isTargetStillEnabled(target))) {
+      await this.saveRunItem(
+        run.id,
+        'SKIPPED',
+        this.formatTargetReason(
+          target,
+          'Chiến dịch hoặc nhóm quảng cáo hiện đã tạm dừng',
+        ),
+      );
+      return { selectedCount: 0 };
+    }
     const generated = await this.googleAdsService.generateAiTextSuggestions(
       target.customerId,
       target.adGroupId,
@@ -468,60 +481,82 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     return { headlineReplacements, descriptionReplacements };
   }
 
+  private async isTargetStillEnabled(target: AutomationTarget) {
+    const account = await this.dataSource
+      .getRepository(GoogleAdsAccountEntity)
+      .findOneBy({ customerId: target.customerId });
+    if (!account) return false;
+    const campaign = await this.dataSource
+      .getRepository(CampaignEntity)
+      .findOneBy({
+        accountId: account.id,
+        googleCampaignId: target.campaignId,
+      });
+    if (!campaign || campaign.status !== 'ENABLED') return false;
+    const adGroup = await this.dataSource
+      .getRepository(AdGroupEntity)
+      .findOneBy({
+        campaignId: campaign.id,
+        googleAdGroupId: target.adGroupId,
+      });
+    return adGroup?.status === 'ENABLED';
+  }
+
   private async getAutomationTargets(
     policy: CreativePolicyEntity,
-    timeRange: string,
+    _timeRange: string,
     targetAccountIds?: string[],
   ) {
-    const accounts = targetAccountIds?.length
-      ? await this.dataSource
-          .getRepository(GoogleAdsAccountEntity)
-          .findBy({ id: In(targetAccountIds), status: 'ACTIVE' })
-      : await this.getScopedAccounts(
-          policy,
-          await this.dataSource
-            .getRepository(CreativePolicyScopeEntity)
-            .findBy({ policyId: policy.id }),
-        );
+    const scopes = await this.dataSource
+      .getRepository(CreativePolicyScopeEntity)
+      .findBy({ policyId: policy.id });
+    const selectedAdGroupIds = scopes
+      .map((scope) => scope.adGroupId)
+      .filter((id): id is string => Boolean(id));
+    if (!selectedAdGroupIds.length) return [];
+
+    const adGroups = await this.dataSource
+      .getRepository(AdGroupEntity)
+      .findBy({ id: In(selectedAdGroupIds) });
+    const campaigns = adGroups.length
+      ? await this.dataSource.getRepository(CampaignEntity).findBy({
+          id: In([...new Set(adGroups.map((adGroup) => adGroup.campaignId))]),
+        })
+      : [];
+    const allowedAccountIds = targetAccountIds?.length
+      ? new Set(targetAccountIds)
+      : null;
+    const accounts = campaigns.length
+      ? await this.dataSource.getRepository(GoogleAdsAccountEntity).findBy({
+          id: In([...new Set(campaigns.map((campaign) => campaign.accountId))]),
+          status: 'ACTIVE',
+        })
+      : [];
+    const campaignMap = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+    const accountMap = new Map(accounts.map((account) => [account.id, account]));
     const targets = new Map<string, AutomationTarget>();
     const configuredLimit = Number(process.env.AUTOMATION_AD_GROUP_LIMIT);
     const adGroupLimit = Number.isFinite(configuredLimit) && configuredLimit > 0
       ? configuredLimit
       : Number.POSITIVE_INFINITY;
 
-    for (const account of accounts) {
-      const liveAdGroups = await this.googleAdsService.getAdGroupPerformance(
-        account.customerId,
-        timeRange,
-      );
-      for (const adGroup of liveAdGroups.adGroups.slice(0, adGroupLimit)) {
-        targets.set(`${account.customerId}:${adGroup.id}`, {
-          customerId: account.customerId,
-          campaignId: adGroup.campaignId,
-          campaignName: adGroup.campaignName || `Campaign ${adGroup.campaignId}`,
-          adGroupId: adGroup.id,
-          adGroupName: adGroup.name || `Ad group ${adGroup.id}`,
-        });
-      }
+    for (const adGroup of adGroups) {
+      if (targets.size >= adGroupLimit) break;
+      const campaign = campaignMap.get(adGroup.campaignId);
+      if (!campaign || campaign.status !== 'ENABLED') continue;
+      const account = accountMap.get(campaign.accountId);
+      if (!account || (allowedAccountIds && !allowedAccountIds.has(account.id))) continue;
+      if (adGroup.status !== 'ENABLED') continue;
+      targets.set(`${account.customerId}:${adGroup.googleAdGroupId}`, {
+        customerId: account.customerId,
+        campaignId: campaign.googleCampaignId,
+        campaignName: campaign.name || `Campaign ${campaign.googleCampaignId}`,
+        adGroupId: adGroup.googleAdGroupId,
+        adGroupName: adGroup.name || `Ad group ${adGroup.googleAdGroupId}`,
+      });
     }
 
     return Array.from(targets.values());
-  }
-
-  private async getScopedAccounts(
-    policy: CreativePolicyEntity,
-    scopes: CreativePolicyScopeEntity[],
-  ) {
-    const accountRepository = this.dataSource.getRepository(GoogleAdsAccountEntity);
-    const scopedAccountIds = scopes
-      .map((scope) => scope.accountId)
-      .filter((accountId): accountId is string => Boolean(accountId));
-
-    if (scopedAccountIds.length) {
-      return accountRepository.findBy({ id: In(scopedAccountIds), status: 'ACTIVE' });
-    }
-
-    return accountRepository.findBy({ workspaceId: policy.workspaceId, status: 'ACTIVE' });
   }
 
   private async completeRun(

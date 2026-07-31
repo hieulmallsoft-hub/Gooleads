@@ -31,6 +31,26 @@ const settingsResponse = {
     googleAdsConfigured: true,
     geminiConfigured: true,
   },
+  automationScope: {
+    campaigns: [
+      {
+        id: '2001',
+        name: 'Chiến dịch AC',
+        status: 'ENABLED',
+        selected: false,
+        adGroups: [
+          {
+            id: '1001',
+            name: 'Nhóm Việt Nam',
+            status: 'ENABLED',
+            selected: false,
+          },
+        ],
+      },
+    ],
+    selectedCampaignCount: 0,
+    selectedAdGroupCount: 0,
+  },
 };
 
 describe('OperationsPanel đổi mật khẩu', () => {
@@ -46,6 +66,11 @@ describe('OperationsPanel đổi mật khẩu', () => {
       }
       if (path === '/auth/change-password') {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (path.startsWith('/creative-operations/automation/scope')) {
+        return new Response(JSON.stringify(settingsResponse.automationScope), {
+          status: 200,
+        });
       }
       return new Response(null, { status: 404 });
     });
@@ -72,6 +97,25 @@ describe('OperationsPanel đổi mật khẩu', () => {
     );
 
     await screen.findByRole('heading', { name: 'Đổi mật khẩu' });
+    await user.click(
+      screen.getByLabelText('Cho phép Automation trong chiến dịch Chiến dịch AC'),
+    );
+    await user.click(
+      screen.getByLabelText('Cho phép Automation trong nhóm quảng cáo Nhóm Việt Nam'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Lưu phạm vi' }));
+
+    expect(request).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/creative-operations\/automation\/scope\?/),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          campaignIds: ['2001'],
+          adGroupIds: ['1001'],
+        }),
+      }),
+    );
+
     await user.type(screen.getByLabelText('Mật khẩu hiện tại'), 'Current@123');
     await user.type(screen.getByLabelText('Mật khẩu mới'), 'NewPassword@456');
     await user.type(
