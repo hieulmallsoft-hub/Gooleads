@@ -14,7 +14,7 @@ import { parseJsonSafe } from '../api/client';
 import { getLanguageLabel, LANGUAGE_OPTIONS } from '../config/languages';
 import type { AuthUser, Campaign } from '../types/googleAds';
 
-export type OperationsSection = 'overview' | 'recommendations' | 'impact' | 'keywords' | 'settings' | 'guide';
+export type OperationsSection = 'overview' | 'recommendations' | 'impact' | 'automation' | 'keywords' | 'settings' | 'guide';
 
 type RequestFn = (path: string, options?: RequestInit) => Promise<Response>;
 
@@ -393,9 +393,9 @@ export function OperationsPanel({
       if (section === 'overview') await loadOverview();
       if (section === 'recommendations') await loadRecommendations();
       if (section === 'keywords') await loadTerms();
-      if (section === 'settings') {
+      if (section === 'settings' || section === 'automation') {
         await loadSettings();
-        await loadAccessUsers();
+        if (section === 'settings') await loadAccessUsers();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể tải dữ liệu');
@@ -603,6 +603,34 @@ export function OperationsPanel({
     }
   }
 
+  async function saveAutomationLimits() {
+    if (!canRunPeriodicAi) return;
+    setLoading(true);
+    setError('');
+    setNotice('');
+    try {
+      const params = new URLSearchParams({ customerId });
+      const response = await request(`/creative-operations/settings?${params}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reviewIntervalDays: settingsDraft.reviewIntervalDays,
+          maxChangesPerRun: settingsDraft.maxChangesPerRun,
+        }),
+      });
+      const body = await parseJsonSafe(response);
+      if (!response.ok) {
+        throw new Error(errorMessage(body, 'Không thể lưu cấu hình Automation'));
+      }
+      setNotice('Đã lưu chu kỳ và giới hạn thay đổi của Automation.');
+      await loadSettings();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể lưu cấu hình Automation');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function toggleAutomationCampaign(campaignId: string, selected: boolean) {
     setSelectedAutomationCampaignIds((current) =>
       selected
@@ -794,6 +822,7 @@ export function OperationsPanel({
     overview: 'Tổng quan',
     recommendations: 'Đề xuất',
     impact: 'Theo dõi thay đổi',
+    automation: 'Automation',
     keywords: 'Quy tắc từ khóa AI',
     settings: 'Cài đặt',
     guide: 'Hướng dẫn sử dụng',
@@ -802,6 +831,7 @@ export function OperationsPanel({
     overview: 'Trạng thái đánh giá AI, tài nguyên hiệu quả thấp và thay đổi Google Ads gần đây.',
     recommendations: 'Phê duyệt hoặc từ chối đề xuất AI trước khi áp dụng.',
     impact: 'So sánh hiệu quả trước và sau khi thay đổi nội dung quảng cáo.',
+    automation: 'Chọn chiến dịch, nhóm quảng cáo và điều khiển AI định kỳ.',
     keywords: 'Từ khóa sản phẩm, thương hiệu, từ khóa phủ định và nội dung bị cấm.',
     settings: 'Trạng thái kết nối Google Ads và chính sách đánh giá nội dung.',
     guide: 'Hướng dẫn sử dụng ứng dụng GG Ads.',
@@ -934,9 +964,10 @@ export function OperationsPanel({
         </>
       ) : null}
 
-      {section === 'settings' && settings ? (
+      {(section === 'settings' || section === 'automation') && settings ? (
         <>
-          <section className="operationsSection">
+          {section === 'settings' ? (
+            <section className="operationsSection">
             <div className="sectionTitle">
               <div>
                 <h2>Đổi mật khẩu</h2>
@@ -997,8 +1028,9 @@ export function OperationsPanel({
                 {passwordSaving ? 'Đang đổi...' : 'Đổi mật khẩu'}
               </button>
             </div>
-          </section>
-          {canManageUsers ? (
+            </section>
+          ) : null}
+          {section === 'settings' && canManageUsers ? (
             <section className="operationsSection">
               <div className="sectionTitle">
                 <div>
@@ -1072,11 +1104,15 @@ export function OperationsPanel({
               ) : null}
             </section>
           ) : null}
-          <section className="operationsSection">
-            <div className="sectionTitle"><h2>Kết nối</h2><span>{settings.account.displayName}</span></div>
-            <div className="connectionRows"><div><span>Google Ads API</span><strong className={settings.providers.googleAdsConfigured ? 'connected' : 'disconnected'}>{settings.providers.googleAdsConfigured ? 'Đã kết nối' : 'Thiếu cấu hình'}</strong></div><div><span>Gemini API</span><strong className={settings.providers.geminiConfigured ? 'connected' : 'disconnected'}>{settings.providers.geminiConfigured ? 'Đã kết nối' : 'Thiếu cấu hình'}</strong></div><div><span>Khách hàng</span><strong>{settings.account.customerId}</strong></div><div><span>Lần đồng bộ gần nhất</span><strong>{formatDate(settings.account.lastSyncedAt)}</strong></div></div>
-          </section>
-          <section className="operationsSection">
+          {section === 'settings' ? (
+            <section className="operationsSection">
+              <div className="sectionTitle"><h2>Kết nối</h2><span>{settings.account.displayName}</span></div>
+              <div className="connectionRows"><div><span>Google Ads API</span><strong className={settings.providers.googleAdsConfigured ? 'connected' : 'disconnected'}>{settings.providers.googleAdsConfigured ? 'Đã kết nối' : 'Thiếu cấu hình'}</strong></div><div><span>Gemini API</span><strong className={settings.providers.geminiConfigured ? 'connected' : 'disconnected'}>{settings.providers.geminiConfigured ? 'Đã kết nối' : 'Thiếu cấu hình'}</strong></div><div><span>Khách hàng</span><strong>{settings.account.customerId}</strong></div><div><span>Lần đồng bộ gần nhất</span><strong>{formatDate(settings.account.lastSyncedAt)}</strong></div></div>
+            </section>
+          ) : null}
+          {section === 'automation' ? (
+            <>
+            <section className="operationsSection">
             <div className="sectionTitle">
               <div>
                 <h2>Phạm vi Automation</h2>
@@ -1162,6 +1198,22 @@ export function OperationsPanel({
             </div>
           </section>
           <section className="operationsSection">
+            <div className="sectionTitle">
+              <div>
+                <h2>Lịch và giới hạn</h2>
+                <p>Giới hạn số nội dung được thay trong mỗi lượt để kiểm soát rủi ro và quota.</p>
+              </div>
+            </div>
+            <div className="settingsGrid">
+              <label><span>Chu kỳ chạy (ngày)</span><input type="number" min="1" max="365" value={settingsDraft.reviewIntervalDays} onChange={(event) => setSettingsDraft((current) => ({ ...current, reviewIntervalDays: Number(event.target.value) }))} /></label>
+              <label><span>Số thay đổi tối đa mỗi lượt</span><input type="number" min="1" max="100" value={settingsDraft.maxChangesPerRun} onChange={(event) => setSettingsDraft((current) => ({ ...current, maxChangesPerRun: Number(event.target.value) }))} /></label>
+            </div>
+            <div className="settingsActions">
+              <span>Cấu hình này được áp dụng cho cả Chạy ngay và các lượt chạy theo lịch.</span>
+              <button className="primaryButton" type="button" disabled={loading || !canRunPeriodicAi} onClick={() => void saveAutomationLimits()}><Save size={15} />Lưu lịch và giới hạn</button>
+            </div>
+          </section>
+          <section className="operationsSection">
             <div className="sectionTitle"><div><h2>AI định kỳ</h2><p>Bấm Chạy ngay để bắt đầu. Bấm Tắt để dừng các lần chạy sau.</p></div><span>{settingsDraft.automationEnabled ? 'Tự động áp dụng lên Google Ads' : 'Đã tắt'}</span></div>
             <div className="settingsGrid">
               <label><span>AI định kỳ</span><input value={settingsDraft.automationEnabled ? 'Đang bật - theo lịch' : 'Đã tắt'} disabled /></label>
@@ -1173,20 +1225,22 @@ export function OperationsPanel({
             </div>
             <div className="settingsActions"><span>{automationStatusText}</span><button className="primaryButton" type="button" disabled={automationRunning || automationRunInProgress || loading || !canRunPeriodicAi || selectedAutomationAdGroupIds.length === 0} onClick={() => void runAutomationNow()}><Play size={15} />{automationActionText}</button><button className="secondaryButton dangerButton" type="button" disabled={loading || automationRunning || !settingsDraft.automationEnabled || !canRunPeriodicAi} onClick={() => void stopAutomation()}><X size={15} />Tắt</button></div>
           </section>
-          <section className="operationsSection">
+          </>
+          ) : null}
+          {section === 'settings' ? (
+            <section className="operationsSection">
             <div className="sectionTitle"><div><h2>Chính sách đánh giá AI</h2><p>{settings.policy.name}</p></div><span>{settingsDraft.automationEnabled ? 'AI định kỳ TỰ ĐỘNG' : 'Đề xuất AI tự động'}</span></div>
             <div className="settingsGrid">
               <label><span>Chiến lược ngôn ngữ</span><select value={settingsDraft.languageStrategy} onChange={(event) => setSettingsDraft((current) => ({ ...current, languageStrategy: event.target.value }))}><option value="DETECT_FROM_ASSET">Tự phát hiện theo từng tài nguyên</option><option value="FIXED">Dùng một ngôn ngữ cố định</option></select></label>
               <label><span>Ngôn ngữ mục tiêu</span><select disabled={settingsDraft.languageStrategy !== 'FIXED'} value={settingsDraft.targetLanguage} onChange={(event) => setSettingsDraft((current) => ({ ...current, targetLanguage: event.target.value }))}><option value="">Chọn ngôn ngữ</option>{LANGUAGE_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
               <label><span>Lượt hiển thị tối thiểu</span><input type="number" min="0" value={settingsDraft.minimumImpressions} onChange={(event) => setSettingsDraft((current) => ({ ...current, minimumImpressions: Number(event.target.value) }))} /></label>
               <label><span>Lượt nhấp tối thiểu</span><input type="number" min="0" value={settingsDraft.minimumClicks} onChange={(event) => setSettingsDraft((current) => ({ ...current, minimumClicks: Number(event.target.value) }))} /></label>
-              <label><span>Chu kỳ đánh giá (ngày)</span><input type="number" min="1" value={settingsDraft.reviewIntervalDays} onChange={(event) => setSettingsDraft((current) => ({ ...current, reviewIntervalDays: Number(event.target.value) }))} /></label>
               <label><span>Thời gian chờ sau thay đổi (ngày)</span><input type="number" min="0" value={settingsDraft.cooldownDays} onChange={(event) => setSettingsDraft((current) => ({ ...current, cooldownDays: Number(event.target.value) }))} /></label>
-              <label><span>Số thay đổi tối đa mỗi lần</span><input type="number" min="1" max="100" value={settingsDraft.maxChangesPerRun} onChange={(event) => setSettingsDraft((current) => ({ ...current, maxChangesPerRun: Number(event.target.value) }))} /></label>
               <label><span>Nhãn tài nguyên</span><input value="LOW" disabled /></label>
             </div>
             <div className="settingsActions"><span>Tiêu đề {settings.policy.headlineMaxLength} ký tự · Mô tả {settings.policy.descriptionMaxLength} ký tự</span><button className="primaryButton" type="button" disabled={loading || !canManagePolicy} onClick={() => void saveSettings()}><Save size={15} />Lưu chính sách</button></div>
-          </section>
+            </section>
+          ) : null}
         </>
       ) : null}
 

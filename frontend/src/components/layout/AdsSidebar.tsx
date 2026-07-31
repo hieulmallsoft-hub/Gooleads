@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Bot,
   ChartNoAxesCombined,
   Eye,
   FileText,
@@ -86,6 +87,14 @@ export function AdsSidebar({
           >
             <ChartNoAxesCombined size={16} />
             Theo dõi thay đổi
+          </button>
+          <button
+            type="button"
+            className={operationsSection === 'automation' ? 'active' : ''}
+            onClick={navAction(() => onOpenOperations('automation'))}
+          >
+            <Bot size={16} />
+            Automation
           </button>
           <div className="navSectionLabel">Google Ads</div>
           <button

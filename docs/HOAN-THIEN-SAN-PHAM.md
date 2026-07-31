@@ -201,6 +201,9 @@ Migration này sửa lỗi API `creative-operations/terms` trả `Internal serve
 
 ## 12. Phạm vi Automation theo chiến dịch và nhóm quảng cáo
 
+- Automation là một mục độc lập trên thanh điều hướng, không nằm trong Cài đặt.
+- Trang Automation chứa phạm vi, lịch chạy, giới hạn thay đổi, trạng thái và nút chạy/dừng.
+- Cài đặt chỉ giữ kết nối, người dùng, mật khẩu và chính sách nội dung.
 - Chỉ quản trị viên có quyền thêm hoặc xóa phạm vi Automation.
 - Quản trị viên chọn chiến dịch trước, sau đó tích riêng từng nhóm quảng cáo bên trong.
 - Chọn chiến dịch không tự động chọn toàn bộ nhóm quảng cáo hiện tại hoặc tương lai.
