@@ -186,3 +186,15 @@ Có hai cách đưa dữ liệu vào:
 
 Trước khi đưa vào sử dụng chính thức cần chọn một trong hai cách. Không nên vừa phát sinh dữ
 liệu mới trên server vừa phục hồi đè database cũ vì có thể tạo xung đột hoặc mất dữ liệu mới.
+
+## 11. Phạm vi quy tắc từ khóa
+
+Migration `008_creative_term_scopes.sql` bổ sung phạm vi cho quy tắc từ khóa:
+
+- toàn tài khoản;
+- một chiến dịch;
+- một nhóm quảng cáo;
+- thị trường áp dụng.
+
+Migration này sửa lỗi API `creative-operations/terms` trả `Internal server error` trên database
+được tạo hoàn toàn bằng migration. Migration chỉ bổ sung cột và index, không xóa quy tắc hiện có.
