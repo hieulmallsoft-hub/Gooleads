@@ -314,7 +314,7 @@ export function OperationsPanel({
   const canManageUsers = currentUser.role === 'ADMIN';
   const canManagePolicy = currentUser.permissions.includes('rules.manage');
   const canRunPeriodicAi = currentUser.permissions.includes('automation.manage');
-  const canManageAutomationScope = currentUser.permissions.includes('users.manage');
+  const canManageAutomationScope = currentUser.permissions.includes('automation.manage');
   const selectedAccessUser =
     accessUsers.find((user) => user.id === selectedAccessUserId) ?? null;
 

@@ -187,7 +187,7 @@ export class CreativeOperationsController {
   }
 
   @Put('automation/scope')
-  @RequirePermissions('users.manage')
+  @RequirePermissions('automation.manage')
   updateAutomationScope(
     @Query('customerId') inputCustomerId: string | undefined,
     @Body() input: UpdateAutomationScopeDto,

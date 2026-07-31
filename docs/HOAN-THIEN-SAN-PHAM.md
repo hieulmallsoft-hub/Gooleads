@@ -204,7 +204,7 @@ Migration này sửa lỗi API `creative-operations/terms` trả `Internal serve
 - Automation là một mục độc lập trên thanh điều hướng, không nằm trong Cài đặt.
 - Trang Automation chứa phạm vi, lịch chạy, giới hạn thay đổi, trạng thái và nút chạy/dừng.
 - Cài đặt chỉ giữ kết nối, người dùng, mật khẩu và chính sách nội dung.
-- Chỉ quản trị viên có quyền thêm hoặc xóa phạm vi Automation.
+- Quản trị viên và biên tập viên có quyền Automation được thêm hoặc xóa phạm vi; người xem chỉ được xem.
 - Quản trị viên chọn chiến dịch trước, sau đó tích riêng từng nhóm quảng cáo bên trong.
 - Chọn chiến dịch không tự động chọn toàn bộ nhóm quảng cáo hiện tại hoặc tương lai.
 - Worker chỉ xử lý các `ad_group_id` đã được lưu trong `creative_policy_scopes`.

@@ -171,12 +171,12 @@ describe('OperationsPanel đổi mật khẩu', () => {
         request={request}
         currentUser={{
           id: 'user-1',
-          email: 'admin@allsoft.local',
-          displayName: 'Admin',
+          email: 'editor@allsoft.local',
+          displayName: 'Biên tập viên',
           status: 'ACTIVE',
           workspaceId: 'workspace-1',
-          role: 'ADMIN',
-          permissions: ['rules.manage', 'automation.manage', 'users.manage'],
+          role: 'EDITOR',
+          permissions: ['automation.manage'],
           accountAccess: [],
         }}
         campaigns={[]}
