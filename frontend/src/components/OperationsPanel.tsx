@@ -236,6 +236,7 @@ export function OperationsPanel({
   const [selectedAccessUserId, setSelectedAccessUserId] = useState('');
   const [accountAccessAllowed, setAccountAccessAllowed] = useState(false);
   const [accessSavingId, setAccessSavingId] = useState('');
+  const [accessFormError, setAccessFormError] = useState('');
   const [newAccessUser, setNewAccessUser] = useState({
     email: '',
     displayName: '',
@@ -612,11 +613,24 @@ export function OperationsPanel({
   async function createAccessUser() {
     if (!canManageUsers) return;
     if (!newAccessUser.email.trim() || !newAccessUser.displayName.trim() || !newAccessUser.password) {
-      setError('Email, display name, and password are required');
+      setAccessFormError('Vui lòng nhập đầy đủ email, tên hiển thị và mật khẩu.');
+      return;
+    }
+    if (
+      newAccessUser.password.length < 10 ||
+      !/[a-z]/.test(newAccessUser.password) ||
+      !/[A-Z]/.test(newAccessUser.password) ||
+      !/\d/.test(newAccessUser.password) ||
+      !/[^A-Za-z0-9]/.test(newAccessUser.password)
+    ) {
+      setAccessFormError(
+        'Mật khẩu phải có ít nhất 10 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.',
+      );
       return;
     }
 
     setAccessSavingId('new');
+    setAccessFormError('');
     setError('');
     setNotice('');
     try {
@@ -628,10 +642,12 @@ export function OperationsPanel({
       const body = await parseJsonSafe(response);
       if (!response.ok) throw new Error(errorMessage(body, 'Không thể tạo người dùng'));
       setNewAccessUser({ email: '', displayName: '', password: '', role: 'VIEWER' });
-      setNotice('User access created.');
+      setNotice('Đã tạo người dùng.');
       await loadAccessUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không thể tạo người dùng');
+      setAccessFormError(
+        err instanceof Error ? err.message : 'Không thể tạo người dùng',
+      );
     } finally {
       setAccessSavingId('');
     }
@@ -910,8 +926,14 @@ export function OperationsPanel({
                 <label><span>Mật khẩu</span><input type="password" value={newAccessUser.password} onChange={(event) => setNewAccessUser((current) => ({ ...current, password: event.target.value }))} placeholder="Mật khẩu tạm thời" /></label>
                 <label><span>Vai trò</span><select value={newAccessUser.role} onChange={(event) => setNewAccessUser((current) => ({ ...current, role: event.target.value }))}><option value="VIEWER">Người xem</option><option value="EDITOR">Biên tập viên</option><option value="ADMIN">Quản trị viên</option></select></label>
               </div>
+              {accessFormError ? (
+                <div className="inlineError">
+                  <AlertCircle size={16} />
+                  {accessFormError}
+                </div>
+              ) : null}
               <div className="settingsActions">
-                <span>Người xem chỉ được đọc. Biên tập viên được duyệt/áp dụng. Quản trị viên quản lý người dùng và cài đặt.</span>
+                <span>Mật khẩu tối thiểu 10 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt.</span>
                 <button className="primaryButton" type="button" disabled={accessSavingId === 'new'} onClick={() => void createAccessUser()}><Plus size={15} />Tạo người dùng</button>
               </div>
               <div className="plainTable"><table><thead><tr><th>Người dùng</th><th>Vai trò</th><th>Trạng thái</th><th>Đăng nhập gần nhất</th></tr></thead><tbody>

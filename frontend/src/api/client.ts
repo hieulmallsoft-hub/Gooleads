@@ -106,6 +106,17 @@ export function toVietnameseApiError(
     return 'Tài khoản Google Ads này chưa được cấu hình trong cơ sở dữ liệu. Hãy vào Cài đặt để thêm kết nối/khách hàng hoặc kiểm tra ID khách hàng đang chọn.';
   }
 
+  if (
+    normalized.includes('quotaerror') ||
+    normalized.includes('resource_exhausted') ||
+    (
+      normalized.includes('too many requests') &&
+      normalized.includes('retry in')
+    )
+  ) {
+    return 'Google Ads API đã hết hạn mức gọi. Dữ liệu chiến dịch trực tiếp tạm thời không tải được; hãy chờ đến thời gian Google cho phép thử lại.';
+  }
+
   if (normalized.includes('quota') || normalized.includes('insufficient_quota')) {
     return 'Dịch vụ AI đã hết quota hoặc chưa bật billing. Hãy kiểm tra API key, hạn mức và billing của Gemini/OpenAI.';
   }
