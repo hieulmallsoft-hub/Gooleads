@@ -3560,6 +3560,24 @@ tbody tr:hover td:first-child {
   margin-top: 12px;
 }
 
+.automationCampaignToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.automationCampaignToolbar .searchBox {
+  width: min(520px, 100%);
+}
+
+.automationCampaignToolbar > span {
+  color: var(--text-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .automationScopeCampaign {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -4013,6 +4031,8 @@ tbody tr:hover td:first-child {
     font-size: 10px;
     font-weight: 400;
   }
+  .automationCampaignToolbar { align-items: stretch; flex-direction: column; }
+  .automationCampaignToolbar > span { text-align: right; }
   .operationsMetrics > div, .activityGrid > div { border-right: 0; }
   .recommendationToolbar, .settingsActions { align-items: stretch; flex-direction: column; }
   .statusTabs { width: 100%; overflow-x: auto; }

@@ -7,6 +7,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Trash2,
   X,
 } from 'lucide-react';
@@ -258,6 +259,14 @@ function automationEntityStatus(value: string) {
   return value;
 }
 
+function normalizeAutomationSearch(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('vi-VN')
+    .trim();
+}
+
 const AUTOMATION_STALE_RUNNING_MINUTES = 30;
 
 function isStaleAutomationRun(
@@ -312,6 +321,7 @@ export function OperationsPanel({
     useState<string[]>([]);
   const [allAutomationCampaignIds, setAllAutomationCampaignIds] =
     useState<string[]>([]);
+  const [automationCampaignSearch, setAutomationCampaignSearch] = useState('');
   const [automationCampaignDetail, setAutomationCampaignDetail] =
     useState<AutomationCampaignDetail | null>(null);
   const [automationCampaignLoadingId, setAutomationCampaignLoadingId] =
@@ -986,6 +996,17 @@ export function OperationsPanel({
       : settingsDraft.automationEnabled
         ? `AI định kỳ đang bật và chạy mỗi ${settingsDraft.reviewIntervalDays} ngày.`
         : 'AI định kỳ đang tắt. Bấm Chạy ngay để bắt đầu và duy trì theo lịch.');
+  const automationCampaigns = useMemo(
+    () => settings?.automationScope?.campaigns ?? [],
+    [settings?.automationScope?.campaigns],
+  );
+  const filteredAutomationCampaigns = useMemo(() => {
+    const query = normalizeAutomationSearch(automationCampaignSearch);
+    if (!query) return automationCampaigns;
+    return automationCampaigns.filter((campaign) =>
+      normalizeAutomationSearch(`${campaign.name} ${campaign.id}`).includes(query),
+    );
+  }, [automationCampaignSearch, automationCampaigns]);
 
   return (
     <div className="operationsPage">
@@ -1237,9 +1258,22 @@ export function OperationsPanel({
                 {allAutomationCampaignIds.length} chiến dịch chạy toàn bộ · {selectedAutomationAdGroupIds.length} nhóm chạy riêng
               </span>
             </div>
+            <div className="automationCampaignToolbar">
+              <label className="searchBox">
+                <Search size={16} />
+                <input
+                  type="search"
+                  value={automationCampaignSearch}
+                  placeholder="Tìm theo tên hoặc ID chiến dịch"
+                  aria-label="Tìm kiếm chiến dịch Automation"
+                  onChange={(event) => setAutomationCampaignSearch(event.target.value)}
+                />
+              </label>
+              <span>{filteredAutomationCampaigns.length}/{automationCampaigns.length} chiến dịch</span>
+            </div>
             {settings.automationScope?.campaigns.length ? (
               <div className="automationScopeTree">
-                {settings.automationScope.campaigns.map((campaign) => {
+                {filteredAutomationCampaigns.map((campaign) => {
                   const campaignSelected = selectedAutomationCampaignIds.includes(campaign.id);
                   const campaignRunsAll = allAutomationCampaignIds.includes(campaign.id);
                   const knownAdGroupIds =
@@ -1285,6 +1319,9 @@ export function OperationsPanel({
                     </div>
                   );
                 })}
+                {!filteredAutomationCampaigns.length ? (
+                  <div className="empty">Không tìm thấy chiến dịch phù hợp.</div>
+                ) : null}
               </div>
             ) : (
               <div className="empty">

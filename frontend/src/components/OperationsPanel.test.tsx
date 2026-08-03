@@ -191,6 +191,12 @@ describe('OperationsPanel đổi mật khẩu', () => {
 
     await screen.findByRole('heading', { name: 'Phạm vi Automation' });
     expect(screen.queryByRole('heading', { name: 'Đổi mật khẩu' })).not.toBeInTheDocument();
+    const campaignSearch = screen.getByRole('searchbox', {
+      name: 'Tìm kiếm chiến dịch Automation',
+    });
+    await user.type(campaignSearch, 'không tồn tại');
+    expect(screen.getByText('Không tìm thấy chiến dịch phù hợp.')).toBeInTheDocument();
+    await user.clear(campaignSearch);
     await user.click(
       screen.getByLabelText('Cho phép Automation trong chiến dịch Chiến dịch AC'),
     );
