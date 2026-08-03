@@ -1274,8 +1274,30 @@ export function OperationsPanel({
                 Chưa có chiến dịch trong PostgreSQL. Hãy đồng bộ dữ liệu Google Ads trước khi cấu hình Automation.
               </div>
             )}
+            {automationCampaignLoadingId ? (
+              <div className="automationCampaignDetailBackdrop" role="presentation">
+                <div className="automationCampaignDetail automationCampaignLoading" role="status" aria-live="polite">
+                  <strong>Đang tải thiết lập phạm vi...</strong>
+                  <span>Hệ thống đang lấy nhóm quảng cáo và hiệu quả 14 ngày của chiến dịch.</span>
+                </div>
+              </div>
+            ) : null}
             {automationCampaignDetail ? (
-              <div className="automationCampaignDetail">
+              <div
+                className="automationCampaignDetailBackdrop"
+                role="presentation"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) {
+                    setAutomationCampaignDetail(null);
+                  }
+                }}
+              >
+              <div
+                className="automationCampaignDetail"
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Thiết lập phạm vi ${automationCampaignDetail.campaign.name}`}
+              >
                 <div className="sectionTitle">
                   <div>
                     <h3>{automationCampaignDetail.campaign.name}</h3>
@@ -1358,6 +1380,7 @@ export function OperationsPanel({
                     <div className="empty">Chiến dịch này chưa có nhóm quảng cáo trong dữ liệu đã đồng bộ.</div>
                   ) : null}
                 </div>
+              </div>
               </div>
             ) : null}
             <div className="settingsActions">

@@ -3613,11 +3613,36 @@ tbody tr:hover td:first-child {
   padding: 12px 18px 14px 38px;
 }
 
+.automationCampaignDetailBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
 .automationCampaignDetail {
+  width: min(1100px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: #fff;
   border: 1px solid var(--border);
   border-radius: 12px;
-  margin-top: 14px;
-  padding: 14px;
+  padding: 18px;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.24);
+}
+
+.automationCampaignLoading {
+  max-width: 460px;
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.automationCampaignLoading span {
+  color: var(--text-3);
 }
 
 .automationCampaignMode {
@@ -3913,6 +3938,8 @@ tbody tr:hover td:first-child {
   .card-value { font-size: 24px; }
   th, td { padding: 9px 10px; }
   .operationsMetrics, .activityGrid, .settingsGrid, .queueCopy, .termComposer, .automationMetrics, .automationCampaignMode { grid-template-columns: 1fr; }
+  .automationCampaignDetailBackdrop { place-items: end center; padding: 0; }
+  .automationCampaignDetail { width: 100%; max-height: 92vh; border-radius: 14px 14px 0 0; }
   .operationsMetrics > div, .activityGrid > div { border-right: 0; }
   .recommendationToolbar, .settingsActions { align-items: stretch; flex-direction: column; }
   .statusTabs { width: 100%; overflow-x: auto; }
