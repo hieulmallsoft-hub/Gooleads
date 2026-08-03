@@ -121,6 +121,7 @@ type SettingsData = {
     displayName: string | null;
     status: string;
     timeZone: string | null;
+    currencyCode: string | null;
     lastSyncedAt: string | null;
   };
   policy: {
@@ -235,10 +236,26 @@ function formatCompactNumber(value: number) {
   }).format(value);
 }
 
-function formatAutomationMoney(value: number) {
-  return new Intl.NumberFormat('vi-VN', {
+function formatAutomationMoney(value: number, currencyCode?: string | null) {
+  const amount = new Intl.NumberFormat('vi-VN', {
     maximumFractionDigits: 2,
   }).format(value);
+  return currencyCode ? `${amount} ${currencyCode}` : amount;
+}
+
+function formatAutomationPercent(value: number) {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'percent',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function automationEntityStatus(value: string) {
+  if (value === 'ENABLED') return 'Đang hoạt động';
+  if (value === 'PAUSED') return 'Đã tạm dừng';
+  if (value === 'REMOVED') return 'Đã xóa';
+  return value;
 }
 
 const AUTOMATION_STALE_RUNNING_MINUTES = 30;
@@ -1315,10 +1332,10 @@ export function OperationsPanel({
                 <div className="automationMetrics">
                   <div><span>Lượt hiển thị</span><strong>{formatCompactNumber(automationCampaignDetail.campaign.metrics.impressions)}</strong></div>
                   <div><span>Lượt nhấp</span><strong>{formatCompactNumber(automationCampaignDetail.campaign.metrics.clicks)}</strong></div>
-                  <div><span>CTR</span><strong>{(automationCampaignDetail.campaign.metrics.ctr * 100).toFixed(2)}%</strong></div>
-                  <div><span>Chi phí</span><strong>{formatAutomationMoney(automationCampaignDetail.campaign.metrics.cost)}</strong></div>
+                  <div><span>CTR</span><strong>{formatAutomationPercent(automationCampaignDetail.campaign.metrics.ctr)}</strong></div>
+                  <div><span>Chi phí</span><strong>{formatAutomationMoney(automationCampaignDetail.campaign.metrics.cost, settings.account.currencyCode)}</strong></div>
                   <div><span>Chuyển đổi</span><strong>{formatCompactNumber(automationCampaignDetail.campaign.metrics.conversions)}</strong></div>
-                  <div><span>ROAS</span><strong>{automationCampaignDetail.campaign.metrics.roas.toFixed(2)}x</strong></div>
+                  <div><span>Giá trị CĐ / chi phí</span><strong>{formatAutomationPercent(automationCampaignDetail.campaign.metrics.roas)}</strong></div>
                 </div>
                 <div className="automationCampaignMode" role="radiogroup" aria-label="Phạm vi chạy của chiến dịch">
                   <label aria-label="Chạy toàn bộ chiến dịch">
@@ -1343,6 +1360,14 @@ export function OperationsPanel({
                   </label>
                 </div>
                 <div className="automationScopeAdGroups">
+                  <div className="automationAdGroupHeader" aria-hidden="true">
+                    <span />
+                    <strong>Nhóm quảng cáo</strong>
+                    <strong>Hiển thị</strong>
+                    <strong>CTR</strong>
+                    <strong>Chi phí</strong>
+                    <strong>Giá trị CĐ / chi phí</strong>
+                  </div>
                   {automationCampaignDetail.adGroups.map((adGroup) => (
                     <label
                       key={adGroup.id}
@@ -1366,13 +1391,13 @@ export function OperationsPanel({
                       />
                       <span>
                         <strong>{adGroup.name}</strong>
-                        <small>ID {adGroup.id} · {adGroup.status}</small>
+                        <small>ID {adGroup.id} · {automationEntityStatus(adGroup.status)}</small>
                       </span>
                       <span className="automationAdGroupMetrics">
-                        <small>{formatCompactNumber(adGroup.metrics.impressions)} hiển thị</small>
-                        <small>{(adGroup.metrics.ctr * 100).toFixed(2)}% CTR</small>
-                        <small>{formatAutomationMoney(adGroup.metrics.cost)} chi phí</small>
-                        <small>{adGroup.metrics.roas.toFixed(2)}x ROAS</small>
+                        <small data-label="Hiển thị">{formatCompactNumber(adGroup.metrics.impressions)}</small>
+                        <small data-label="CTR">{formatAutomationPercent(adGroup.metrics.ctr)}</small>
+                        <small data-label="Chi phí">{formatAutomationMoney(adGroup.metrics.cost, settings.account.currencyCode)}</small>
+                        <small data-label="Giá trị CĐ / chi phí">{formatAutomationPercent(adGroup.metrics.roas)}</small>
                       </span>
                     </label>
                   ))}

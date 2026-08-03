@@ -805,6 +805,7 @@ export class CreativeOperationsService {
         displayName: account.displayName,
         status: account.status,
         timeZone: account.timeZone,
+        currencyCode: account.currencyCode,
         lastSyncedAt: account.lastSyncedAt,
       },
       policy,

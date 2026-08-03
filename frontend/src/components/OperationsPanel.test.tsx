@@ -9,6 +9,7 @@ const settingsResponse = {
     displayName: 'Tài khoản thử nghiệm',
     status: 'ACTIVE',
     timeZone: 'Asia/Ho_Chi_Minh',
+    currencyCode: 'USD',
     lastSyncedAt: null,
   },
   policy: {
@@ -194,7 +195,8 @@ describe('OperationsPanel đổi mật khẩu', () => {
       screen.getByLabelText('Cho phép Automation trong chiến dịch Chiến dịch AC'),
     );
     await user.click(screen.getByRole('button', { name: 'Thiết lập phạm vi' }));
-    expect(await screen.findByText(/10\.00% CTR/)).toBeInTheDocument();
+    expect((await screen.findAllByText('10,00%')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('200,00%')).length).toBeGreaterThan(0);
     expect(screen.getByRole('radio', { name: /Chạy toàn bộ chiến dịch/ })).toBeChecked();
     await user.click(
       screen.getByRole('radio', { name: /Chỉ chạy nhóm quảng cáo được chọn/ }),
