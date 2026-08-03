@@ -805,6 +805,7 @@ export function OperationsPanel({
         `Đã lưu phạm vi: ${allAutomationCampaignIds.length} chiến dịch chạy toàn bộ, ${selectedAutomationAdGroupIds.length} nhóm quảng cáo chạy riêng.`,
       );
       await loadSettings();
+      window.dispatchEvent(new Event('automation-notifications-refresh'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể lưu phạm vi Automation');
     } finally {
@@ -843,6 +844,7 @@ export function OperationsPanel({
           : `AI định kỳ đã bắt đầu nhưng chưa áp dụng nội dung nào trong lần này. Hệ thống vẫn tiếp tục chạy theo lịch cho đến khi bạn bấm Tắt.${reasonText}`,
       );
       await loadSettings();
+      window.dispatchEvent(new Event('automation-notifications-refresh'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể chạy tự động hóa');
     } finally {

@@ -196,7 +196,7 @@ function toAutomationNotification(value: unknown): AppNotification {
     ? (value as Record<string, unknown>)
     : {};
   const severity =
-    item.severity === 'critical' || item.severity === 'warning' || item.severity === 'info'
+    item.severity === 'critical' || item.severity === 'warning' || item.severity === 'info' || item.severity === 'success'
       ? item.severity
       : 'info';
   const recommendations = Array.isArray(item.recommendations)
@@ -211,6 +211,9 @@ function toAutomationNotification(value: unknown): AppNotification {
     targetLabel: String(item.targetLabel ?? 'AI định kỳ'),
     recommendations,
     createdAtLabel: formatAutomationNotificationDate(item.createdAtLabel),
+    action: item.action ? String(item.action) : undefined,
+    actionLabel: item.actionLabel ? String(item.actionLabel) : undefined,
+    changeRequestId: item.changeRequestId ? String(item.changeRequestId) : null,
   };
 }
 
@@ -1291,10 +1294,13 @@ export default function App() {
 
     void loadAutomationNotifications();
     const timer = window.setInterval(() => void loadAutomationNotifications(), 60_000);
+    const refresh = () => void loadAutomationNotifications();
+    window.addEventListener('automation-notifications-refresh', refresh);
 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener('automation-notifications-refresh', refresh);
     };
   }, [authUser, customerId]);
 
@@ -1881,6 +1887,8 @@ export default function App() {
         onOpenNotification={(notification) => {
           if (notification.changeRequestId) {
             setFocusedChangeRequestId(notification.changeRequestId);
+            setOperationsSection('impact');
+          } else if (notification.action === 'APPLIED') {
             setOperationsSection('impact');
           } else if (notification.action === 'SUGGESTED') {
             setOperationsSection('recommendations');

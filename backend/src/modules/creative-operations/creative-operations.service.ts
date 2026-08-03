@@ -858,7 +858,7 @@ export class CreativeOperationsService {
     const items = await this.dataSource.getRepository(AutomationRunItemEntity).find({
       where: {
         automationRunId: In(runIds),
-        action: In(['APPLIED', 'SUGGESTED', 'FAILED']),
+        action: In(['APPLIED', 'SUGGESTED', 'FAILED', 'SKIPPED', 'PAUSED']),
       },
       order: { createdAt: 'DESC' },
       take: 10,
@@ -869,6 +869,8 @@ export class CreativeOperationsService {
         const run = runMap.get(item.automationRunId);
         const applied = item.action === 'APPLIED';
         const failed = item.action === 'FAILED';
+        const skipped = item.action === 'SKIPPED';
+        const paused = item.action === 'PAUSED';
         const target = item.targetSnapshot;
         const campaignName = target?.campaignName?.trim() || 'chiến dịch đã chọn';
         const adGroupName = target?.adGroupName?.trim() || null;
@@ -882,15 +884,31 @@ export class CreativeOperationsService {
             ? `AI định kỳ vừa cập nhật ${campaignName}`
             : failed
               ? `AI định kỳ chưa thể xử lý ${campaignName}`
-              : `AI định kỳ đã tạo đề xuất cho ${campaignName}`,
+              : skipped
+                ? 'AI định kỳ đã chạy xong, chưa có nội dung cần thay'
+                : paused
+                  ? 'AI định kỳ đã dừng theo yêu cầu'
+                  : `AI định kỳ đã tạo đề xuất cho ${campaignName}`,
           message: applied
             ? `${adGroupName ? `Nhóm quảng cáo ${adGroupName} · ` : ''}Đã thay ${appliedCount || 'một số'} nội dung quảng cáo.`
             : failed
               ? quotaLimited
                 ? 'Google Ads đang giới hạn lượt gọi. Chưa có nội dung nào bị thay đổi và hệ thống có thể thử lại sau.'
                 : `${adGroupName ? `Nhóm quảng cáo ${adGroupName} · ` : ''}Lần chạy chưa hoàn tất. Mở Automation để kiểm tra.`
-              : `${adGroupName ? `Nhóm quảng cáo ${adGroupName} · ` : ''}Đang chờ bạn xem và phê duyệt.`,
-          targetLabel: applied ? 'Đã áp dụng tự động' : failed ? 'Chưa áp dụng' : 'Chờ duyệt',
+              : skipped
+                ? 'Không có nội dung đáp ứng điều kiện thay đổi trong lần chạy này. Google Ads không bị thay đổi.'
+                : paused
+                  ? 'Hệ thống đã ngừng xử lý và sẽ không tạo thêm thay đổi mới.'
+                  : `${adGroupName ? `Nhóm quảng cáo ${adGroupName} · ` : ''}Đang chờ bạn xem và phê duyệt.`,
+          targetLabel: applied
+            ? 'Đã áp dụng tự động'
+            : failed
+              ? 'Chưa áp dụng'
+              : skipped
+                ? 'Không có thay đổi'
+                : paused
+                  ? 'Đã dừng'
+                  : 'Chờ duyệt',
           createdAtLabel: run?.completedAt ?? run?.startedAt ?? item.createdAt,
           recommendations: [],
           runStatus: run?.status ?? null,
@@ -898,7 +916,13 @@ export class CreativeOperationsService {
           changeRequestId: item.changeRequestId ?? null,
           campaign: target ? { id: target.campaignId, name: target.campaignName } : null,
           adGroup: target ? { id: target.adGroupId, name: target.adGroupName } : null,
-          actionLabel: applied ? 'Xem chi tiết thay đổi' : failed ? 'Mở Automation' : 'Xem đề xuất',
+          actionLabel: applied
+            ? item.changeRequestId
+              ? 'Xem chi tiết thay đổi'
+              : 'Mở lịch sử thay đổi'
+            : failed || skipped || paused
+              ? 'Mở Automation'
+              : 'Xem đề xuất',
         };
       }),
     };
