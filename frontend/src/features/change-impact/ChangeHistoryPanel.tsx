@@ -106,8 +106,14 @@ function resourceLabel(value: string | null) {
   return value.split('/').filter(Boolean).at(-1) ?? value;
 }
 
-export function ChangeHistoryPanel({ customerId }: { customerId: string }) {
-  const [query, setQuery] = useState('');
+export function ChangeHistoryPanel({
+  customerId,
+  focusedChangeRequestId = '',
+}: {
+  customerId: string;
+  focusedChangeRequestId?: string;
+}) {
+  const [query, setQuery] = useState(focusedChangeRequestId);
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [source, setSource] = useState('ALL');
   const [status, setStatus] = useState('ALL');
@@ -127,6 +133,15 @@ export function ChangeHistoryPanel({ customerId }: { customerId: string }) {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  useEffect(() => {
+    if (focusedChangeRequestId) {
+      setQuery(focusedChangeRequestId);
+      setSource('ALL');
+      setStatus('ALL');
+      setPage(1);
+    }
+  }, [focusedChangeRequestId]);
 
   async function load() {
     if (!customerId) return;
@@ -183,6 +198,20 @@ export function ChangeHistoryPanel({ customerId }: { customerId: string }) {
       setDetailLoading(false);
     }
   }
+
+  const openFocusedDetail = useEffectEvent((changeId: string) => {
+    void toggleDetail(changeId);
+  });
+
+  useEffect(() => {
+    if (
+      focusedChangeRequestId &&
+      data?.items.some((item) => item.id === focusedChangeRequestId) &&
+      expandedId !== focusedChangeRequestId
+    ) {
+      openFocusedDetail(focusedChangeRequestId);
+    }
+  }, [data, expandedId, focusedChangeRequestId]);
 
   return (
     <section className="changeImpactPage">

@@ -3,25 +3,30 @@ import { useMemo, useState } from 'react';
 
 export type AppNotification = {
   id: string;
-  severity: 'critical' | 'warning' | 'info';
+  severity: 'critical' | 'warning' | 'info' | 'success';
   title: string;
   message: string;
   targetLabel: string;
   recommendations: string[];
   createdAtLabel: string;
+  action?: string;
+  actionLabel?: string;
+  changeRequestId?: string | null;
 };
 
 type NotificationBellProps = {
   notifications: AppNotification[];
+  onOpenNotification?: (notification: AppNotification) => void;
 };
 
 const severityIcon = {
   critical: AlertTriangle,
   warning: AlertTriangle,
   info: Info,
+  success: CheckCircle2,
 };
 
-export function NotificationBell({ notifications }: NotificationBellProps) {
+export function NotificationBell({ notifications, onOpenNotification }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [seenIds, setSeenIds] = useState<string[]>([]);
   const unreadCount = useMemo(
@@ -46,7 +51,7 @@ export function NotificationBell({ notifications }: NotificationBellProps) {
       <button
         className="iconButton notificationButton"
         type="button"
-        aria-label="Notifications"
+        aria-label="Thông báo"
         aria-expanded={open}
         onClick={toggleOpen}
       >
@@ -58,10 +63,10 @@ export function NotificationBell({ notifications }: NotificationBellProps) {
         <div className="notificationPanel" role="dialog" aria-label="Thông báo chiến dịch">
           <div className="notificationHeader">
             <div>
-              <strong>Giám sát chiến dịch bằng AI</strong>
-              <span>{notifications.length} alerts from loaded data</span>
+              <strong>Thông báo hoạt động</strong>
+              <span>{notifications.length} thông báo gần đây</span>
             </div>
-            <button className="iconButton" type="button" aria-label="Close notifications" onClick={() => setOpen(false)}>
+            <button className="iconButton" type="button" aria-label="Đóng thông báo" onClick={() => setOpen(false)}>
               <X size={16} />
             </button>
           </div>
@@ -88,6 +93,18 @@ export function NotificationBell({ notifications }: NotificationBellProps) {
                           <li key={recommendation}>{recommendation}</li>
                         ))}
                       </ul>
+                      {notification.actionLabel && onOpenNotification ? (
+                        <button
+                          className="notificationAction"
+                          type="button"
+                          onClick={() => {
+                            setOpen(false);
+                            onOpenNotification(notification);
+                          }}
+                        >
+                          {notification.actionLabel}
+                        </button>
+                      ) : null}
                     </div>
                   </article>
                 );
@@ -103,7 +120,7 @@ export function NotificationBell({ notifications }: NotificationBellProps) {
 
           <div className="notificationFooter">
             <Sparkles size={14} />
-            <span>Cảnh báo dựa trên số liệu hiện tại của chiến dịch, nhóm quảng cáo và tài nguyên.</span>
+            <span>Nhấn “Xem chi tiết thay đổi” để xem nội dung trước và sau khi AI áp dụng.</span>
           </div>
         </div>
       ) : null}

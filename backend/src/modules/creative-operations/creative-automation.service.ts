@@ -247,6 +247,8 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
             run.id,
             isEmptyTarget ? 'SKIPPED' : 'FAILED',
             this.formatTargetReason(target, error instanceof Error ? error.message : String(error)),
+            undefined,
+            target,
           );
         }
       }
@@ -428,6 +430,9 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         run.id,
         'APPLIED',
         this.formatTargetReason(target, `Applied ${appliedCount} text replacement(s)`),
+        undefined,
+        target,
+        changeRequest.id,
       );
     } else {
       await this.saveRunItem(
@@ -437,6 +442,9 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
           target,
           `Created change request ${changeRequest.id ?? 'unknown'} for manual approval`,
         ),
+        undefined,
+        target,
+        typeof changeRequest.id === 'string' ? changeRequest.id : undefined,
       );
     }
 
@@ -619,11 +627,15 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     action: string,
     reason: string,
     suggestionId?: string,
+    target?: AutomationTarget,
+    changeRequestId?: string,
   ) {
     await this.dataSource.getRepository(AutomationRunItemEntity).save({
       automationRunId,
       adAssetLinkId: null,
       suggestionId: suggestionId ?? null,
+      changeRequestId: changeRequestId ?? null,
+      targetSnapshot: target ?? null,
       action,
       reason,
     });

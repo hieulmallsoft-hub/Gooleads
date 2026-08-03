@@ -463,8 +463,18 @@ function PerformanceAfterChanges({ customerId }: { customerId: string }) {
   );
 }
 
-export function ChangeImpactPanel({ customerId }: { customerId: string }) {
-  const [tab, setTab] = useState<'impact' | 'history'>('impact');
+export function ChangeImpactPanel({
+  customerId,
+  focusedChangeRequestId = '',
+}: {
+  customerId: string;
+  focusedChangeRequestId?: string;
+}) {
+  const [tab, setTab] = useState<'impact' | 'history'>(focusedChangeRequestId ? 'history' : 'impact');
+
+  useEffect(() => {
+    if (focusedChangeRequestId) setTab('history');
+  }, [focusedChangeRequestId]);
   return (
     <div className="changeTrackingPage">
       <div className="changeTrackingTabs" role="tablist" aria-label="Theo dõi thay đổi">
@@ -489,7 +499,7 @@ export function ChangeImpactPanel({ customerId }: { customerId: string }) {
       </div>
       {tab === 'impact'
         ? <PerformanceAfterChanges customerId={customerId} />
-        : <ChangeHistoryPanel customerId={customerId} />}
+        : <ChangeHistoryPanel customerId={customerId} focusedChangeRequestId={focusedChangeRequestId} />}
     </div>
   );
 }

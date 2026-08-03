@@ -239,6 +239,7 @@ export default function App() {
     const restored = normalizeStoredOperationsSection(initialViewState.operationsSection);
     return restored === undefined ? 'overview' : restored;
   });
+  const [focusedChangeRequestId, setFocusedChangeRequestId] = useState('');
   const [assetTypeFilter, setAssetTypeFilter] = useState<AssetTypeFilter>('ALL');
   const [assetLabelFilter, setAssetLabelFilter] = useState<AssetLabelFilter>(() =>
     normalizeStoredAssetLabelFilter(initialViewState.assetLabelFilter),
@@ -1867,6 +1868,16 @@ export default function App() {
         onSearchChange={setSearchText}
         onMenuToggle={() => setNavOpen((current) => !current)}
         onOpenSettings={() => setOperationsSection('settings')}
+        onOpenNotification={(notification) => {
+          if (notification.changeRequestId) {
+            setFocusedChangeRequestId(notification.changeRequestId);
+            setOperationsSection('impact');
+          } else if (notification.action === 'SUGGESTED') {
+            setOperationsSection('recommendations');
+          } else {
+            setOperationsSection('automation');
+          }
+        }}
         onLogout={handleLogout}
       />
 
@@ -1904,7 +1915,10 @@ export default function App() {
         <main className="shell">
         {operationsSection ? (
           operationsSection === 'impact' ? (
-            <ChangeImpactPanel customerId={customerId} />
+            <ChangeImpactPanel
+              customerId={customerId}
+              focusedChangeRequestId={focusedChangeRequestId}
+            />
           ) : operationsSection === 'guide' ? (
             <UserGuidePage />
           ) : (

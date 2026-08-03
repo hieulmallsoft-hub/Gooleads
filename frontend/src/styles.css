@@ -565,6 +565,26 @@ button, input, select { font: inherit; }
   color: #d93025;
 }
 
+.notificationItem.success .notificationIcon {
+  background: #e6f4ea;
+  color: #188038;
+}
+
+.notificationAction {
+  margin-top: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1967d2;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notificationAction:hover {
+  text-decoration: underline;
+}
+
 .notificationMeta {
   display: flex;
   align-items: center;

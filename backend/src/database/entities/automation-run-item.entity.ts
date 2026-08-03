@@ -6,6 +6,15 @@ export class AutomationRunItemEntity {
   @Column({ name: 'automation_run_id', type: 'uuid' }) automationRunId!: string;
   @Column({ name: 'ad_asset_link_id', type: 'uuid', nullable: true }) adAssetLinkId!: string | null;
   @Column({ name: 'suggestion_id', type: 'uuid', nullable: true }) suggestionId!: string | null;
+  @Column({ name: 'change_request_id', type: 'uuid', nullable: true }) changeRequestId!: string | null;
+  @Column({ name: 'target_snapshot', type: 'jsonb', nullable: true })
+  targetSnapshot!: {
+    customerId: string;
+    campaignId: string;
+    campaignName: string;
+    adGroupId: string;
+    adGroupName: string;
+  } | null;
   @Column({ type: 'varchar', length: 30 }) action!: string;
   @Column({ type: 'text', nullable: true }) reason!: string | null;
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' }) createdAt!: Date;

@@ -468,16 +468,21 @@ export class CreativeOperationsService {
         OR c.google_campaign_id ILIKE $${parameters.length}
         OR ag.name ILIKE $${parameters.length}
         OR ag.google_ad_group_id ILIKE $${parameters.length}
+        OR cr.id::text ILIKE $${parameters.length}
       )`);
     }
     if (source !== 'ALL') {
       if (source === 'AI_AUTOMATION') {
         conditions.push(`EXISTS (
-          SELECT 1 FROM automation_runs ar WHERE ar.change_request_id = cr.id
+          SELECT 1 FROM automation_runs ar
+          LEFT JOIN automation_run_items ari ON ari.automation_run_id = ar.id
+          WHERE ar.change_request_id = cr.id OR ari.change_request_id = cr.id
         )`);
       } else if (source === 'AI_APPROVED') {
         conditions.push(`cr.source = 'AI_APPROVED' AND NOT EXISTS (
-          SELECT 1 FROM automation_runs ar WHERE ar.change_request_id = cr.id
+          SELECT 1 FROM automation_runs ar
+          LEFT JOIN automation_run_items ari ON ari.automation_run_id = ar.id
+          WHERE ar.change_request_id = cr.id OR ari.change_request_id = cr.id
         )`);
       } else if (source === 'MANUAL') {
         conditions.push(`cr.source = 'MANUAL'`);
@@ -519,7 +524,9 @@ export class CreativeOperationsService {
           ) AS change_types,
           COALESCE(SUM(ci.replacement_count), 0)::int AS replacement_count,
           EXISTS (
-            SELECT 1 FROM automation_runs ar WHERE ar.change_request_id = cr.id
+            SELECT 1 FROM automation_runs ar
+            LEFT JOIN automation_run_items ari ON ari.automation_run_id = ar.id
+            WHERE ar.change_request_id = cr.id OR ari.change_request_id = cr.id
           ) AS automated
         FROM change_requests cr
         LEFT JOIN ad_groups ag ON ag.id = cr.ad_group_id
@@ -862,24 +869,36 @@ export class CreativeOperationsService {
         const run = runMap.get(item.automationRunId);
         const applied = item.action === 'APPLIED';
         const failed = item.action === 'FAILED';
+        const target = item.targetSnapshot;
+        const campaignName = target?.campaignName?.trim() || 'chiến dịch đã chọn';
+        const adGroupName = target?.adGroupName?.trim() || null;
+        const technicalReason = item.reason ?? '';
+        const quotaLimited = /RESOURCE_EXHAUSTED|Too many requests|quota/i.test(technicalReason);
+        const appliedCount = Number(technicalReason.match(/Applied\s+(\d+)/i)?.[1] ?? 0);
         return {
           id: `automation-${item.id}`,
-          severity: failed ? 'warning' : 'info',
+          severity: failed ? 'warning' : applied ? 'success' : 'info',
           title: applied
-            ? 'AI định kỳ đã thay asset'
+            ? `AI định kỳ vừa cập nhật ${campaignName}`
             : failed
-              ? 'AI định kỳ cần kiểm tra'
-              : 'AI định kỳ đã tạo đề xuất',
-          message: item.reason ?? 'AI định kỳ vừa chạy',
-          targetLabel: 'AI định kỳ',
+              ? `AI định kỳ chưa thể xử lý ${campaignName}`
+              : `AI định kỳ đã tạo đề xuất cho ${campaignName}`,
+          message: applied
+            ? `${adGroupName ? `Nhóm quảng cáo ${adGroupName} · ` : ''}Đã thay ${appliedCount || 'một số'} nội dung quảng cáo.`
+            : failed
+              ? quotaLimited
+                ? 'Google Ads đang giới hạn lượt gọi. Chưa có nội dung nào bị thay đổi và hệ thống có thể thử lại sau.'
+                : `${adGroupName ? `Nhóm quảng cáo ${adGroupName} · ` : ''}Lần chạy chưa hoàn tất. Mở Automation để kiểm tra.`
+              : `${adGroupName ? `Nhóm quảng cáo ${adGroupName} · ` : ''}Đang chờ bạn xem và phê duyệt.`,
+          targetLabel: applied ? 'Đã áp dụng tự động' : failed ? 'Chưa áp dụng' : 'Chờ duyệt',
           createdAtLabel: run?.completedAt ?? run?.startedAt ?? item.createdAt,
-          recommendations: applied
-            ? ['Kiểm tra hiệu quả sau lần thay mới.', 'Giữ AI định kỳ bật nếu kết quả ổn định.']
-            : failed
-              ? ['Mở Settings để xem lỗi automation.', 'Chạy lại sau khi kiểm tra cấu hình Google Ads/Gemini.']
-              : ['Mở Recommendations để duyệt đề xuất.', 'Bật AI định kỳ nếu muốn tự apply mỗi 14 ngày.'],
+          recommendations: [],
           runStatus: run?.status ?? null,
           action: item.action,
+          changeRequestId: item.changeRequestId ?? null,
+          campaign: target ? { id: target.campaignId, name: target.campaignName } : null,
+          adGroup: target ? { id: target.adGroupId, name: target.adGroupName } : null,
+          actionLabel: applied ? 'Xem chi tiết thay đổi' : failed ? 'Mở Automation' : 'Xem đề xuất',
         };
       }),
     };

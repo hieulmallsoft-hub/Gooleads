@@ -14,6 +14,7 @@ type AdsTopbarProps = {
   onMenuToggle: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
+  onOpenNotification: (notification: AppNotification) => void;
 };
 
 export function AdsTopbar({
@@ -27,6 +28,7 @@ export function AdsTopbar({
   onMenuToggle,
   onOpenSettings,
   onLogout,
+  onOpenNotification,
 }: AdsTopbarProps) {
   return (
     <header className="adsTopbar">
@@ -63,7 +65,7 @@ export function AdsTopbar({
             {currentUser.displayName} · {currentUser.role}
           </span>
         ) : null}
-        <NotificationBell notifications={notifications} />
+        <NotificationBell notifications={notifications} onOpenNotification={onOpenNotification} />
         <button
           className="iconButton"
           type="button"
