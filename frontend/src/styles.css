@@ -538,10 +538,31 @@ button, input, select { font: inherit; }
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 1px solid #f1f3f4;
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: #fff;
+  text-align: left;
+  font: inherit;
+}
+
+.notificationItem:disabled {
+  opacity: 1;
+  color: inherit;
 }
 
 .notificationItem:hover {
   background: #f8fbff;
+}
+
+.notificationItem.clickable {
+  cursor: pointer;
+}
+
+.notificationItem.clickable:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: -2px;
 }
 
 .notificationIcon {

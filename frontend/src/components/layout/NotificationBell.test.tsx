@@ -31,7 +31,7 @@ describe('NotificationBell', () => {
     expect(screen.getByText('AI định kỳ vừa cập nhật Chiến dịch AC')).toBeInTheDocument();
     expect(screen.queryByText(/RESOURCE_EXHAUSTED/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Xem chi tiết thay đổi' }));
+    await user.click(screen.getByRole('button', { name: /AI định kỳ vừa cập nhật Chiến dịch AC/ }));
     expect(onOpenNotification).toHaveBeenCalledWith(appliedNotification);
   });
 });

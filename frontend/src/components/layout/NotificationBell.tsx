@@ -77,7 +77,17 @@ export function NotificationBell({ notifications, onOpenNotification }: Notifica
                 const Icon = severityIcon[notification.severity];
 
                 return (
-                  <article className={`notificationItem ${notification.severity}`} key={notification.id}>
+                  <button
+                    type="button"
+                    className={`notificationItem ${notification.severity}${notification.actionLabel && onOpenNotification ? ' clickable' : ''}`}
+                    key={notification.id}
+                    disabled={!notification.actionLabel || !onOpenNotification}
+                    onClick={() => {
+                      if (!notification.actionLabel || !onOpenNotification) return;
+                      setOpen(false);
+                      onOpenNotification(notification);
+                    }}
+                  >
                     <span className="notificationIcon">
                       <Icon size={16} />
                     </span>
@@ -94,19 +104,12 @@ export function NotificationBell({ notifications, onOpenNotification }: Notifica
                         ))}
                       </ul>
                       {notification.actionLabel && onOpenNotification ? (
-                        <button
-                          className="notificationAction"
-                          type="button"
-                          onClick={() => {
-                            setOpen(false);
-                            onOpenNotification(notification);
-                          }}
-                        >
+                        <span className="notificationAction">
                           {notification.actionLabel}
-                        </button>
+                        </span>
                       ) : null}
                     </div>
-                  </article>
+                  </button>
                 );
               })}
             </div>
