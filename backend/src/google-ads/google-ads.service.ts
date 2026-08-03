@@ -34,6 +34,7 @@ type AdGroupPerformance = {
   name: string;
   campaignId: string;
   campaignName: string;
+  campaignStatus: string;
   status: string;
   impressions: number;
   clicks: number;
@@ -372,6 +373,7 @@ export class GoogleAdsService {
         roas: cost > 0 ? conversionValue / cost : 0,
       };
     });
+    await this.persistCampaignHierarchy(customerId, campaigns, []);
 
     const totalCost = campaigns.reduce(
       (sum: number, campaign: CampaignPerformance) => sum + campaign.cost,
@@ -411,6 +413,7 @@ export class GoogleAdsService {
       SELECT
         campaign.id,
         campaign.name,
+        campaign.status,
         ad_group.id,
         ad_group.name,
         ad_group.status,
@@ -439,6 +442,7 @@ export class GoogleAdsService {
         name: String(row.adGroup?.name ?? ''),
         campaignId: String(row.campaign?.id ?? ''),
         campaignName: String(row.campaign?.name ?? ''),
+        campaignStatus: String(row.campaign?.status ?? 'UNKNOWN'),
         status: String(row.adGroup?.status ?? ''),
         impressions,
         clicks,
@@ -449,6 +453,7 @@ export class GoogleAdsService {
         roas: cost > 0 ? conversionValue / cost : 0,
       };
     });
+    await this.persistCampaignHierarchy(customerId, [], adGroups);
 
     const totalCost = adGroups.reduce(
       (sum: number, adGroup: AdGroupPerformance) => sum + adGroup.cost,
@@ -481,6 +486,87 @@ export class GoogleAdsService {
       avgCtr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
       avgRoas: totalCost > 0 ? totalConversionValue / totalCost : 0,
     };
+  }
+
+  private async persistCampaignHierarchy(
+    customerId: string,
+    campaignPerformance: CampaignPerformance[],
+    adGroupPerformance: AdGroupPerformance[],
+  ) {
+    if (!this.dataSource?.isInitialized) return;
+
+    const accountRepository = this.dataSource.getRepository(GoogleAdsAccountEntity);
+    const account = await accountRepository.findOneBy({ customerId });
+    if (!account) return;
+
+    const now = new Date();
+    const campaignRepository = this.dataSource.getRepository(CampaignEntity);
+    const existingCampaigns = await campaignRepository.findBy({ accountId: account.id });
+    const existingCampaignMap = new Map(
+      existingCampaigns.map((campaign) => [campaign.googleCampaignId, campaign]),
+    );
+    const campaignRows = new Map<string, { id: string; name: string; status: string }>();
+
+    for (const campaign of campaignPerformance) {
+      if (campaign.id) campaignRows.set(campaign.id, campaign);
+    }
+    for (const adGroup of adGroupPerformance) {
+      if (adGroup.campaignId) {
+        campaignRows.set(adGroup.campaignId, {
+          id: adGroup.campaignId,
+          name: adGroup.campaignName,
+          status: adGroup.campaignStatus,
+        });
+      }
+    }
+
+    if (campaignRows.size) {
+      await campaignRepository.upsert(
+        [...campaignRows.values()].map((campaign) => ({
+          accountId: account.id,
+          googleCampaignId: campaign.id,
+          resourceName: `customers/${customerId}/campaigns/${campaign.id}`,
+          name: campaign.name,
+          status: campaign.status,
+          channelType: existingCampaignMap.get(campaign.id)?.channelType ?? null,
+          firstSeenAt: existingCampaignMap.get(campaign.id)?.firstSeenAt ?? now,
+          lastSeenAt: now,
+        })),
+        ['accountId', 'googleCampaignId'],
+      );
+    }
+
+    if (adGroupPerformance.length) {
+      const campaigns = await campaignRepository.findBy({ accountId: account.id });
+      const campaignMap = new Map(campaigns.map((campaign) => [campaign.googleCampaignId, campaign]));
+      const adGroupRepository = this.dataSource.getRepository(AdGroupEntity);
+      const existingAdGroups = campaigns.length
+        ? await adGroupRepository.findBy({ campaignId: In(campaigns.map((campaign) => campaign.id)) })
+        : [];
+      const existingAdGroupMap = new Map(
+        existingAdGroups.map((adGroup) => [`${adGroup.campaignId}:${adGroup.googleAdGroupId}`, adGroup]),
+      );
+      const rows = adGroupPerformance.flatMap((adGroup) => {
+        const campaign = campaignMap.get(adGroup.campaignId);
+        if (!campaign || !adGroup.id) return [];
+        const existing = existingAdGroupMap.get(`${campaign.id}:${adGroup.id}`);
+        return [{
+          campaignId: campaign.id,
+          googleAdGroupId: adGroup.id,
+          resourceName: `customers/${customerId}/adGroups/${adGroup.id}`,
+          name: adGroup.name,
+          status: adGroup.status,
+          firstSeenAt: existing?.firstSeenAt ?? now,
+          lastSeenAt: now,
+        }];
+      });
+      if (rows.length) {
+        await adGroupRepository.upsert(rows, ['campaignId', 'googleAdGroupId']);
+      }
+    }
+
+    account.lastSyncedAt = now;
+    await accountRepository.save(account);
   }
 
   async getAssetPerformance(customerId: string, adGroupId: string, timeRange: string) {

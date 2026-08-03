@@ -669,14 +669,24 @@ export default function App() {
 
     try {
       const params = new URLSearchParams({ customerId, time: timeRange });
-      const response = await apiFetch(`/google-ads/campaigns?${params}`);
-      const body = await parseJsonSafe(response);
+      const [response, adGroupResponse] = await Promise.all([
+        apiFetch(`/google-ads/campaigns?${params}`),
+        apiFetch(`/google-ads/ad-groups?${params}`),
+      ]);
+      const [body, adGroupBody] = await Promise.all([
+        parseJsonSafe(response),
+        parseJsonSafe(adGroupResponse),
+      ]);
 
       if (!response.ok) {
         throw new Error(extractApiError(body, 'Không thể tải dữ liệu Google Ads'));
       }
+      if (!adGroupResponse.ok) {
+        throw new Error(extractApiError(adGroupBody, 'Không thể đồng bộ nhóm quảng cáo cho Automation'));
+      }
 
       setData(body);
+      setAdGroupData(adGroupBody);
     } catch (err) {
       setData(null);
       setError(err instanceof Error ? err.message : 'Lỗi không xác định');
