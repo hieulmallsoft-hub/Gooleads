@@ -140,3 +140,62 @@ test('automation fails closed when no ad group scope is selected', async () => {
     [],
   );
 });
+
+test('automation targets every enabled ad group in a full campaign scope', async () => {
+  const values: Record<string, unknown[]> = {
+    CreativePolicyScopeEntity: [
+      {
+        policyId: 'policy-1',
+        campaignId: 'campaign-db-1',
+        adGroupId: null,
+        includeAllAdGroups: true,
+      },
+    ],
+    AdGroupEntity: [
+      {
+        id: 'group-db-1',
+        campaignId: 'campaign-db-1',
+        googleAdGroupId: '1001',
+        name: 'Nhóm đang chạy',
+        status: 'ENABLED',
+      },
+      {
+        id: 'group-db-2',
+        campaignId: 'campaign-db-1',
+        googleAdGroupId: '1002',
+        name: 'Nhóm tạm dừng',
+        status: 'PAUSED',
+      },
+    ],
+    CampaignEntity: [
+      {
+        id: 'campaign-db-1',
+        accountId: 'account-1',
+        googleCampaignId: '2001',
+        name: 'Chiến dịch toàn bộ',
+        status: 'ENABLED',
+      },
+    ],
+    GoogleAdsAccountEntity: [
+      { id: 'account-1', customerId: '1234567890', status: 'ACTIVE' },
+    ],
+  };
+  const instance = new CreativeAutomationService(
+    {
+      getRepository(entity: { name: string }) {
+        return { findBy: async () => values[entity.name] ?? [] };
+      },
+    } as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+  ) as any;
+
+  const targets = await instance.getAutomationTargets(
+    { id: 'policy-1' },
+    'LAST_7_DAYS',
+  );
+
+  assert.deepEqual(targets.map((target: any) => target.adGroupId), ['1001']);
+});

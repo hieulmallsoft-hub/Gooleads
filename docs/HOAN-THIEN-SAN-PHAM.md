@@ -205,10 +205,10 @@ Migration này sửa lỗi API `creative-operations/terms` trả `Internal serve
 - Trang Automation chứa phạm vi, lịch chạy, giới hạn thay đổi, trạng thái và nút chạy/dừng.
 - Cài đặt chỉ giữ kết nối, người dùng, mật khẩu và chính sách nội dung.
 - Quản trị viên và biên tập viên có quyền Automation được thêm hoặc xóa phạm vi; người xem chỉ được xem.
-- Quản trị viên chọn chiến dịch trước, sau đó tích riêng từng nhóm quảng cáo bên trong.
-- Chọn chiến dịch không tự động chọn toàn bộ nhóm quảng cáo hiện tại hoặc tương lai.
-- Worker chỉ xử lý các `ad_group_id` đã được lưu trong `creative_policy_scopes`.
-- Không có nhóm quảng cáo được chọn thì Automation không chạy và API bật/chạy ngay trả lỗi rõ ràng.
+- Người dùng chọn chiến dịch trước. Mặc định chiến dịch mới chọn ở chế độ chạy toàn bộ nhóm quảng cáo đang hoạt động.
+- Có thể mở **Thiết lập phạm vi** và chuyển sang chế độ chỉ chạy các nhóm quảng cáo được tích riêng.
+- Worker hợp nhất nhóm quảng cáo thuộc chiến dịch chạy toàn bộ với các `ad_group_id` được chọn lẻ, đồng thời loại trùng.
+- Không có chiến dịch chạy toàn bộ và không có nhóm quảng cáo chọn lẻ thì Automation không chạy; API bật/chạy ngay trả lỗi rõ ràng.
 - Chiến dịch hoặc nhóm quảng cáo đang tạm dừng sẽ bị bỏ qua.
 - Sau bước đồng bộ, worker kiểm tra lại trạng thái trong PostgreSQL trước khi gọi AI và áp dụng.
 - Nút Chạy ngay tuân thủ `max_changes_per_run` trong chính sách.
@@ -222,14 +222,17 @@ Content-Type: application/json
 
 {
   "campaignIds": ["2001"],
+  "allCampaignIds": ["2001"],
   "adGroupIds": ["1001", "1002"]
 }
 ```
 
+`campaignIds` là các chiến dịch đã đưa vào Automation. `allCampaignIds` là tập con chạy toàn bộ; các chiến dịch còn lại chỉ chạy những `adGroupIds` thuộc chiến dịch đó.
+
 ### Tải nhóm quảng cáo theo từng chiến dịch
 
 - Màn Automation ban đầu chỉ tải và hiển thị danh sách chiến dịch, không trả toàn bộ nhóm quảng cáo của mọi chiến dịch.
-- Khi quản trị viên bấm **Chọn nhóm quảng cáo**, frontend mới gọi API chi tiết cho đúng một chiến dịch.
+- Khi người dùng bấm **Thiết lập phạm vi**, frontend mới gọi API chi tiết cho đúng một chiến dịch.
 - Danh sách chi tiết hiển thị hiệu quả 14 ngày của chiến dịch và từng nhóm quảng cáo: lượt hiển thị, lượt nhấp, CTR, chi phí, chuyển đổi và ROAS.
 - Các chỉ số lấy từ dữ liệu đã đồng bộ trong PostgreSQL nên việc mở danh sách không phát sinh request Google Ads và không tiêu tốn thêm quota.
 - Nhóm quảng cáo của chiến dịch khác không được tải hoặc hiển thị. Người dùng đóng chi tiết rồi mở chiến dịch khác khi cần.

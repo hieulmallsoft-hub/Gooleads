@@ -7,5 +7,7 @@ export class CreativePolicyScopeEntity {
   @Column({ name: 'account_id', type: 'uuid', nullable: true }) accountId!: string | null;
   @Column({ name: 'campaign_id', type: 'uuid', nullable: true }) campaignId!: string | null;
   @Column({ name: 'ad_group_id', type: 'uuid', nullable: true }) adGroupId!: string | null;
+  @Column({ name: 'include_all_ad_groups', type: 'boolean', default: false })
+  includeAllAdGroups!: boolean;
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' }) createdAt!: Date;
 }

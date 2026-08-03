@@ -1,4 +1,5 @@
 export type UpdateAutomationScopeDto = {
   campaignIds?: unknown;
+  allCampaignIds?: unknown;
   adGroupIds?: unknown;
 };

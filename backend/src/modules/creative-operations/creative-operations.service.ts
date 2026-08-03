@@ -1013,7 +1013,13 @@ export class CreativeOperationsService {
     const account = await this.getAccount(customerId);
     const policy = await this.getPolicy(account.workspaceId);
     const campaignIds = this.normalizeGoogleIdList(input.campaignIds);
+    const allCampaignIds = this.normalizeGoogleIdList(input.allCampaignIds);
     const adGroupIds = this.normalizeGoogleIdList(input.adGroupIds);
+    if (allCampaignIds.some((id) => !campaignIds.includes(id))) {
+      throw new BadRequestException(
+        'Chiến dịch chạy toàn bộ phải nằm trong danh sách chiến dịch đã chọn',
+      );
+    }
     const campaigns = await this.dataSource
       .getRepository(CampaignEntity)
       .findBy({ accountId: account.id });
@@ -1073,6 +1079,7 @@ export class CreativeOperationsService {
             accountId: null,
             campaignId: campaign.id,
             adGroupId: null,
+            includeAllAdGroups: allCampaignIds.includes(campaign.googleCampaignId),
           })),
         ...selectedAdGroups
           .filter((adGroup): adGroup is AdGroupEntity => Boolean(adGroup))
@@ -1081,6 +1088,7 @@ export class CreativeOperationsService {
             accountId: null,
             campaignId: null,
             adGroupId: adGroup.id,
+            includeAllAdGroups: false,
           })),
       ];
       if (rows.length) await repository.save(rows);
@@ -1114,6 +1122,7 @@ export class CreativeOperationsService {
     const selectedAdGroupIds = new Set(
       scopes.map((scope) => scope.adGroupId).filter(Boolean),
     );
+    const campaignScope = scopes.find((scope) => scope.campaignId === campaign.id);
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
       `
         SELECT
@@ -1164,6 +1173,7 @@ export class CreativeOperationsService {
         id: campaign.googleCampaignId,
         name: campaign.name,
         status: campaign.status,
+        mode: campaignScope?.includeAllAdGroups ? 'ALL' : 'SELECTED',
         metrics: this.serializeAutomationMetrics(campaignMetricRows[0] ?? {}),
       },
       days,
@@ -1198,6 +1208,11 @@ export class CreativeOperationsService {
     const selectedCampaignIds = new Set(
       scopes.map((scope) => scope.campaignId).filter(Boolean),
     );
+    const allCampaignIds = new Set(
+      scopes
+        .filter((scope) => scope.campaignId && scope.includeAllAdGroups)
+        .map((scope) => scope.campaignId),
+    );
     const selectedAdGroupIds = new Set(
       scopes.map((scope) => scope.adGroupId).filter(Boolean),
     );
@@ -1208,6 +1223,7 @@ export class CreativeOperationsService {
         name: campaign.name,
         status: campaign.status,
         selected: selectedCampaignIds.has(campaign.id),
+        mode: allCampaignIds.has(campaign.id) ? 'ALL' : 'SELECTED',
         adGroupCount: adGroups.filter(
           (adGroup) => adGroup.campaignId === campaign.id,
         ).length,
@@ -1222,6 +1238,9 @@ export class CreativeOperationsService {
       selectedAdGroupIds: adGroups
         .filter((adGroup) => selectedAdGroupIds.has(adGroup.id))
         .map((adGroup) => adGroup.googleAdGroupId),
+      allCampaignIds: campaigns
+        .filter((campaign) => allCampaignIds.has(campaign.id))
+        .map((campaign) => campaign.googleCampaignId),
       selectedCampaignCount: campaigns.filter((campaign) =>
         selectedCampaignIds.has(campaign.id),
       ).length,
@@ -1247,9 +1266,19 @@ export class CreativeOperationsService {
     const scopes = await this.dataSource
       .getRepository(CreativePolicyScopeEntity)
       .findBy({ policyId });
-    if (!scopes.some((scope) => scope.adGroupId && allowedIds.has(scope.adGroupId))) {
+    const allowedCampaignIds = new Set(campaigns.map((campaign) => campaign.id));
+    const hasTarget = scopes.some(
+      (scope) =>
+        Boolean(scope.adGroupId && allowedIds.has(scope.adGroupId)) ||
+        Boolean(
+          scope.campaignId &&
+            scope.includeAllAdGroups &&
+            allowedCampaignIds.has(scope.campaignId),
+        ),
+    );
+    if (!hasTarget) {
       throw new BadRequestException(
-        'Hãy chọn ít nhất một nhóm quảng cáo trong phạm vi Automation',
+        'Hãy chọn toàn bộ một chiến dịch hoặc ít nhất một nhóm quảng cáo trong phạm vi Automation',
       );
     }
   }

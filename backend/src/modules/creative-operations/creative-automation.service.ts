@@ -513,15 +513,35 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     const selectedAdGroupIds = scopes
       .map((scope) => scope.adGroupId)
       .filter((id): id is string => Boolean(id));
-    if (!selectedAdGroupIds.length) return [];
+    const allCampaignInternalIds = scopes
+      .filter((scope) => scope.campaignId && scope.includeAllAdGroups)
+      .map((scope) => scope.campaignId as string);
+    if (!selectedAdGroupIds.length && !allCampaignInternalIds.length) return [];
 
-    const adGroups = await this.dataSource
-      .getRepository(AdGroupEntity)
-      .findBy({ id: In(selectedAdGroupIds) });
-    const campaigns = adGroups.length
-      ? await this.dataSource.getRepository(CampaignEntity).findBy({
-          id: In([...new Set(adGroups.map((adGroup) => adGroup.campaignId))]),
-        })
+    const explicitAdGroups = selectedAdGroupIds.length
+      ? await this.dataSource
+          .getRepository(AdGroupEntity)
+          .findBy({ id: In(selectedAdGroupIds) })
+      : [];
+    const campaignAdGroups = allCampaignInternalIds.length
+      ? await this.dataSource
+          .getRepository(AdGroupEntity)
+          .findBy({ campaignId: In(allCampaignInternalIds) })
+      : [];
+    const adGroupMap = new Map(
+      [...explicitAdGroups, ...campaignAdGroups].map((adGroup) => [adGroup.id, adGroup]),
+    );
+    const adGroups = [...adGroupMap.values()];
+    const campaignIds = [
+      ...new Set([
+        ...allCampaignInternalIds,
+        ...adGroups.map((adGroup) => adGroup.campaignId),
+      ]),
+    ];
+    const campaigns = campaignIds.length
+      ? await this.dataSource
+          .getRepository(CampaignEntity)
+          .findBy({ id: In(campaignIds) })
       : [];
     const allowedAccountIds = targetAccountIds?.length
       ? new Set(targetAccountIds)

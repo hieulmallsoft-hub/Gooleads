@@ -3620,6 +3620,32 @@ tbody tr:hover td:first-child {
   padding: 14px;
 }
 
+.automationCampaignMode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.automationCampaignMode > label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.automationCampaignMode span {
+  display: grid;
+  gap: 4px;
+}
+
+.automationCampaignMode small {
+  color: var(--muted);
+}
+
 .automationMetrics {
   display: grid;
   gap: 1px;
@@ -3886,7 +3912,7 @@ tbody tr:hover td:first-child {
   .tableScroll { overflow-x: auto; }
   .card-value { font-size: 24px; }
   th, td { padding: 9px 10px; }
-  .operationsMetrics, .activityGrid, .settingsGrid, .queueCopy, .termComposer, .automationMetrics { grid-template-columns: 1fr; }
+  .operationsMetrics, .activityGrid, .settingsGrid, .queueCopy, .termComposer, .automationMetrics, .automationCampaignMode { grid-template-columns: 1fr; }
   .operationsMetrics > div, .activityGrid > div { border-right: 0; }
   .recommendationToolbar, .settingsActions { align-items: stretch; flex-direction: column; }
   .statusTabs { width: 100%; overflow-x: auto; }

@@ -38,11 +38,13 @@ const settingsResponse = {
         name: 'Chiến dịch AC',
         status: 'ENABLED',
         selected: false,
+        mode: 'SELECTED',
         adGroupCount: 1,
         selectedAdGroupIds: [],
       },
     ],
     selectedAdGroupIds: [],
+    allCampaignIds: [],
     selectedCampaignCount: 0,
     selectedAdGroupCount: 0,
   },
@@ -128,6 +130,7 @@ describe('OperationsPanel đổi mật khẩu', () => {
             id: '2001',
             name: 'Chiến dịch AC',
             status: 'ENABLED',
+            mode: 'SELECTED',
             metrics: {
               impressions: 1000,
               clicks: 100,
@@ -190,8 +193,12 @@ describe('OperationsPanel đổi mật khẩu', () => {
     await user.click(
       screen.getByLabelText('Cho phép Automation trong chiến dịch Chiến dịch AC'),
     );
-    await user.click(screen.getByRole('button', { name: 'Chọn nhóm quảng cáo' }));
+    await user.click(screen.getByRole('button', { name: 'Thiết lập phạm vi' }));
     expect(await screen.findByText(/10\.00% CTR/)).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Chạy toàn bộ chiến dịch/ })).toBeChecked();
+    await user.click(
+      screen.getByRole('radio', { name: /Chỉ chạy nhóm quảng cáo được chọn/ }),
+    );
     await user.click(
       screen.getByLabelText('Cho phép Automation trong nhóm quảng cáo Nhóm Việt Nam'),
     );
@@ -203,6 +210,7 @@ describe('OperationsPanel đổi mật khẩu', () => {
         method: 'PUT',
         body: JSON.stringify({
           campaignIds: ['2001'],
+          allCampaignIds: [],
           adGroupIds: ['1001'],
         }),
       }),
