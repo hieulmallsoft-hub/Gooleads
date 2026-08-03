@@ -3,8 +3,8 @@ import {
   Bot,
   CheckCircle2,
   CircleHelp,
+  FileText,
   History,
-  Image,
   KeyRound,
   RefreshCw,
   Search,
@@ -196,16 +196,14 @@ export function UserGuidePage() {
               <Step number={1} title="Bật tự động">Vào Cài đặt, chọn chu kỳ và nhấn Chạy ngay.</Step>
               <Step number={2} title="Theo dõi">Xem lần chạy gần nhất, lần tiếp theo và số thay đổi đã áp dụng.</Step>
               <Step number={3} title="Tạm dừng">Nhấn Tắt; hệ thống hoàn tất thao tác đang gửi nhưng không tạo thay đổi mới.</Step>
-              <Step number={4} title="Tự thay">Sau khi dừng, bạn vẫn thay văn bản, ảnh hoặc video thủ công bình thường.</Step>
+              <Step number={4} title="Tự chỉnh sửa">Sau khi dừng, bạn vẫn có thể thay nội dung văn bản thủ công.</Step>
             </ol>
           </section>
 
           <section className="guideSection" id="thay-doi">
-            <div className="guideSectionTitle"><Image /><div><h2>Thay văn bản, hình ảnh và video</h2><p>Luôn xem trước trước khi cập nhật Google Ads.</p></div></div>
+            <div className="guideSectionTitle"><FileText /><div><h2>Thay nội dung văn bản</h2><p>Luôn xem trước trước khi cập nhật Google Ads.</p></div></div>
             <div className="guideCards">
               <article><strong>Văn bản</strong><p>Chọn nội dung mới, tạo bản xem trước, kiểm tra rồi xác nhận áp dụng.</p></article>
-              <article><strong>Hình ảnh</strong><p>Chọn ảnh cũ, tải ảnh mới tối đa 10 MB và kiểm tra hình xem trước.</p></article>
-              <article><strong>Video</strong><p>Chọn video cũ, nhập URL hoặc ID YouTube mới rồi xác nhận.</p></article>
             </div>
           </section>
 

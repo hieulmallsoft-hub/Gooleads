@@ -20,7 +20,7 @@ Tài liệu này mô tả các chức năng đã hoàn thiện, cách chúng ho�
 2. Chọn chu kỳ và giới hạn số thay đổi.
 3. Nhấn **Chạy ngay** để bật lịch và chạy lần đầu.
 4. Nhấn **Tắt** khi muốn chuyển sang thay tài nguyên thủ công.
-5. Sau khi tắt, các thay đổi đã áp dụng được giữ nguyên; người dùng vẫn thay văn bản, ảnh và video bình thường.
+5. Sau khi tắt, các thay đổi đã áp dụng được giữ nguyên; người dùng vẫn có thể thay nội dung văn bản thủ công.
 
 ### Cấu hình
 
@@ -105,7 +105,7 @@ Các lớp kiểm tra hiện có:
 - đăng nhập, cookie session, mật khẩu và phân quyền;
 - quyền truy cập tài khoản/campaign;
 - Google Ads query phân trang và trạng thái campaign/ad group đã tạm dừng;
-- thay văn bản, ảnh/video và xử lý mutation lỗi;
+- thay nội dung văn bản và xử lý mutation lỗi;
 - AI review và lưu quyết định;
 - tính hiệu quả, tìm kiếm và phân trang lịch sử;
 - Automation, múi giờ, giới hạn thay đổi và heartbeat;

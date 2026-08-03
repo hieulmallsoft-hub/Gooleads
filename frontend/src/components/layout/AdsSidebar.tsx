@@ -10,7 +10,6 @@ import {
   Search,
   Settings,
   Sparkles,
-  Video,
   X,
 } from 'lucide-react';
 import type { OperationsSection } from '../OperationsPanel';
@@ -121,22 +120,6 @@ export function AdsSidebar({
             <Image size={16} />
             Tài nguyên
             {!hasSelectedAdGroup ? <span className="navHint">chọn nhóm</span> : null}
-          </button>
-          <button
-            type="button"
-            className={!operationsSection && viewMode === 'assets' && assetTypeFilter === 'IMAGE' ? 'active' : ''}
-            onClick={navAction(() => onOpenAssets('IMAGE'))}
-          >
-            <Image size={16} />
-            Hình ảnh
-          </button>
-          <button
-            type="button"
-            className={!operationsSection && viewMode === 'assets' && assetTypeFilter === 'VIDEO' ? 'active' : ''}
-            onClick={navAction(() => onOpenAssets('VIDEO'))}
-          >
-            <Video size={16} />
-            Video
           </button>
           <div className="navSectionLabel">Cấu hình</div>
           <button

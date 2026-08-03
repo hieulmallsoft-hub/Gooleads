@@ -143,11 +143,6 @@ function normalizeStoredOperationsSection(value: unknown): OperationsSection | n
   return undefined;
 }
 
-function normalizeStoredAssetTypeFilter(value: unknown): AssetTypeFilter {
-  if (value === 'IMAGE' || value === 'VIDEO') return value;
-  return 'ALL';
-}
-
 function normalizeStoredAssetLabelFilter(value: unknown): AssetLabelFilter {
   if (
     value === 'LOW' ||
@@ -244,9 +239,7 @@ export default function App() {
     const restored = normalizeStoredOperationsSection(initialViewState.operationsSection);
     return restored === undefined ? 'overview' : restored;
   });
-  const [assetTypeFilter, setAssetTypeFilter] = useState<AssetTypeFilter>(() =>
-    normalizeStoredAssetTypeFilter(initialViewState.assetTypeFilter),
-  );
+  const [assetTypeFilter, setAssetTypeFilter] = useState<AssetTypeFilter>('ALL');
   const [assetLabelFilter, setAssetLabelFilter] = useState<AssetLabelFilter>(() =>
     normalizeStoredAssetLabelFilter(initialViewState.assetLabelFilter),
   );
@@ -310,8 +303,6 @@ export default function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authError, setAuthError] = useState('');
-  const canEdit = authUser?.role === 'ADMIN' || authUser?.role === 'EDITOR';
-
   const selectedAdGroup = useMemo(
     () => adGroupData?.adGroups.find((adGroup) => adGroup.id === adGroupId) ?? null,
     [adGroupData, adGroupId],
@@ -570,20 +561,6 @@ export default function App() {
   function getAiCacheKey(normalizedAdGroupId: string) {
     if (!assetData || !assetFingerprint) return '';
     return `${customerId}:${normalizedAdGroupId}:${assetData.timeRange}:${assetFingerprint}`;
-  }
-
-  function selectMediaReplacement(asset: Asset) {
-    if (!canEditSelectedCampaign) {
-      setMediaReplaceError('Bạn chỉ có quyền xem, không thể thay đổi hình ảnh/video');
-      return;
-    }
-    setMediaReplacementTarget(asset);
-    setReplacementImageFile(null);
-    setReplacementImageInfo(null);
-    setReplacementVideoUrl('');
-    setMediaReplaceConfirmed(false);
-    setMediaReplaceError('');
-    setMediaReplaceStatus('');
   }
 
   async function persistSuggestionDecision(
@@ -1500,15 +1477,9 @@ export default function App() {
 
   const filteredAssets = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
-    let list = assetData?.assets ?? [];
-
-    if (assetTypeFilter === 'VIDEO') {
-      list = list.filter((asset) => getMediaReplacementType(asset) === 'VIDEO');
-    }
-
-    if (assetTypeFilter === 'IMAGE') {
-      list = list.filter((asset) => getMediaReplacementType(asset) === 'IMAGE');
-    }
+    let list = (assetData?.assets ?? []).filter(
+      (asset) => asset.fieldType === 'HEADLINE' || asset.fieldType === 'DESCRIPTION',
+    );
 
     if (assetLabelFilter !== 'ALL') {
       list = list.filter(
@@ -1534,7 +1505,7 @@ export default function App() {
           : Number(aVal ?? 0) - Number(bVal ?? 0);
       return assetSortDir === 'asc' ? cmp : -cmp;
     });
-  }, [assetData, searchText, assetSortKey, assetSortDir, assetTypeFilter, assetLabelFilter]);
+  }, [assetData, searchText, assetSortKey, assetSortDir, assetLabelFilter]);
 
   const bestCampaign = useMemo(() => {
     return filteredCampaigns.reduce<Campaign | null>((best, campaign) => {
@@ -1769,7 +1740,7 @@ export default function App() {
           createdAtLabel: selectedTimeLabel,
           recommendations: [
             'Mở tài nguyên của nhóm quảng cáo này và tạo đánh giá AI.',
-            'Prioritize LOW-label headline, image, and video assets.',
+            'Ưu tiên tiêu đề và mô tả có nhãn hiệu quả THẤP.',
             'Test one sharper benefit-led headline before replacing all copy.',
           ],
         });
@@ -1777,7 +1748,6 @@ export default function App() {
 
     if (assetData) {
       const lowAssets = assetRows.filter((asset) => asset.performanceLabel === 'LOW');
-      const lowMediaAssets = lowAssets.filter((asset) => getMediaReplacementType(asset));
       const lowTextAssets = lowAssets.filter(
         (asset) => asset.fieldType === 'HEADLINE' || asset.fieldType === 'DESCRIPTION',
       );
@@ -1791,8 +1761,7 @@ export default function App() {
           targetLabel: 'Tài nguyên',
           createdAtLabel: selectedTimeLabel,
           recommendations: [
-            lowTextAssets.length ? 'Tạo đề xuất AI cho tiêu đề/mô tả hiệu quả THẤP.' : 'Nội dung văn bản đang ổn định; hãy tập trung vào hình ảnh/video.',
-            lowMediaAssets.length ? 'Thay hình ảnh/video hiệu quả thấp bằng hình sản phẩm rõ ràng hơn.' : 'Không có hình ảnh/video hiệu quả thấp trong bộ lọc hiện tại.',
+            lowTextAssets.length ? 'Tạo đề xuất AI cho tiêu đề/mô tả hiệu quả THẤP.' : 'Nội dung văn bản đang ổn định.',
             'Chỉ áp dụng thay đổi đã phê duyệt và theo dõi trong giai đoạn tiếp theo.',
           ],
         });
@@ -1862,11 +1831,7 @@ export default function App() {
     (mediaReplacementType === 'VIDEO' && !replacementVideoUrl.trim());
   const searchPlaceholder =
     viewMode === 'assets'
-      ? assetTypeFilter === 'VIDEO'
-        ? 'Tìm video, nhãn hoặc ID'
-        : assetTypeFilter === 'IMAGE'
-          ? 'Tìm hình ảnh, nhãn hoặc ID'
-          : 'Tìm tài nguyên, loại, nhãn hoặc ID'
+      ? 'Tìm tiêu đề, mô tả, nhãn hoặc ID'
       : viewMode === 'adGroups'
         ? 'Tìm nhóm quảng cáo, chiến dịch hoặc ID'
         : 'Tìm chiến dịch hoặc ID';
@@ -1975,22 +1940,14 @@ export default function App() {
           <div className="pageTitleBlock">
             <h1>
               {viewMode === 'assets'
-                ? assetTypeFilter === 'VIDEO'
-                  ? 'Videos'
-                  : assetTypeFilter === 'IMAGE'
-                    ? 'Images'
-                    : 'Tài nguyên'
+                ? 'Tài nguyên văn bản'
                 : viewMode === 'adGroups'
                   ? 'Nhóm quảng cáo'
                   : 'Chiến dịch'}
             </h1>
             <p>
               {viewMode === 'assets'
-                ? assetTypeFilter === 'VIDEO'
-                  ? 'Kiểm tra hiệu quả video và mở quy trình thay thế cho nhóm quảng cáo đã chọn.'
-                  : assetTypeFilter === 'IMAGE'
-                    ? 'Kiểm tra hiệu quả hình ảnh và mở quy trình thay thế cho nhóm quảng cáo đã chọn.'
-                    : 'Review LOW-label text, image, and video assets, then approve exactly what should change.'
+                ? 'Kiểm tra nội dung văn bản hiệu quả thấp và phê duyệt chính xác nội dung cần thay đổi.'
                 : viewMode === 'adGroups'
                   ? 'Chọn nhóm quảng cáo để mở tài nguyên và chạy đánh giá AI.'
                   : 'Review campaigns by views and open ad groups for asset-level work.'}
@@ -2230,7 +2187,9 @@ export default function App() {
             assetData={assetData}
             assetLoading={assetLoading}
             aiReview={aiReview}
-            aiRecommendations={aiRecommendations}
+            aiRecommendations={aiRecommendations.filter(
+              (item) => item.mediaType !== 'Image' && item.mediaType !== 'Video',
+            )}
             aiReviewLoading={aiReviewLoading}
             aiReviewError={aiReviewError}
             autoAiEnabled={autoAiEnabled}
@@ -2240,11 +2199,11 @@ export default function App() {
             onAutoAiChange={updateAutoAiEnabled}
             onGenerate={() => generateAiReview(undefined, { force: true })}
             onToggleApproval={(item) => void toggleCreativeSuggestionApproval(item)}
-            onUseMediaIdea={selectMediaReplacement}
           />
         ) : null}
 
         {viewMode === 'assets' ? (
+          <div hidden aria-hidden="true">
           <MediaReplacementPanel
             target={mediaReplacementTarget}
             mediaType={mediaReplacementType}
@@ -2291,6 +2250,7 @@ export default function App() {
             }}
             onReplace={replaceMediaAsset}
           />
+          </div>
         ) : null}
 
         {viewMode === 'assets' ? (
@@ -2375,13 +2335,11 @@ export default function App() {
           totalPages={totalPages}
           rowsPerPage={rowsPerPage}
           activeLoading={activeLoading}
-          canEdit={viewMode === 'assets' ? canEditSelectedCampaign : canEdit}
           onCampaignSort={handleSort}
           onAdGroupSort={handleAdGroupSort}
           onAssetSort={handleAssetSort}
           onOpenCampaign={openCampaignAdGroups}
           onOpenAdGroup={openAdGroupAssets}
-          onSelectMedia={selectMediaReplacement}
           onPageChange={setCurrentPage}
           onRowsPerPageChange={(nextRowsPerPage) => {
             setRowsPerPage(nextRowsPerPage);

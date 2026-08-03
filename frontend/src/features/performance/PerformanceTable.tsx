@@ -4,9 +4,7 @@ import {
   ArrowUp,
   ChevronLeft,
   ChevronRight,
-  Image,
   SlidersHorizontal,
-  Video,
 } from 'lucide-react';
 import {
   assessmentClass,
@@ -14,10 +12,7 @@ import {
   formatPercent,
   roasClass,
 } from '../../utils/format';
-import {
-  assetTitle,
-  getMediaReplacementType,
-} from '../../utils/assets';
+import { assetTitle } from '../../utils/assets';
 import type {
   AdGroup,
   AdGroupResponse,
@@ -62,18 +57,16 @@ type PerformanceTableProps = {
   totalPages: number;
   rowsPerPage: number;
   activeLoading: boolean;
-  canEdit: boolean;
   onCampaignSort: (key: SortKey) => void;
   onAdGroupSort: (key: AdGroupSortKey) => void;
   onAssetSort: (key: AssetSortKey) => void;
   onOpenCampaign: (campaign: Campaign) => void;
   onOpenAdGroup: (adGroup: AdGroup) => void;
-  onSelectMedia: (asset: Asset) => void;
   onPageChange: (page: number) => void;
   onRowsPerPageChange: (rowsPerPage: number) => void;
 };
 
-type AssetStaticColumnKey = 'ctr' | 'label' | 'assessment' | 'action' | 'replace';
+type AssetStaticColumnKey = 'ctr' | 'label' | 'assessment' | 'action';
 type AssetVisibleColumnKey = AssetSortKey | AssetStaticColumnKey;
 
 const rowsPerPageOptions = [10, 25, 50, 100];
@@ -126,7 +119,6 @@ const assetStaticColumns: { key: AssetStaticColumnKey; label: string }[] = [
   { key: 'label', label: 'Nhãn' },
   { key: 'assessment', label: 'Đánh giá' },
   { key: 'action', label: 'Hành động' },
-  { key: 'replace', label: 'Thay thế' },
 ];
 
 const defaultAssetColumnKeys: AssetVisibleColumnKey[] = [
@@ -231,13 +223,11 @@ export function PerformanceTable(props: PerformanceTableProps) {
     totalPages,
     rowsPerPage,
     activeLoading,
-    canEdit,
     onCampaignSort,
     onAdGroupSort,
     onAssetSort,
     onOpenCampaign,
     onOpenAdGroup,
-    onSelectMedia,
     onPageChange,
     onRowsPerPageChange,
   } = props;
@@ -267,8 +257,6 @@ export function PerformanceTable(props: PerformanceTableProps) {
   }
 
   function renderAssetStaticCell(asset: Asset, key: AssetStaticColumnKey) {
-    const mediaType = getMediaReplacementType(asset);
-
     switch (key) {
       case 'ctr':
         return formatPercent(asset.ctr);
@@ -282,19 +270,6 @@ export function PerformanceTable(props: PerformanceTableProps) {
         );
       case 'action':
         return asset.action || '-';
-      case 'replace':
-        return mediaType
-          ? (
-            <button
-              className="tableActionButton"
-              type="button"
-              onClick={() => onSelectMedia(asset)}
-              disabled={!canEdit}
-            >
-              Chọn
-            </button>
-          )
-          : '-';
       default:
         return '-';
     }
@@ -385,24 +360,11 @@ export function PerformanceTable(props: PerformanceTableProps) {
             </thead>
             <tbody>
               {assets.map((asset) => {
-                const mediaType = getMediaReplacementType(asset);
-                const MediaIcon = mediaType === 'VIDEO' ? Video : Image;
                 return (
                   <tr key={`${asset.resourceName || asset.id}-${asset.fieldType}`}>
                     <td>
                       <div className="assetCell">
                         <span className="assetName">{assetTitle(asset)}</span>
-                        {mediaType ? (
-                          <button
-                            className="tableActionButton inlineReplaceButton"
-                            type="button"
-                            onClick={() => onSelectMedia(asset)}
-                            disabled={!canEdit}
-                          >
-                            <MediaIcon size={13} />
-                            Thay {mediaType === 'VIDEO' ? 'video' : 'hình ảnh'}
-                          </button>
-                        ) : null}
                       </div>
                     </td>
                     {visibleSortableAssetColumns.map((column) => (

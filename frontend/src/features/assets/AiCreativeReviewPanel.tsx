@@ -1,9 +1,7 @@
 import { FileText, Image, RefreshCw, Sparkles, Video } from 'lucide-react';
-import { getMediaReplacementType } from '../../utils/assets';
 import type {
   AiCreativeRecommendation,
   AiReviewResponse,
-  Asset,
   AssetResponse,
 } from '../../types/googleAds';
 
@@ -21,7 +19,6 @@ type AiCreativeReviewPanelProps = {
   onAutoAiChange: (enabled: boolean) => void;
   onGenerate: () => void;
   onToggleApproval: (item: AiCreativeRecommendation) => void;
-  onUseMediaIdea: (asset: Asset) => void;
 };
 
 export function AiCreativeReviewPanel({
@@ -38,7 +35,6 @@ export function AiCreativeReviewPanel({
   onAutoAiChange,
   onGenerate,
   onToggleApproval,
-  onUseMediaIdea,
 }: AiCreativeReviewPanelProps) {
   return (
     <section className="creativeReview">
@@ -88,31 +84,6 @@ export function AiCreativeReviewPanel({
         <div className="creativeGrid">
           {aiRecommendations.map((item, index) => {
             const previewUrl = item.asset?.previewUrl ?? '';
-            const reviewAsset = item.asset;
-            const matchingMediaAsset =
-              reviewAsset && assetData
-                ? assetData.assets.find((asset) => {
-                    const mediaType = getMediaReplacementType(asset);
-                    const sameId = Boolean(
-                      asset.id &&
-                        reviewAsset.id &&
-                        asset.id === reviewAsset.id,
-                    );
-                    const sameText = Boolean(
-                      asset.text &&
-                        reviewAsset.text &&
-                        asset.text === reviewAsset.text,
-                    );
-                    const samePlacement =
-                      asset.fieldType === reviewAsset.fieldType ||
-                      asset.type === reviewAsset.type;
-
-                    return Boolean(mediaType && (sameId || sameText) && samePlacement);
-                  }) ?? null
-                : null;
-            const matchingMediaType = matchingMediaAsset
-              ? getMediaReplacementType(matchingMediaAsset)
-              : '';
             const isApproved = approvedCreativeSuggestionIds.includes(item.suggestionId);
             const decisionLoading = decisionLoadingIds.includes(item.suggestionId);
             const MediaIcon =
@@ -155,24 +126,6 @@ export function AiCreativeReviewPanel({
                       <span key={idea}>{idea}</span>
                     ))}
                   </div>
-                  {matchingMediaAsset && matchingMediaType ? (
-                    <div className="creativeActions">
-                      <button
-                        className="tableActionButton inlineReplaceButton"
-                        type="button"
-                        onClick={() => onUseMediaIdea(matchingMediaAsset)}
-                        disabled={!canEdit}
-                        title="Chọn tài nguyên này để thay thế"
-                      >
-                        {matchingMediaType === 'VIDEO' ? (
-                          <Video size={13} />
-                        ) : (
-                          <Image size={13} />
-                        )}
-                        Dùng trong phần Thay thế
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
               </article>
             );
