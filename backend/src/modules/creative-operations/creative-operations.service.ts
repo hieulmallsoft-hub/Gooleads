@@ -1189,7 +1189,19 @@ export class CreativeOperationsService {
             SUM(conversion_value)::float8 AS conversion_value
           FROM ad_group_daily_metrics
           WHERE ad_group_id = ag.id
-            AND metric_date >= CURRENT_DATE - (($2::int - 1) * INTERVAL '1 day')
+            AND metric_date BETWEEN
+              (
+                SELECT MAX(metric.metric_date)
+                FROM ad_group_daily_metrics metric
+                INNER JOIN ad_groups metric_ag ON metric_ag.id = metric.ad_group_id
+                WHERE metric_ag.campaign_id = $1
+              ) - (($2::int - 1) * INTERVAL '1 day')
+              AND (
+                SELECT MAX(metric.metric_date)
+                FROM ad_group_daily_metrics metric
+                INNER JOIN ad_groups metric_ag ON metric_ag.id = metric.ad_group_id
+                WHERE metric_ag.campaign_id = $1
+              )
         ) metrics ON true
         WHERE ag.campaign_id = $1
         ORDER BY ag.name ASC
@@ -1207,7 +1219,10 @@ export class CreativeOperationsService {
             COALESCE(SUM(conversion_value), 0)::float8 AS conversion_value
           FROM campaign_daily_metrics
           WHERE campaign_id = $1
-            AND metric_date >= CURRENT_DATE - (($2::int - 1) * INTERVAL '1 day')
+            AND metric_date BETWEEN
+              (SELECT MAX(metric_date) FROM campaign_daily_metrics WHERE campaign_id = $1)
+                - (($2::int - 1) * INTERVAL '1 day')
+              AND (SELECT MAX(metric_date) FROM campaign_daily_metrics WHERE campaign_id = $1)
         `,
         [campaign.id, days],
       );
