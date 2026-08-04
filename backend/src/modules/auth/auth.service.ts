@@ -302,6 +302,26 @@ export class AuthService {
     return { user: await this.serializeUser(savedUser, savedMember) };
   }
 
+  async deleteUser(id: string, actingUserId: string) {
+    if (id === actingUserId) {
+      throw new BadRequestException('You cannot delete your own account');
+    }
+
+    const userRepository = this.dataSource.getRepository(AppUserEntity);
+    const user = await userRepository.findOneBy({ id });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const member = await this.findUserMembership(user.id);
+    if (normalizeRole(member?.role) === 'ADMIN' && user.status === 'ACTIVE') {
+      await this.assertAnotherActiveAdmin(user.id);
+    }
+
+    await userRepository.delete({ id: user.id });
+    return { ok: true };
+  }
+
   async setUserAccountAccess(
     userId: string,
     input: AccountAccessInput,

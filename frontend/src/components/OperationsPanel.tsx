@@ -917,6 +917,27 @@ export function OperationsPanel({
     }
   }
 
+  async function deleteAccessUser(user: AccessUser) {
+    if (!canManageUsers || user.id === currentUser.id) return;
+    if (!window.confirm(`Xóa người dùng ${user.displayName} (${user.email})? Hành động này không thể hoàn tác.`)) return;
+
+    setAccessSavingId(user.id);
+    setError('');
+    setNotice('');
+    try {
+      const response = await request(`/admin/users/${user.id}`, { method: 'DELETE' });
+      const body = await parseJsonSafe(response);
+      if (!response.ok) throw new Error(errorMessage(body, 'Không thể xóa người dùng'));
+      if (selectedAccessUserId === user.id) setSelectedAccessUserId('');
+      setNotice(`Đã xóa người dùng ${user.displayName}.`);
+      await loadAccessUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể xóa người dùng');
+    } finally {
+      setAccessSavingId('');
+    }
+  }
+
   async function saveAccountAccess() {
     if (!canManageUsers || !selectedAccessUser) return;
     setAccessSavingId(`accounts:${selectedAccessUser.id}`);
@@ -1193,16 +1214,17 @@ export function OperationsPanel({
                 <span>Mật khẩu tối thiểu 10 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt.</span>
                 <button className="primaryButton" type="button" disabled={accessSavingId === 'new'} onClick={() => void createAccessUser()}><Plus size={15} />Tạo người dùng</button>
               </div>
-              <div className="plainTable"><table><thead><tr><th>Người dùng</th><th>Vai trò</th><th>Trạng thái</th><th>Đăng nhập gần nhất</th></tr></thead><tbody>
+              <div className="plainTable"><table><thead><tr><th>Người dùng</th><th>Vai trò</th><th>Trạng thái</th><th>Đăng nhập gần nhất</th><th>Thao tác</th></tr></thead><tbody>
                 {accessUsers.map((user) => (
                   <tr key={user.id}>
                     <td><strong>{user.displayName}</strong><br /><span>{user.email}</span></td>
                     <td><select value={user.role} disabled={accessSavingId === user.id || user.id === currentUser.id} onChange={(event) => void updateAccessUser(user, { role: event.target.value as AccessUser['role'] })}><option value="VIEWER">Người xem</option><option value="EDITOR">Người chỉnh sửa</option><option value="ADMIN">Quản trị viên</option></select></td>
                     <td><select value={user.status} disabled={accessSavingId === user.id || user.id === currentUser.id} onChange={(event) => void updateAccessUser(user, { status: event.target.value })}><option value="ACTIVE">Đang hoạt động</option><option value="DISABLED">Đã vô hiệu hóa</option></select></td>
                     <td>{formatDate(user.lastLoginAt)}<br /><button className="tableActionButton" type="button" onClick={() => setSelectedAccessUserId(user.id)}>Tài khoản: {user.role === 'ADMIN' ? 'Tất cả' : user.accountAccess.length}</button></td>
+                    <td><button className="tableActionButton dangerButton" type="button" disabled={accessSavingId === user.id || user.id === currentUser.id} onClick={() => void deleteAccessUser(user)} aria-label={`Xóa người dùng ${user.displayName}`}><Trash2 size={14} />Xóa</button></td>
                   </tr>
                 ))}
-                {!accessUsers.length ? <tr><td colSpan={4} className="empty">Chưa tải người dùng.</td></tr> : null}
+                {!accessUsers.length ? <tr><td colSpan={5} className="empty">Chưa tải người dùng.</td></tr> : null}
               </tbody></table></div>
               {selectedAccessUser ? (
                 <div className="campaignAccessEditor">
