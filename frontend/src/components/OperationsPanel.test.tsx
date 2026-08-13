@@ -132,6 +132,7 @@ describe('OperationsPanel đổi mật khẩu', () => {
             name: 'Chiến dịch AC',
             status: 'ENABLED',
             mode: 'SELECTED',
+            metricsAvailable: true,
             metrics: {
               impressions: 1000,
               clicks: 100,
@@ -148,6 +149,9 @@ describe('OperationsPanel đổi mật khẩu', () => {
             name: 'Nhóm Việt Nam',
             status: 'ENABLED',
             selected: false,
+            metricsAvailable: true,
+            languageCode: '',
+            topic: '',
             metrics: {
               impressions: 1000,
               clicks: 100,
@@ -189,27 +193,26 @@ describe('OperationsPanel đổi mật khẩu', () => {
       />,
     );
 
-    await screen.findByRole('heading', { name: 'Phạm vi Automation' });
+    await screen.findByRole('heading', { name: 'Phạm vi Automation đã chọn' });
     expect(screen.queryByRole('heading', { name: 'Đổi mật khẩu' })).not.toBeInTheDocument();
-    const campaignSearch = screen.getByRole('searchbox', {
-      name: 'Tìm kiếm chiến dịch Automation',
-    });
+    await user.click(screen.getByRole('button', { name: 'Thêm chiến dịch' }));
+    const campaignSearch = screen.getByRole('searchbox', { name: 'Tìm chiến dịch để thêm' });
     await user.type(campaignSearch, 'không tồn tại');
-    expect(screen.getByText('Không tìm thấy chiến dịch phù hợp.')).toBeInTheDocument();
+    expect(screen.getByText('Không tìm thấy chiến dịch khả dụng.')).toBeInTheDocument();
     await user.clear(campaignSearch);
-    await user.click(
-      screen.getByLabelText('Cho phép Automation trong chiến dịch Chiến dịch AC'),
-    );
-    await user.click(screen.getByRole('button', { name: 'Thiết lập phạm vi' }));
+    await user.click(screen.getByRole('button', { name: 'Xem và chọn nhóm' }));
     expect((await screen.findAllByText('10,00%')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('200,00%')).length).toBeGreaterThan(0);
-    expect(screen.getByRole('radio', { name: /Chạy toàn bộ chiến dịch/ })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Chạy toàn bộ chiến dịch/ })).not.toBeChecked();
+    await user.click(screen.getByRole('radio', { name: /Chạy toàn bộ chiến dịch/ }));
     await user.click(
       screen.getByRole('radio', { name: /Chỉ chạy nhóm quảng cáo được chọn/ }),
     );
     await user.click(
       screen.getByLabelText('Cho phép Automation trong nhóm quảng cáo Nhóm Việt Nam'),
     );
+    await user.selectOptions(screen.getByLabelText('Ngôn ngữ AI phải sử dụng'), 'vi');
+    await user.type(screen.getByLabelText('Chủ đề của nhóm quảng cáo'), 'Ứng dụng điều khiển điều hòa');
     await user.click(screen.getByRole('button', { name: 'Lưu phạm vi' }));
 
     expect(request).toHaveBeenCalledWith(
@@ -220,6 +223,7 @@ describe('OperationsPanel đổi mật khẩu', () => {
           campaignIds: ['2001'],
           allCampaignIds: [],
           adGroupIds: ['1001'],
+          adGroupConfigs: [{ adGroupId: '1001', languageCode: 'vi', topic: 'Ứng dụng điều khiển điều hòa' }],
         }),
       }),
     );

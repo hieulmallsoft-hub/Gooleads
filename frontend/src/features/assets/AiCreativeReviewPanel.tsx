@@ -1,4 +1,5 @@
 import { FileText, Image, RefreshCw, Sparkles, Video } from 'lucide-react';
+import { formatNumber, formatPercent } from '../../utils/format';
 import type {
   AiCreativeRecommendation,
   AiReviewResponse,
@@ -36,6 +37,8 @@ export function AiCreativeReviewPanel({
   onGenerate,
   onToggleApproval,
 }: AiCreativeReviewPanelProps) {
+  const linkedRecommendations = aiRecommendations.filter((item) => item.asset);
+
   return (
     <section className="creativeReview">
       <div className="editorHeader">
@@ -43,7 +46,7 @@ export function AiCreativeReviewPanel({
           <h2>Đánh giá nội dung bằng AI</h2>
           <p>
             {aiReview
-              ? `${aiRecommendations.length} đề xuất từ mô hình ${aiReview.model}`
+              ? `${linkedRecommendations.length} tài nguyên có đề xuất từ mô hình ${aiReview.model}`
               : assetData
                 ? autoAiEnabled
                   ? 'AI tự động đang bật cho tài khoản này; bấm Tạo đánh giá AI để làm mới'
@@ -80,10 +83,12 @@ export function AiCreativeReviewPanel({
 
       {aiReviewError ? <div className="inlineError">{aiReviewError}</div> : null}
 
-      {aiRecommendations.length > 0 ? (
+      {linkedRecommendations.length > 0 ? (
         <div className="creativeGrid">
-          {aiRecommendations.map((item, index) => {
-            const previewUrl = item.asset?.previewUrl ?? '';
+          {linkedRecommendations.map((item, index) => {
+            const asset = item.asset!;
+            const previewUrl = asset.previewUrl ?? '';
+            const currentContent = asset.text || asset.title || `Tài nguyên ${asset.id}`;
             const isApproved = approvedCreativeSuggestionIds.includes(item.suggestionId);
             const decisionLoading = decisionLoadingIds.includes(item.suggestionId);
             const MediaIcon =
@@ -116,14 +121,27 @@ export function AiCreativeReviewPanel({
                       />
                       <span>{decisionLoading ? 'Đang lưu...' : 'Phê duyệt đề xuất'}</span>
                     </label>
-                    <span className="textType">{item.mediaType}</span>
-                    <span>{item.priority}</span>
-                    <span>Độ tin cậy {item.confidence}</span>
+                    <span className="textType">{asset.fieldType || item.mediaType}</span>
+                    <span>Nhãn {asset.performanceLabel || 'UNKNOWN'}</span>
+                    <span>Ưu tiên {item.priority}</span>
                   </div>
-                  <strong>{item.title}</strong>
+                  <div className="currentAssetBlock">
+                    <span className="creativeSectionLabel">Nội dung hiện tại</span>
+                    <strong>{currentContent}</strong>
+                    <div className="currentAssetMetrics">
+                      <span>{formatNumber(asset.impressions)} lượt hiển thị</span>
+                      <span>{formatNumber(asset.clicks)} lượt nhấp</span>
+                      <span>CTR {formatPercent(asset.ctr)}</span>
+                      <span>Độ tin cậy {item.confidence}</span>
+                    </div>
+                  </div>
+                  <span className="creativeSectionLabel">Đề xuất thay thế</span>
                   <div className="ideaList">
-                    {item.replacementIdeas.map((idea) => (
-                      <span key={idea}>{idea}</span>
+                    {item.replacementIdeas.map((idea, ideaIndex) => (
+                      <div key={idea} className="ideaOption">
+                        <b>{ideaIndex + 1}</b>
+                        <span>{idea}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -131,6 +149,8 @@ export function AiCreativeReviewPanel({
             );
           })}
         </div>
+      ) : aiReview && aiRecommendations.length > 0 ? (
+        <div className="inlineError">AI không trả về đề xuất nào liên kết được với tài nguyên hiện tại. Hãy tạo lại đánh giá.</div>
       ) : assetData && !aiReviewLoading && !aiReview ? (
         <div className="emptySuggestions">Bấm Tạo đánh giá AI để phân tích các tài nguyên này.</div>
       ) : null}

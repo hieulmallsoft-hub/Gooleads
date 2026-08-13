@@ -57,7 +57,9 @@ export class AiPersistenceService {
         adAssetLinkId: link?.id ?? null,
         suggestionType: this.normalizeSuggestionType(recommendation.mediaType),
         fieldType: recommendation.asset?.fieldType || null,
-        languageCode: this.detectLanguage(String(recommendation.asset?.text ?? '')),
+        languageCode:
+          String(recommendation.asset?.sourceLanguageCode ?? '').trim() ||
+          this.detectLanguage(String(recommendation.asset?.text ?? '')),
         currentContent: {
           assetId,
           text: recommendation.asset?.text ?? null,

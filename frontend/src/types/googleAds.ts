@@ -301,6 +301,10 @@ export type AiTextSuggestionsResponse = {
   source: string;
   adGroupId: string;
   timeRange: string;
+  targetLanguageCode: string;
+  targetLanguageName: string;
+  languageSource: 'AD_GROUP_CONFIG' | 'DETECTED';
+  adGroupTopic: string | null;
 };
 
 export type AiReviewAsset = Pick<

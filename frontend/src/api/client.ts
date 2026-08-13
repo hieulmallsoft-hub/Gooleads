@@ -98,6 +98,16 @@ export function toVietnameseApiError(
     return 'Tài khoản Google Ads/API hiện tại không có quyền truy cập customer này. Nếu đây là tài khoản con, cần cấu hình đúng MCC/login customer ID hoặc xin cấp quyền trong Google Ads.';
   }
 
+  // AI providers (notably Gemini) use PERMISSION_DENIED for API key/project/model
+  // authorization failures. Handle that before the generic application permission
+  // branch below so an admin is not incorrectly told to request campaign access.
+  if (
+    normalized.includes('permission_denied') ||
+    normalized.includes('permission denied')
+  ) {
+    return 'Dịch vụ AI từ chối yêu cầu. Hãy kiểm tra API key, quyền của Google Cloud project, billing và quyền truy cập model Gemini/OpenAI rồi restart backend.';
+  }
+
   if (normalized.includes('login-customer-id')) {
     return 'Khách hàng này có thể nằm dưới MCC. Hãy cấu hình đúng ID khách hàng đăng nhập/MCC trong backend hoặc phần Cài đặt.';
   }

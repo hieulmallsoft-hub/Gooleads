@@ -1059,6 +1059,7 @@ export class CreativeOperationsService {
     const campaignIds = this.normalizeGoogleIdList(input.campaignIds);
     const allCampaignIds = this.normalizeGoogleIdList(input.allCampaignIds);
     const adGroupIds = this.normalizeGoogleIdList(input.adGroupIds);
+    const adGroupConfigs = this.normalizeAutomationAdGroupConfigs(input.adGroupConfigs);
     if (allCampaignIds.some((id) => !campaignIds.includes(id))) {
       throw new BadRequestException(
         'Chiến dịch chạy toàn bộ phải nằm trong danh sách chiến dịch đã chọn',
@@ -1074,6 +1075,11 @@ export class CreativeOperationsService {
     if (selectedCampaigns.some((campaign) => !campaign)) {
       throw new BadRequestException(
         'Có chiến dịch không thuộc tài khoản hoặc chưa được đồng bộ',
+      );
+    }
+    if (selectedCampaigns.some((campaign) => campaign?.status === 'REMOVED')) {
+      throw new BadRequestException(
+        'Không thể thêm chiến dịch đã xóa vào Automation',
       );
     }
 
@@ -1101,6 +1107,16 @@ export class CreativeOperationsService {
         'Mỗi nhóm quảng cáo phải thuộc một chiến dịch đã chọn',
       );
     }
+    const targetAdGroups = allAdGroups.filter((adGroup) =>
+      adGroupIds.includes(adGroup.googleAdGroupId) ||
+      selectedCampaigns.some((campaign) =>
+        campaign?.id === adGroup.campaignId && allCampaignIds.includes(campaign.googleCampaignId),
+      ),
+    );
+    const configByAdGroupId = new Map(adGroupConfigs.map((config) => [config.adGroupId, config]));
+    if (targetAdGroups.some((adGroup) => !configByAdGroupId.has(adGroup.googleAdGroupId))) {
+      throw new BadRequestException('Mỗi nhóm quảng cáo chạy Automation phải có ngôn ngữ và chủ đề');
+    }
 
     await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(CreativePolicyScopeEntity);
@@ -1125,14 +1141,15 @@ export class CreativeOperationsService {
             adGroupId: null,
             includeAllAdGroups: allCampaignIds.includes(campaign.googleCampaignId),
           })),
-        ...selectedAdGroups
-          .filter((adGroup): adGroup is AdGroupEntity => Boolean(adGroup))
+        ...targetAdGroups
           .map((adGroup) => ({
             policyId: policy.id,
             accountId: null,
             campaignId: null,
             adGroupId: adGroup.id,
             includeAllAdGroups: false,
+            languageCode: configByAdGroupId.get(adGroup.googleAdGroupId)!.languageCode,
+            adGroupTopic: configByAdGroupId.get(adGroup.googleAdGroupId)!.topic,
           })),
       ];
       if (rows.length) await repository.save(rows);
@@ -1166,6 +1183,9 @@ export class CreativeOperationsService {
     const selectedAdGroupIds = new Set(
       scopes.map((scope) => scope.adGroupId).filter(Boolean),
     );
+    const scopeByAdGroupId = new Map(
+      scopes.filter((scope) => scope.adGroupId).map((scope) => [scope.adGroupId, scope]),
+    );
     const campaignScope = scopes.find((scope) => scope.campaignId === campaign.id);
     const rows: Array<Record<string, unknown>> = await this.dataSource.query(
       `
@@ -1179,6 +1199,7 @@ export class CreativeOperationsService {
           COALESCE(metrics.cost_micros, 0)::float8 AS cost_micros,
           COALESCE(metrics.conversions, 0)::float8 AS conversions,
           COALESCE(metrics.conversion_value, 0)::float8 AS conversion_value
+          ,COALESCE(metrics.metric_days, 0)::int AS metric_days
         FROM ad_groups ag
         LEFT JOIN LATERAL (
           SELECT
@@ -1187,6 +1208,7 @@ export class CreativeOperationsService {
             SUM(cost_micros)::float8 AS cost_micros,
             SUM(conversions)::float8 AS conversions,
             SUM(conversion_value)::float8 AS conversion_value
+            ,COUNT(*)::int AS metric_days
           FROM ad_group_daily_metrics
           WHERE ad_group_id = ag.id
             AND metric_date BETWEEN
@@ -1217,6 +1239,7 @@ export class CreativeOperationsService {
             COALESCE(SUM(cost_micros), 0)::float8 AS cost_micros,
             COALESCE(SUM(conversions), 0)::float8 AS conversions,
             COALESCE(SUM(conversion_value), 0)::float8 AS conversion_value
+            ,COUNT(*)::int AS metric_days
           FROM campaign_daily_metrics
           WHERE campaign_id = $1
             AND metric_date BETWEEN
@@ -1233,6 +1256,7 @@ export class CreativeOperationsService {
         name: campaign.name,
         status: campaign.status,
         mode: campaignScope?.includeAllAdGroups ? 'ALL' : 'SELECTED',
+        metricsAvailable: Number(campaignMetricRows[0]?.metric_days ?? 0) > 0,
         metrics: this.serializeAutomationMetrics(campaignMetricRows[0] ?? {}),
       },
       days,
@@ -1241,6 +1265,9 @@ export class CreativeOperationsService {
         name: String(row.name ?? ''),
         status: String(row.status ?? ''),
         selected: selectedAdGroupIds.has(String(row.id ?? '')),
+        languageCode: scopeByAdGroupId.get(String(row.id ?? ''))?.languageCode ?? '',
+        topic: scopeByAdGroupId.get(String(row.id ?? ''))?.adGroupTopic ?? '',
+        metricsAvailable: Number(row.metric_days ?? 0) > 0,
         metrics: this.serializeAutomationMetrics(row),
       })),
     };
@@ -1261,19 +1288,36 @@ export class CreativeOperationsService {
           campaignId: In(campaigns.map((campaign) => campaign.id)),
         })
       : [];
-    const scopes = await this.dataSource
-      .getRepository(CreativePolicyScopeEntity)
-      .findBy({ policyId });
+    const scopeRepository = this.dataSource.getRepository(CreativePolicyScopeEntity);
+    const scopes = await scopeRepository.findBy({ policyId });
+    const campaignById = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+    const adGroupById = new Map(adGroups.map((adGroup) => [adGroup.id, adGroup]));
+    const removedScopes = scopes.filter((scope) => {
+      if (scope.campaignId) {
+        return campaignById.get(scope.campaignId)?.status === 'REMOVED';
+      }
+      if (scope.adGroupId) {
+        const adGroup = adGroupById.get(scope.adGroupId);
+        if (!adGroup) return false;
+        return adGroup.status === 'REMOVED' ||
+          campaignById.get(adGroup.campaignId)?.status === 'REMOVED';
+      }
+      return false;
+    });
+    if (removedScopes.length) await scopeRepository.remove(removedScopes);
+    const activeScopes = removedScopes.length
+      ? scopes.filter((scope) => !removedScopes.includes(scope))
+      : scopes;
     const selectedCampaignIds = new Set(
-      scopes.map((scope) => scope.campaignId).filter(Boolean),
+      activeScopes.map((scope) => scope.campaignId).filter(Boolean),
     );
     const allCampaignIds = new Set(
-      scopes
+      activeScopes
         .filter((scope) => scope.campaignId && scope.includeAllAdGroups)
         .map((scope) => scope.campaignId),
     );
     const selectedAdGroupIds = new Set(
-      scopes.map((scope) => scope.adGroupId).filter(Boolean),
+      activeScopes.map((scope) => scope.adGroupId).filter(Boolean),
     );
 
     return {
@@ -1297,6 +1341,12 @@ export class CreativeOperationsService {
       selectedAdGroupIds: adGroups
         .filter((adGroup) => selectedAdGroupIds.has(adGroup.id))
         .map((adGroup) => adGroup.googleAdGroupId),
+      adGroupConfigs: adGroups.flatMap((adGroup) => {
+        const scope = activeScopes.find((item) => item.adGroupId === adGroup.id);
+        return scope?.languageCode && scope.adGroupTopic
+          ? [{ adGroupId: adGroup.googleAdGroupId, languageCode: scope.languageCode, topic: scope.adGroupTopic }]
+          : [];
+      }),
       allCampaignIds: campaigns
         .filter((campaign) => allCampaignIds.has(campaign.id))
         .map((campaign) => campaign.googleCampaignId),
@@ -1349,6 +1399,18 @@ export class CreativeOperationsService {
         .map((item) => String(item ?? '').replace(/\D/g, ''))
         .filter((item) => /^\d+$/.test(item)),
     )];
+  }
+
+  private normalizeAutomationAdGroupConfigs(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const record = item as Record<string, unknown>;
+      const adGroupId = String(record.adGroupId ?? '').replace(/\D/g, '');
+      const languageCode = String(record.languageCode ?? '').trim().toLowerCase().slice(0, 16);
+      const topic = String(record.topic ?? '').trim().slice(0, 500);
+      return adGroupId && languageCode && topic ? [{ adGroupId, languageCode, topic }] : [];
+    });
   }
 
   private serializeAutomationMetrics(row: Record<string, unknown>) {

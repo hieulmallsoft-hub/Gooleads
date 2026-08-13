@@ -4,13 +4,14 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource, In } from 'typeorm';
+import { DataSource, In, Not } from 'typeorm';
 import { AdGroupEntity } from '../database/entities/ad-group.entity';
 import { AiReviewRunEntity } from '../database/entities/ai-review-run.entity';
 import { AiSuggestionVariantEntity } from '../database/entities/ai-suggestion-variant.entity';
 import { AiSuggestionEntity } from '../database/entities/ai-suggestion.entity';
 import { CampaignEntity } from '../database/entities/campaign.entity';
 import { CreativePolicyEntity } from '../database/entities/creative-policy.entity';
+import { CreativePolicyScopeEntity } from '../database/entities/creative-policy-scope.entity';
 import { CreativeTermEntity } from '../database/entities/creative-term.entity';
 import { GoogleAdsAccountEntity } from '../database/entities/google-ads-account.entity';
 import { GoogleAdsMutationService } from './google-ads-mutation.service';
@@ -336,7 +337,15 @@ export class GoogleAdsService {
   }
 
   async getCampaignPerformance(customerId: string, timeRange: string) {
-    const query = `
+    const statusQuery = `
+      SELECT
+        campaign.id,
+        campaign.name,
+        campaign.status
+      FROM campaign
+      WHERE campaign.status != REMOVED
+    `;
+    const performanceQuery = `
       SELECT
         campaign.id,
         campaign.name,
@@ -352,8 +361,18 @@ export class GoogleAdsService {
       ORDER BY metrics.impressions DESC
     `;
 
-    const response = await this.searchAll(customerId, query);
-    const campaigns: CampaignPerformance[] = (response.results ?? []).map((row: any): CampaignPerformance => {
+    // Campaign status is queried without a date segment. This is the authoritative
+    // current list; a metrics query alone can retain/miss rows based on date activity.
+    const [statusResponse, performanceResponse] = await Promise.all([
+      this.searchAll(customerId, statusQuery),
+      this.searchAll(customerId, performanceQuery),
+    ]);
+    const metricsByCampaignId = new Map(
+      (performanceResponse.results ?? []).map((row: any) => [String(row.campaign?.id ?? ''), row]),
+    );
+    const campaigns: CampaignPerformance[] = (statusResponse.results ?? []).map((statusRow: any): CampaignPerformance => {
+      const campaignId = String(statusRow.campaign?.id ?? '');
+      const row: any = metricsByCampaignId.get(campaignId) ?? statusRow;
       const impressions = Number(row.metrics?.impressions ?? 0);
       const clicks = Number(row.metrics?.clicks ?? 0);
       const cost = Number(row.metrics?.costMicros ?? 0) / 1_000_000;
@@ -361,9 +380,9 @@ export class GoogleAdsService {
       const conversionValue = Number(row.metrics?.conversionsValue ?? 0);
 
       return {
-        id: String(row.campaign?.id ?? ''),
-        name: String(row.campaign?.name ?? ''),
-        status: String(row.campaign?.status ?? 'UNKNOWN'),
+        id: campaignId,
+        name: String(statusRow.campaign?.name ?? ''),
+        status: String(statusRow.campaign?.status ?? 'UNKNOWN'),
         impressions,
         clicks,
         ctr: impressions > 0 ? clicks / impressions : 0,
@@ -373,7 +392,7 @@ export class GoogleAdsService {
         roas: cost > 0 ? conversionValue / cost : 0,
       };
     });
-    await this.persistCampaignHierarchy(customerId, campaigns, []);
+    await this.persistCampaignHierarchy(customerId, campaigns, [], true);
 
     const totalCost = campaigns.reduce(
       (sum: number, campaign: CampaignPerformance) => sum + campaign.cost,
@@ -492,6 +511,7 @@ export class GoogleAdsService {
     customerId: string,
     campaignPerformance: CampaignPerformance[],
     adGroupPerformance: AdGroupPerformance[],
+    reconcileCampaigns = false,
   ) {
     if (!this.dataSource?.isInitialized) return;
 
@@ -533,6 +553,18 @@ export class GoogleAdsService {
           lastSeenAt: now,
         })),
         ['accountId', 'googleCampaignId'],
+      );
+    }
+
+    // A successful full status snapshot is authoritative. Rows no longer returned
+    // by Google Ads have been removed and must not keep their previous local status.
+    if (reconcileCampaigns) {
+      const activeCampaignIds = [...campaignRows.keys()];
+      await campaignRepository.update(
+        activeCampaignIds.length
+          ? { accountId: account.id, googleCampaignId: Not(In(activeCampaignIds)) }
+          : { accountId: account.id },
+        { status: 'REMOVED', lastSeenAt: now },
       );
     }
 
@@ -1272,7 +1304,12 @@ export class GoogleAdsService {
     }
   }
 
-  async generateAiTextSuggestions(customerId: string, adGroupId: string, timeRange: string) {
+  async generateAiTextSuggestions(
+    customerId: string,
+    adGroupId: string,
+    timeRange: string,
+    automationContext?: { languageCode: string; topic: string },
+  ) {
     const aiProvider = this.getAiProvider('AI text suggestions');
     const suggestionLimit = Math.max(
       1,
@@ -1288,11 +1325,20 @@ export class GoogleAdsService {
     const assetPerformance = await this.getAssetPerformance(customerId, adGroupId, timeRange);
     const guidance = await this.getCreativeGuidance(customerId, adGroupId);
     const history = await this.getCreativeSuggestionHistory(customerId, adGroupId);
+    const savedAdGroupContext = automationContext ?? await this.getSavedAdGroupAiContext(customerId, adGroupId);
     const adGroupFallbackLanguage = this.resolveAdGroupTargetLanguage(assetPerformance.assets, guidance);
+    const configuredLanguage = savedAdGroupContext?.languageCode
+      ? {
+          code: savedAdGroupContext.languageCode.toLowerCase(),
+          name: this.languageName(savedAdGroupContext.languageCode.toLowerCase()),
+          confidence: 'HIGH' as const,
+        }
+      : null;
     const candidates = this.collectWeakTextSuggestionCandidates(
       assetPerformance.assets,
       adGroupFallbackLanguage,
       guidance,
+      configuredLanguage,
     ).slice(
       0,
       suggestionLimit,
@@ -1314,6 +1360,8 @@ export class GoogleAdsService {
       totalCost: assetPerformance.totalCost,
       avgCtr: assetPerformance.avgCtr,
       avgRoas: assetPerformance.avgRoas,
+      automationLanguageCode: savedAdGroupContext?.languageCode ?? null,
+      automationTopic: savedAdGroupContext?.topic ?? null,
     }, guidance, history);
     const schema = this.aiTextSuggestionSchema(candidates);
     const outputText =
@@ -1373,6 +1421,10 @@ export class GoogleAdsService {
         source: aiProvider.source,
         adGroupId,
         timeRange,
+        targetLanguageCode: configuredLanguage?.code ?? adGroupFallbackLanguage.code,
+        targetLanguageName: configuredLanguage?.name ?? adGroupFallbackLanguage.name,
+        languageSource: configuredLanguage ? 'AD_GROUP_CONFIG' : 'DETECTED',
+        adGroupTopic: savedAdGroupContext?.topic ?? null,
       };
     } catch (error) {
       return this.buildFallbackTextSuggestions(candidates, {
@@ -1380,14 +1432,57 @@ export class GoogleAdsService {
         source: aiProvider.source,
         adGroupId,
         timeRange,
+        targetLanguageCode: configuredLanguage?.code ?? adGroupFallbackLanguage.code,
+        targetLanguageName: configuredLanguage?.name ?? adGroupFallbackLanguage.name,
+        languageSource: configuredLanguage ? 'AD_GROUP_CONFIG' : 'DETECTED',
+        adGroupTopic: savedAdGroupContext?.topic ?? null,
       });
     }
+  }
+
+  async translateAssetText(text: string) {
+    const sourceText = String(text ?? '').trim();
+    if (!sourceText) throw new BadRequestException('Missing text to translate');
+    if (sourceText.length > 500) throw new BadRequestException('Text is too long to translate');
+
+    const detected = this.detectTextLanguage(sourceText);
+    if (detected.code === 'vi') {
+      return { sourceText, sourceLanguage: 'vi', translation: sourceText };
+    }
+
+    const aiProvider = this.getAiProvider('asset translation');
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      required: ['translation'],
+      properties: { translation: { type: 'string' } },
+    };
+    const prompt = [
+      'Translate the following Google Ads headline or description into natural Vietnamese.',
+      'Preserve brand names and product names. Do not add explanations or marketing claims.',
+      `Source text: ${JSON.stringify(sourceText)}`,
+    ].join('\n');
+    const output = aiProvider.source === 'gemini'
+      ? await this.requestGeminiJson({ model: aiProvider.model, prompt, schema, maxOutputTokens: 512 })
+      : await this.requestOpenAiJson({
+          model: aiProvider.model,
+          input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }],
+          schemaName: 'asset_translation',
+          schema,
+          maxOutputTokens: 512,
+        });
+    const parsed = this.parseAiJson(output) as { translation?: unknown };
+    const translation = String(parsed.translation ?? '').trim();
+    if (!translation) throw new InternalServerErrorException('AI returned an empty translation');
+
+    return { sourceText, sourceLanguage: detected.code, translation };
   }
 
   private collectWeakTextSuggestionCandidates(
     assets: AssetPerformance[],
     adGroupFallbackLanguage: LanguageHint,
     guidance: CreativeGuidance | null,
+    configuredLanguage: LanguageHint | null = null,
   ) {
     const grouped = new Map<string, AiTextSuggestionCandidate>();
 
@@ -1403,7 +1498,7 @@ export class GoogleAdsService {
       const fieldType = asset.fieldType as AiTextSuggestionCandidate['fieldType'];
       const text = asset.text.trim();
       const sourceLanguage = this.detectTextLanguage(text);
-      const targetLanguage = this.resolveAssetTargetLanguage(
+      const targetLanguage = configuredLanguage ?? this.resolveAssetTargetLanguage(
         sourceLanguage,
         adGroupFallbackLanguage,
         guidance,
@@ -1509,6 +1604,10 @@ export class GoogleAdsService {
       source: AiProviderConfig['source'];
       adGroupId: string;
       timeRange: string;
+      targetLanguageCode: string;
+      targetLanguageName: string;
+      languageSource: 'AD_GROUP_CONFIG' | 'DETECTED';
+      adGroupTopic: string | null;
     },
   ) {
     const usedSuggestions = new Set<string>();
@@ -1558,6 +1657,10 @@ export class GoogleAdsService {
       source: meta.source,
       adGroupId: meta.adGroupId,
       timeRange: meta.timeRange,
+      targetLanguageCode: meta.targetLanguageCode,
+      targetLanguageName: meta.targetLanguageName,
+      languageSource: meta.languageSource,
+      adGroupTopic: meta.adGroupTopic,
     };
   }
 
@@ -1977,6 +2080,12 @@ export class GoogleAdsService {
     guidance: CreativeGuidance | null,
     preferSourceLanguage = true,
   ): LanguageHint {
+    // The visible copy on a text asset is authoritative. A workspace-level fixed
+    // language is only a fallback for assets whose language cannot be identified.
+    if (preferSourceLanguage && sourceLanguage.confidence !== 'LOW') {
+      return sourceLanguage;
+    }
+
     const fixedLanguage =
       guidance?.languageStrategy === 'FIXED'
         ? this.normalizeConfiguredLanguageCode(guidance.targetLanguage)
@@ -2024,6 +2133,34 @@ export class GoogleAdsService {
       .replace(/[\u0300-\u036f]/g, '');
     const words = ` ${normalized.replace(/[^a-z0-9\u00df]+/g, ' ')} `;
     const languageScores = [
+      {
+        code: 'en',
+        score: this.scoreLanguageTokens(words, [
+          'the',
+          'your',
+          'you',
+          'with',
+          'from',
+          'for',
+          'and',
+          'free',
+          'easy',
+          'fast',
+          'phone',
+          'mobile',
+          'screen',
+          'control',
+          'remote',
+          'protect',
+          'upgrade',
+          'instantly',
+          'beautiful',
+          'create',
+          'use',
+          'try',
+          'get',
+        ]),
+      },
       {
         code: 'de',
         score:
@@ -2151,6 +2288,67 @@ export class GoogleAdsService {
           'facile',
           'rapido',
           'controllo',
+        ]),
+      },
+      {
+        code: 'id',
+        score: this.scoreLanguageTokens(words, [
+          'dan',
+          'dari',
+          'untuk',
+          'dengan',
+          'mudah',
+          'gratis',
+          'gunakan',
+          'pakai',
+          'kendali',
+          'kontrol',
+          'lewat',
+          'ponsel',
+          'rumah',
+          'atur',
+          'ubah',
+          'suhu',
+          'jarak',
+          'aplikasi',
+          'perangkat',
+          'cepat',
+          'praktis',
+        ]),
+      },
+      {
+        code: 'ms',
+        score: this.scoreLanguageTokens(words, [
+          'yang',
+          'anda',
+          'dengan',
+          'untuk',
+          'mudah',
+          'percuma',
+          'gunakan',
+          'telefon',
+          'kawalan',
+          'penghawa',
+          'dingin',
+          'suhu',
+          'segera',
+        ]),
+      },
+      {
+        code: 'nl',
+        score: this.scoreLanguageTokens(words, [
+          'de',
+          'het',
+          'een',
+          'met',
+          'voor',
+          'van',
+          'gratis',
+          'snel',
+          'eenvoudig',
+          'telefoon',
+          'bedien',
+          'afstandsbediening',
         ]),
       },
     ].sort((a, b) => b.score - a.score);
@@ -2354,25 +2552,48 @@ export class GoogleAdsService {
       totalCost: number;
       avgCtr: number;
       avgRoas: number;
+      automationLanguageCode: string | null;
+      automationTopic: string | null;
     },
     guidance: CreativeGuidance | null,
     history: CreativeHistory,
   ) {
     return [
-      'You are a Google Ads copy generator for mobile app campaigns.',
-      'Return only replacement ad copy. Do not explain.',
+      'You are a Senior Google Ads Copywriter specializing in conversion-focused mobile app advertising.',
+      'Your task is to replace underperforming headlines and descriptions with specific, persuasive, policy-safe copy.',
+      'Return one replacement for every supplied LOW-label candidate. The JSON schema is the final output contract; do not add commentary outside it.',
+      '',
+      'COPY QUALITY RULES:',
+      '1. Write natural native copy that sounds written by an experienced local copywriter, not generic AI text.',
+      '2. Focus on a concrete customer benefit, desired outcome, relevant pain point, meaningful differentiator, verifiable proof, real offer, or clear action.',
+      '3. Prefer specific and immediately understandable wording. Describe customer value rather than merely naming a feature.',
+      '4. Never invent prices, discounts, statistics, awards, guarantees, product capabilities, audiences, pain points, or competitive claims that are absent from the supplied policy/context/current copy.',
+      '5. Avoid empty superlatives and cliches equivalent to “leading solution”, “best quality”, “great experience”, “breakthrough”, “perfect”, or “elevate your experience” unless supplied facts objectively support them.',
+      '6. Do not paraphrase the same message repeatedly. Across the returned set, vary the persuasive angle and sentence structure while keeping each item relevant to its source asset.',
+      '7. Use keywords naturally. Never keyword-stuff, use all caps, repeat exclamation marks, create false urgency, or make unverifiable promises.',
+      '8. A headline must communicate one clear idea and make sense on its own. A description must add useful detail and, when supported by context, end with an appropriate action.',
+      '9. Do not copy the current text, rejected content, or any historical suggestion verbatim. Do not produce variants that differ only by one weak synonym.',
+      '10. Before returning each item, silently verify relevance, specificity, uniqueness, factual support, policy safety, native fluency, and character length. Rewrite any item that fails.',
+      '',
+      'LANGUAGE AND MARKET RULES:',
+      `User-configured ad group language: ${context.automationLanguageCode ?? 'not configured'}. When configured, this is the REQUIRED output language for every candidate and overrides automatic detection and the language of currentText.`,
+      `User-configured ad group topic: ${context.automationTopic ?? 'not configured'}. Every suggestion must stay relevant to this topic and must not invent unsupported product facts.`,
       `Ad group fallback language: ${context.targetLanguageName} (${context.targetLanguageCode}), confidence ${context.targetLanguageConfidence}.`,
-      'Each candidate has its own targetLanguage. Write each suggestion in that candidate targetLanguage, even when several languages exist in one ad group.',
-      'If targetLanguage is AUTO or "same visible language/script as current text", infer the visible language/script from currentText and write the suggestion in that exact same language/script.',
-      'The currentText is the final authority. If sourceLanguage or targetLanguage seems wrong, infer the visible language/script from currentText and write in that same language.',
-      'Do not translate into English or Spanish unless that specific candidate currentText is already English or Spanish.',
-      'Use natural native spelling, accents, punctuation, and word order for that language. Avoid English-style abbreviations like "AC" unless the currentText already uses them.',
-      'Generate one replacement suggestion for every LOW-label headline/description candidate.',
+      '1. If a user-configured ad group language is present, write every replacement in exactly that language. Keep only supplied brand/product names unchanged.',
+      '2. A country/market is not a language. Use the candidate language for output and use market context only to localize vocabulary, tone, spelling, and conventions.',
+      '3. Only when no user-configured language exists: detect currentText independently and use targetLanguage/currentText as the fallback authority.',
+      '4. Never default to English merely because the brand, app name, or keyword is English. Do not translate into English or Spanish unless that candidate is already written in it.',
+      '5. Do not mix languages in one item except for a supplied brand name, product name, or established term that should remain unchanged.',
+      '6. Use native spelling, accents, grammar, punctuation, word order, and regional vocabulary. Do not produce a literal translation from English.',
+      '',
+      'GOOGLE ADS AND DATA RULES:',
       'Respect Google Ads length limits exactly: HEADLINE max 30 characters, DESCRIPTION max 90 characters.',
-      'Do not return the original text unchanged. Avoid emojis, unsupported symbols, exaggerated claims, guarantees, or unverifiable promises.',
       'Use active KEYWORD, BRAND_TERM, and CTA policy terms only when they fit the source language and meaning. Never use NEGATIVE_KEYWORD or PROHIBITED_CLAIM terms.',
       'Do not reuse any exact text from suggestion history. Rejected text is banned. Approved/applied text can inspire style but must not be copied exactly.',
-      'For rationale, return an empty string. For summary, keep headline and approach under 8 words.',
+      'Treat creative policy and term data as the only source of product facts, brand terms, offers, required wording, and prohibited wording.',
+      'Use performance metrics only to understand priority and weakness; never turn those metrics into an advertising claim.',
+      'For rationale, briefly state the customer-focused angle and why it is stronger than the current text. Do not claim that performance is guaranteed.',
+      'For summary, keep headline and approach under 8 words.',
       '',
       `Creative policy and term database: ${JSON.stringify(guidance)}`,
       `Suggestion history to avoid: ${JSON.stringify(history)}`,
@@ -2601,17 +2822,21 @@ export class GoogleAdsService {
     },
   ) {
     const assetMap = new Map(assets.map((asset) => [asset.key, asset]));
-    const recommendations = (review.recommendations ?? []).map((recommendation) => {
+    const recommendations = (review.recommendations ?? []).flatMap((recommendation) => {
       const asset = assetMap.get(String(recommendation.assetKey ?? ''));
-      const replacementIdeas = asset
-        ? this.normalizeReviewReplacementIdeas(recommendation.replacementIdeas, asset)
-        : recommendation.replacementIdeas;
+      // Never expose or persist an AI recommendation that cannot be tied back to
+      // one of the exact assets supplied in this review request.
+      if (!asset) return [];
+      const replacementIdeas = this.normalizeReviewReplacementIdeas(
+        recommendation.replacementIdeas,
+        asset,
+      );
 
-      return {
+      return [{
         ...recommendation,
+        title: asset.title,
         replacementIdeas,
-        asset: asset
-          ? {
+        asset: {
               id: asset.id,
               title: asset.title,
               mediaType: asset.mediaType,
@@ -2632,9 +2857,8 @@ export class GoogleAdsService {
               roas: asset.roas,
               score: asset.score,
               performanceLabel: asset.performanceLabel,
-            }
-          : null,
-      };
+            },
+      }];
     });
 
     return {
@@ -2651,8 +2875,12 @@ export class GoogleAdsService {
     const ideas = Array.isArray(value)
       ? value.map((item) => String(item ?? '').trim()).filter(Boolean)
       : [];
+    const expectedLanguageCode =
+      asset.targetLanguageCode === 'auto'
+        ? asset.sourceLanguageCode
+        : asset.targetLanguageCode;
     const hasLanguageMismatch = ideas.some((idea) =>
-      this.isReplacementLanguageMismatch(idea, asset.targetLanguageCode),
+      this.isReplacementLanguageMismatch(idea, expectedLanguageCode),
     );
 
     if (ideas.length < 2 || hasLanguageMismatch) {
@@ -2718,6 +2946,27 @@ export class GoogleAdsService {
   private buildFallbackReviewIdeas(asset: AiCreativeAsset) {
     const isText = asset.mediaType === 'Text';
     const isImage = asset.mediaType === 'Image';
+
+    if (asset.targetLanguageCode === 'id' || asset.sourceLanguageCode === 'id') {
+      if (isText) {
+        return asset.fieldType === 'HEADLINE'
+          ? ['Kontrol AC Lewat Ponsel', 'Atur AC dari Ponsel']
+          : [
+              'Kontrol AC dengan mudah langsung dari ponsel Anda.',
+              'Atur suhu ruangan lebih praktis lewat aplikasi di ponsel.',
+            ];
+      }
+
+      return isImage
+        ? [
+            'Tampilkan aplikasi kontrol AC dengan jelas di layar ponsel.',
+            'Gunakan visual ruangan sejuk dengan kontrol suhu yang terlihat.',
+          ]
+        : [
+            'Buka video dengan perubahan suhu AC dalam dua detik pertama.',
+            'Tampilkan demo singkat: buka aplikasi, pilih AC, lalu atur suhu.',
+          ];
+    }
 
     if (asset.targetLanguageCode === 'ja') {
       if (isText) {
@@ -4376,6 +4625,40 @@ export class GoogleAdsService {
     const code = error?.code ? `Code: ${error.code}` : '';
 
     return [message, status, code].filter(Boolean).join(' | ');
+  }
+
+  private async getSavedAdGroupAiContext(customerId: string, googleAdGroupId: string) {
+    const account = await this.dataSource
+      .getRepository(GoogleAdsAccountEntity)
+      .findOneBy({ customerId });
+    if (!account) return null;
+
+    const adGroup = await this.dataSource
+      .getRepository(AdGroupEntity)
+      .createQueryBuilder('adGroup')
+      .innerJoin(CampaignEntity, 'campaign', 'campaign.id = adGroup.campaign_id')
+      .where('campaign.account_id = :accountId', { accountId: account.id })
+      .andWhere('adGroup.google_ad_group_id = :googleAdGroupId', { googleAdGroupId })
+      .getOne();
+    if (!adGroup) return null;
+
+    const scope = await this.dataSource
+      .getRepository(CreativePolicyScopeEntity)
+      .createQueryBuilder('scope')
+      .innerJoin(CreativePolicyEntity, 'policy', 'policy.id = scope.policy_id')
+      .where('scope.ad_group_id = :adGroupId', { adGroupId: adGroup.id })
+      .andWhere('policy.workspace_id = :workspaceId', { workspaceId: account.workspaceId })
+      .andWhere('policy.enabled = true')
+      .andWhere('scope.language_code IS NOT NULL')
+      .orderBy('policy.version', 'DESC')
+      .addOrderBy('scope.created_at', 'DESC')
+      .getOne();
+
+    if (!scope?.languageCode) return null;
+    return {
+      languageCode: scope.languageCode.trim().toLowerCase(),
+      topic: String(scope.adGroupTopic ?? '').trim(),
+    };
   }
 
   private async getCreativeGuidance(

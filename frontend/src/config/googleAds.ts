@@ -17,8 +17,8 @@ export const configuredCustomerIds: string[] = import.meta.env.VITE_CUSTOMER_IDS
   : DEFAULT_CUSTOMER_IDS;
 
 export const TIME_OPTIONS = [
-  { value: 'TODAY', label: 'Today' },
-  { value: 'YESTERDAY', label: 'Yesterday' },
-  { value: 'LAST_7_DAYS', label: 'Last 7 days' },
-  { value: 'THIS_MONTH', label: 'This month' },
+  { value: 'TODAY', label: 'Hôm nay' },
+  { value: 'YESTERDAY', label: 'Hôm qua' },
+  { value: 'LAST_7_DAYS', label: '7 ngày gần nhất' },
+  { value: 'THIS_MONTH', label: 'Tháng này' },
 ];

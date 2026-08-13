@@ -279,7 +279,7 @@ export function CampaignGroupsPanel({
         </div>
         <button className="secondaryButton" type="button" onClick={() => setCreateOpen(true)} disabled={!canEdit}>
           <FolderPlus size={16} />
-          New group
+          Tạo nhóm mới
         </button>
       </div>
 
@@ -317,7 +317,7 @@ export function CampaignGroupsPanel({
             <i style={{ background: selectedGroup.color }} />
             <div>
               <strong>{selectedGroup.name}</strong>
-              <span>{selectedGroup.campaigns.length} campaigns saved</span>
+              <span>{selectedGroup.campaigns.length} chiến dịch đã lưu trong nhóm</span>
             </div>
           </div>
           <div className="groupMetric"><span>Lượt hiển thị</span><strong>{formatNumber(metrics.impressions)}</strong></div>
@@ -327,9 +327,9 @@ export function CampaignGroupsPanel({
           <div className="groupActions">
             <button className="secondaryButton" type="button" onClick={openMemberEditor} disabled={!canEdit}>
               <Users size={15} />
-              Manage campaigns
+              Chọn chiến dịch
             </button>
-            <button className="iconButton" type="button" onClick={renameGroup} title="Rename group" disabled={!canEdit}>
+            <button className="iconButton" type="button" onClick={renameGroup} title="Đổi tên nhóm" aria-label="Đổi tên nhóm chiến dịch" disabled={!canEdit}>
               <Pencil size={16} />
             </button>
             <button className="iconButton dangerIcon" type="button" onClick={deleteGroup} title="Xóa nhóm" disabled={!canEdit}>
@@ -352,7 +352,7 @@ export function CampaignGroupsPanel({
               <span>Tên nhóm</span>
               <input value={groupName} onChange={(event) => setGroupName(event.target.value)} autoFocus maxLength={120} />
             </label>
-            <div className="colorSwatches" aria-label="Group color">
+            <div className="colorSwatches" aria-label="Chọn màu đại diện cho nhóm">
               {GROUP_COLORS.map((color) => (
                 <button
                   key={color}
@@ -360,7 +360,7 @@ export function CampaignGroupsPanel({
                   className={groupColor === color ? 'active' : ''}
                   style={{ background: color }}
                   onClick={() => setGroupColor(color)}
-                  aria-label={`Use color ${color}`}
+                  aria-label={`Dùng màu ${color}`}
                 >
                   {groupColor === color ? <Check size={14} /> : null}
                 </button>
@@ -379,10 +379,10 @@ export function CampaignGroupsPanel({
 
       {editorOpen && selectedGroup ? (
         <div className="groupDialogBackdrop">
-          <div className="groupDialog campaignPicker" role="dialog" aria-modal="true" aria-label="Manage campaigns">
+          <div className="groupDialog campaignPicker" role="dialog" aria-modal="true" aria-label="Chọn chiến dịch cho nhóm">
             <div className="groupDialogHeader">
               <div>
-                <strong>Manage {selectedGroup.name}</strong>
+                <strong>Chọn chiến dịch cho nhóm {selectedGroup.name}</strong>
                 <span>Đã chọn {selectedCampaignIds.length}/{campaigns.length}</span>
               </div>
               <button className="iconButton" type="button" onClick={() => setEditorOpen(false)}><X size={18} /></button>
@@ -406,7 +406,7 @@ export function CampaignGroupsPanel({
                       )}
                     />
                     <span><strong>{campaign.name}</strong><small>{campaign.id}</small></span>
-                    <em>{formatNumber(campaign.impressions)} views</em>
+                    <em>{formatNumber(campaign.impressions)} lượt hiển thị</em>
                   </label>
                 );
               })}

@@ -43,6 +43,8 @@ type AutomationTarget = {
   campaignName: string;
   adGroupId: string;
   adGroupName: string;
+  languageCode: string;
+  topic: string;
 };
 
 type AutomationRunOptions = {
@@ -333,6 +335,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       target.customerId,
       target.adGroupId,
       timeRange,
+      { languageCode: target.languageCode, topic: target.topic },
     );
     const saved = await this.aiPersistenceService.saveTextSuggestions(
       target.customerId,
@@ -518,6 +521,9 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     const scopes = await this.dataSource
       .getRepository(CreativePolicyScopeEntity)
       .findBy({ policyId: policy.id });
+    const scopeByAdGroupId = new Map(
+      scopes.filter((scope) => scope.adGroupId).map((scope) => [scope.adGroupId as string, scope]),
+    );
     const selectedAdGroupIds = scopes
       .map((scope) => scope.adGroupId)
       .filter((id): id is string => Boolean(id));
@@ -575,12 +581,16 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       const account = accountMap.get(campaign.accountId);
       if (!account || (allowedAccountIds && !allowedAccountIds.has(account.id))) continue;
       if (adGroup.status !== 'ENABLED') continue;
+      const scope = scopeByAdGroupId.get(adGroup.id);
+      if (!scope?.languageCode || !scope.adGroupTopic) continue;
       targets.set(`${account.customerId}:${adGroup.googleAdGroupId}`, {
         customerId: account.customerId,
         campaignId: campaign.googleCampaignId,
         campaignName: campaign.name || `Campaign ${campaign.googleCampaignId}`,
         adGroupId: adGroup.googleAdGroupId,
         adGroupName: adGroup.name || `Ad group ${adGroup.googleAdGroupId}`,
+        languageCode: scope.languageCode,
+        topic: scope.adGroupTopic,
       });
     }
 

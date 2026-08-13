@@ -23,6 +23,7 @@ import {
 } from './features/campaign-groups/CampaignGroupsPanel';
 import { AiCreativeReviewPanel } from './features/assets/AiCreativeReviewPanel';
 import { AiTextSuggestionsPanel } from './features/assets/AiTextSuggestionsPanel';
+import { TextAssetAssistant } from './features/assets/TextAssetAssistant';
 import { MediaReplacementPanel } from './features/assets/MediaReplacementPanel';
 import {
   apiFetch,
@@ -90,11 +91,11 @@ type AssetLabelFilter = 'ALL' | 'LOW' | 'GOOD' | 'BEST' | 'LEARNING' | 'UNKNOWN'
 
 const ASSET_LABEL_FILTERS: Array<{ value: AssetLabelFilter; label: string }> = [
   { value: 'ALL', label: 'Tất cả nhãn' },
-  { value: 'LOW', label: 'LOW' },
-  { value: 'GOOD', label: 'GOOD' },
-  { value: 'BEST', label: 'BEST' },
-  { value: 'LEARNING', label: 'LEARNING' },
-  { value: 'UNKNOWN', label: 'UNKNOWN' },
+  { value: 'LOW', label: 'Hiệu quả thấp' },
+  { value: 'GOOD', label: 'Hiệu quả tốt' },
+  { value: 'BEST', label: 'Tốt nhất' },
+  { value: 'LEARNING', label: 'Đang học' },
+  { value: 'UNKNOWN', label: 'Chưa xác định' },
 ];
 
 type StoredViewState = {
@@ -132,7 +133,6 @@ function normalizeStoredOperationsSection(value: unknown): OperationsSection | n
   if (value === null) return null;
   if (
     value === 'overview' ||
-    value === 'recommendations' ||
     value === 'impact' ||
     value === 'keywords' ||
     value === 'settings'
@@ -291,6 +291,11 @@ export default function App() {
   const [decisionLoadingIds, setDecisionLoadingIds] = useState<string[]>([]);
   const [aiTextLoading, setAiTextLoading] = useState(false);
   const [aiTextError, setAiTextError] = useState('');
+  const [assistantAsset, setAssistantAsset] = useState<Asset | null>(null);
+  const [assetTranslation, setAssetTranslation] = useState('');
+  const [assetTranslationLoading, setAssetTranslationLoading] = useState(false);
+  const [assetTranslationError, setAssetTranslationError] = useState('');
+  const [manualAssetText, setManualAssetText] = useState('');
   const [autoAiRunKey, setAutoAiRunKey] = useState('');
   const [autoAiEnabled, setAutoAiEnabled] = useState(false);
   const [automationNotifications, setAutomationNotifications] = useState<AppNotification[]>([]);
@@ -1099,7 +1104,12 @@ export default function App() {
     const normalizedAdGroupId = normalizeNumericId(adGroupId);
     const headline = replacementHeadline.trim();
     const description = replacementDescription.trim();
-    const headlineReplacements = headline
+    const manualReplacement = assistantAsset && manualAssetText.trim()
+      ? { oldText: assistantAsset.text.trim(), newText: manualAssetText.trim() }
+      : null;
+    const headlineReplacements = manualReplacement && assistantAsset?.fieldType === 'HEADLINE'
+      ? [manualReplacement]
+      : headline
       ? []
       : selectedLowTextSuggestions
           .filter((asset) => asset.fieldType === 'HEADLINE')
@@ -1109,7 +1119,9 @@ export default function App() {
             suggestionId: asset.suggestionId,
             variantId: asset.variants[0]?.id,
           }));
-    const descriptionReplacements = description
+    const descriptionReplacements = manualReplacement && assistantAsset?.fieldType === 'DESCRIPTION'
+      ? [manualReplacement]
+      : description
       ? []
       : selectedLowTextSuggestions
           .filter((asset) => asset.fieldType === 'DESCRIPTION')
@@ -1122,8 +1134,8 @@ export default function App() {
 
     return {
       normalizedAdGroupId,
-      headline,
-      description,
+      headline: manualReplacement ? '' : headline,
+      description: manualReplacement ? '' : description,
       headlineReplacements,
       descriptionReplacements,
     };
@@ -1265,6 +1277,24 @@ export default function App() {
     if (authUser) {
       void loadCampaignsEffect();
     }
+  }, [authUser, customerId, timeRange]);
+
+  useEffect(() => {
+    if (!authUser || !customerId) return;
+
+    const refreshCampaigns = () => void loadCampaignsEffect();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshCampaigns();
+    };
+    const timer = window.setInterval(refreshCampaigns, 60_000);
+    window.addEventListener('focus', refreshCampaigns);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshCampaigns);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [authUser, customerId, timeRange]);
 
   useEffect(() => {
@@ -1584,6 +1614,11 @@ export default function App() {
     () => aiTextSuggestions?.suggestions ?? [],
     [aiTextSuggestions],
   );
+  const assistantSuggestion = useMemo(() => {
+    if (!assistantAsset) return null;
+    const key = `${assistantAsset.fieldType}:${assistantAsset.text.trim().toLowerCase()}`;
+    return lowTextSuggestions.find((item) => item.key === key) ?? null;
+  }, [assistantAsset, lowTextSuggestions]);
   const selectedTextSuggestionSet = useMemo(
     () => new Set(selectedTextSuggestionKeys),
     [selectedTextSuggestionKeys],
@@ -1592,6 +1627,40 @@ export default function App() {
     () => lowTextSuggestions.filter((asset) => selectedTextSuggestionSet.has(asset.key)),
     [lowTextSuggestions, selectedTextSuggestionSet],
   );
+
+  async function translateTextAsset(asset = assistantAsset) {
+    if (!asset?.text.trim()) return;
+    setAssetTranslationLoading(true);
+    setAssetTranslationError('');
+    try {
+      const response = await apiFetch('/google-ads/assets/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: asset.text }),
+      });
+      const body = await parseJsonSafe(response);
+      if (!response.ok) throw new Error(extractApiError(body, 'Không thể dịch nội dung'));
+      setAssetTranslation(String(body?.translation ?? ''));
+    } catch (error) {
+      setAssetTranslationError(error instanceof Error ? error.message : 'Không thể dịch nội dung');
+    } finally {
+      setAssetTranslationLoading(false);
+    }
+  }
+
+  function openTextAssistant(asset: Asset, translateOnly = false) {
+    setAssistantAsset(asset);
+    setAssetTranslation('');
+    setAssetTranslationError('');
+    setReplaceError('');
+    setManualAssetText('');
+    setTextChangeRequest(null);
+    setReplaceConfirmed(false);
+    if (translateOnly) void translateTextAsset(asset);
+    if (!translateOnly && asset.performanceLabel === 'LOW') {
+      void generateAiTextSuggestions();
+    }
+  }
   const lowTextAssetCount = lowTextCandidates.length;
   const totalLowTextImpressions = lowTextCandidates.reduce(
     (sum, asset) => sum + asset.impressions,
@@ -1616,44 +1685,6 @@ export default function App() {
     }
   }, [assetData, assetFingerprint, customerId, viewMode]);
 
-  useEffect(() => {
-    if (
-      !autoAiEnabled ||
-      !canEditSelectedCampaign ||
-      viewMode !== 'assets' ||
-      !assetData ||
-      !assetFingerprint ||
-      assetLoading ||
-      assetData.assets.length === 0 ||
-      assetLoadVersion === 0
-    ) {
-      return;
-    }
-
-    const key = `${customerId}:${assetData.adGroupId}:${assetData.timeRange}:${assetFingerprint}`;
-    if (autoAiRunKey === key) {
-      return;
-    }
-
-    setAutoAiRunKey(key);
-    void generateAiReviewEffect(assetData.adGroupId);
-
-    if (lowTextCandidates.length > 0) {
-      void generateAiTextSuggestionsEffect(assetData.adGroupId);
-    }
-  }, [
-    assetData,
-    assetFingerprint,
-    assetLoading,
-    assetLoadVersion,
-    autoAiEnabled,
-    autoAiRunKey,
-    canEditSelectedCampaign,
-    customerId,
-    lowTextCandidates.length,
-    viewMode,
-  ]);
-
   const maxRoas = useMemo(() => {
     if (filteredCampaigns.length === 0) return 1;
     return Math.max(...filteredCampaigns.map((campaign) => campaign.roas), 1);
@@ -1676,8 +1707,8 @@ export default function App() {
     {
       TODAY: 'Hôm nay',
       YESTERDAY: 'Hôm qua',
-      LAST_7_DAYS: 'Last 7 days',
-      THIS_MONTH: 'This month',
+      LAST_7_DAYS: '7 ngày gần nhất',
+      THIS_MONTH: 'tháng này',
     }[timeRange] ?? formatTimeRangeLabel(timeRange);
   const monitorNotifications = useMemo<AppNotification[]>(() => {
     const notifications: AppNotification[] = [];
@@ -1709,13 +1740,13 @@ export default function App() {
           id: `campaign-low-roas-${campaign.id}-${timeRange}`,
           severity: campaign.roas < Math.max(avgCampaignRoas * 0.45, 0.15) ? 'critical' : 'warning',
           title: 'Chiến dịch đang thấp hơn mục tiêu ROAS',
-          message: `${campaign.name} has ROAS ${campaign.roas.toFixed(2)} with ${formatNumber(campaign.cost)} cost in ${selectedTimeLabel}.`,
+          message: `${campaign.name} có ROAS ${campaign.roas.toFixed(2)} với chi phí ${formatNumber(campaign.cost)} trong ${selectedTimeLabel}.`,
           targetLabel: 'Chiến dịch',
           createdAtLabel: selectedTimeLabel,
           recommendations: [
             'Mở nhóm quảng cáo để tìm phân khúc lưu lượng kém hiệu quả nhất.',
-            'Check LOW assets and refresh copy or media before scaling spend.',
-            'Compare this campaign against the best ROAS campaign in the same group.',
+            'Kiểm tra tài nguyên hiệu quả thấp và cải thiện nội dung hoặc hình ảnh trước khi tăng chi phí.',
+            'So sánh với chiến dịch có ROAS tốt nhất trong cùng nhóm.',
           ],
         });
       });
@@ -1728,14 +1759,14 @@ export default function App() {
         notifications.push({
           id: `campaign-no-conv-${campaign.id}-${timeRange}`,
           severity: 'critical',
-          title: 'Spend without conversions',
-          message: `${campaign.name} spent ${formatNumber(campaign.cost)} but has no conversions in ${selectedTimeLabel}.`,
+          title: 'Có chi phí nhưng chưa có chuyển đổi',
+          message: `${campaign.name} đã chi ${formatNumber(campaign.cost)} nhưng chưa có chuyển đổi trong ${selectedTimeLabel}.`,
           targetLabel: 'Chiến dịch',
           createdAtLabel: selectedTimeLabel,
           recommendations: [
-            'Review search terms, placements, and audience quality.',
-            'Pause weak ad groups or reduce spend until conversion quality returns.',
-            'Ask AI for new creative angles before replacing active assets.',
+            'Kiểm tra cụm từ tìm kiếm, vị trí hiển thị và chất lượng đối tượng.',
+            'Cân nhắc tạm dừng nhóm quảng cáo yếu hoặc giảm chi phí cho đến khi có lại chuyển đổi.',
+            'Tạo gợi ý AI để thử hướng nội dung mới trước khi thay tài nguyên đang hoạt động.',
           ],
         });
       });
@@ -1752,13 +1783,13 @@ export default function App() {
           id: `adgroup-low-roas-${adGroup.id}-${timeRange}`,
           severity: adGroup.roas < Math.max(avgAdGroupRoas * 0.4, 0.12) ? 'critical' : 'warning',
           title: 'Nhóm quảng cáo cần được xem lại nội dung',
-          message: `${adGroup.name} in ${adGroup.campaignName} has ROAS ${adGroup.roas.toFixed(2)} and ${formatNumber(adGroup.clicks)} clicks.`,
+          message: `${adGroup.name} thuộc ${adGroup.campaignName} có ROAS ${adGroup.roas.toFixed(2)} và ${formatNumber(adGroup.clicks)} lượt nhấp.`,
           targetLabel: 'Nhóm quảng cáo',
           createdAtLabel: selectedTimeLabel,
           recommendations: [
             'Mở tài nguyên của nhóm quảng cáo này và tạo đánh giá AI.',
             'Ưu tiên tiêu đề và mô tả có nhãn hiệu quả THẤP.',
-            'Test one sharper benefit-led headline before replacing all copy.',
+            'Thử một tiêu đề nêu lợi ích rõ hơn trước khi thay toàn bộ nội dung.',
           ],
         });
       });
@@ -1773,8 +1804,8 @@ export default function App() {
         notifications.push({
           id: `assets-many-low-${assetData.adGroupId}-${assetData.timeRange}`,
           severity: lowAssets.length >= 6 ? 'critical' : 'warning',
-          title: 'Many LOW assets detected',
-          message: `${selectedAdGroupLabel} has ${lowAssets.length} LOW assets from ${formatNumber(assetRows.reduce((sum, asset) => sum + asset.impressions, 0))} views.`,
+          title: 'Phát hiện nhiều tài nguyên hiệu quả thấp',
+          message: `${selectedAdGroupLabel} có ${lowAssets.length} tài nguyên hiệu quả thấp trên tổng ${formatNumber(assetRows.reduce((sum, asset) => sum + asset.impressions, 0))} lượt hiển thị.`,
           targetLabel: 'Tài nguyên',
           createdAtLabel: selectedTimeLabel,
           recommendations: [
@@ -1891,7 +1922,8 @@ export default function App() {
           } else if (notification.action === 'APPLIED') {
             setOperationsSection('impact');
           } else if (notification.action === 'SUGGESTED') {
-            setOperationsSection('recommendations');
+            setOperationsSection(null);
+            setViewMode('assets');
           } else {
             setOperationsSection('automation');
           }
@@ -2141,7 +2173,7 @@ export default function App() {
           <div className="filterGroup">
             <DateRangeFilter value={timeRange} onChange={setTimeRange} />
             {viewMode === 'assets' ? (
-              <div className="segment labelSegment" aria-label="Asset label filter">
+              <div className="segment labelSegment" aria-label="Lọc theo nhãn hiệu quả tài nguyên">
                 {ASSET_LABEL_FILTERS.map((filter) => (
                   <button
                     key={filter.value}
@@ -2214,7 +2246,7 @@ export default function App() {
           />
         ) : null}
 
-        {viewMode === 'assets' ? (
+        {false ? (
           <AiCreativeReviewPanel
             assetData={assetData}
             assetLoading={assetLoading}
@@ -2285,7 +2317,7 @@ export default function App() {
           </div>
         ) : null}
 
-        {viewMode === 'assets' ? (
+        {false ? (
           <AiTextSuggestionsPanel
             assetData={assetData}
             aiTextSuggestions={aiTextSuggestions}
@@ -2377,6 +2409,41 @@ export default function App() {
             setRowsPerPage(nextRowsPerPage);
             setCurrentPage(1);
           }}
+          onOpenTextAssistant={openTextAssistant}
+        />
+        <TextAssetAssistant
+          asset={assistantAsset}
+          suggestion={assistantSuggestion}
+          suggestionLoading={aiTextLoading}
+          suggestionSelected={Boolean(assistantSuggestion && selectedTextSuggestionSet.has(assistantSuggestion.key))}
+          translation={assetTranslation}
+          translationLoading={assetTranslationLoading}
+          suggestionError={aiTextError || replaceError}
+          translationError={assetTranslationError}
+          canEdit={canEditSelectedCampaign}
+          preview={textChangeRequest}
+          confirmed={replaceConfirmed}
+          applying={replaceLoading}
+          manualText={manualAssetText}
+          targetLanguageName={aiTextSuggestions?.targetLanguageName ?? ''}
+          languageSource={aiTextSuggestions?.languageSource ?? ''}
+          adGroupTopic={aiTextSuggestions?.adGroupTopic ?? ''}
+          onClose={() => setAssistantAsset(null)}
+          onGenerate={() => void generateAiTextSuggestions(undefined, { force: true })}
+          onTranslate={() => void translateTextAsset()}
+          onToggleSuggestion={() => {
+            if (assistantSuggestion) void toggleTextSuggestionApproval(assistantSuggestion);
+          }}
+          onManualTextChange={(value) => {
+            setManualAssetText(value);
+            setReplaceError('');
+            setReplaceStatus('');
+            setTextChangeRequest(null);
+            setReplaceConfirmed(false);
+          }}
+          onCreatePreview={() => void createTextChangeRequest()}
+          onConfirmedChange={setReplaceConfirmed}
+          onApply={() => void applyTextChangeRequest()}
         />
         </>
         )}

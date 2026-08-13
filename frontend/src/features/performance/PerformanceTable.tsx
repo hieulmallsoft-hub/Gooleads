@@ -4,6 +4,8 @@ import {
   ArrowUp,
   ChevronLeft,
   ChevronRight,
+  Languages,
+  Pencil,
   SlidersHorizontal,
 } from 'lucide-react';
 import {
@@ -64,6 +66,7 @@ type PerformanceTableProps = {
   onOpenAdGroup: (adGroup: AdGroup) => void;
   onPageChange: (page: number) => void;
   onRowsPerPageChange: (rowsPerPage: number) => void;
+  onOpenTextAssistant: (asset: Asset, translateOnly?: boolean) => void;
 };
 
 type AssetStaticColumnKey = 'ctr' | 'label' | 'assessment' | 'action';
@@ -230,6 +233,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
     onOpenAdGroup,
     onPageChange,
     onRowsPerPageChange,
+    onOpenTextAssistant,
   } = props;
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [visibleAssetColumnKeys, setVisibleAssetColumnKeys] = useState<AssetVisibleColumnKey[]>(
@@ -365,6 +369,14 @@ export function PerformanceTable(props: PerformanceTableProps) {
                     <td>
                       <div className="assetCell">
                         <span className="assetName">{assetTitle(asset)}</span>
+                        {asset.type === 'TEXT' && asset.text ? (
+                          <span className="assetInlineActions">
+                            <button type="button" className="assetMiniButton" onClick={() => onOpenTextAssistant(asset, true)} title="Dịch nghĩa"><Languages size={13} /></button>
+                            {asset.performanceLabel === 'LOW' ? (
+                              <button type="button" className="assetMiniButton edit" onClick={() => onOpenTextAssistant(asset)} title="Gợi ý sửa bằng AI"><Pencil size={13} /></button>
+                            ) : null}
+                          </span>
+                        ) : null}
                       </div>
                     </td>
                     {visibleSortableAssetColumns.map((column) => (
@@ -450,7 +462,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                       <span className="rowSubtext">{adGroup.campaignId}</span>
                     </div>
                   </td>
-                  <td>{adGroup.status || '-'}</td>
+                  <td>{googleStatusLabel[adGroup.status || ''] ?? adGroup.status ?? '-'}</td>
                   <td>{formatNumber(adGroup.impressions ?? 0)}</td>
                   <td>{formatNumber(adGroup.clicks ?? 0)}</td>
                   <td>{formatPercent(adGroup.ctr ?? 0)}</td>

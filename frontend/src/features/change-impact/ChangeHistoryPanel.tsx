@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState } from 'react';
-import { AlertCircle, ChevronLeft, ChevronRight, Clock3, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Clock3, RefreshCw, Search } from 'lucide-react';
 import { apiFetch, extractApiError, parseJsonSafe } from '../../api/client';
 
 type HistoryItem = {
@@ -104,6 +104,24 @@ function findPreviewUrl(value: unknown): string {
 function resourceLabel(value: string | null) {
   if (!value) return '—';
   return value.split('/').filter(Boolean).at(-1) ?? value;
+}
+
+function formatHistoryDate(value: string | null) {
+  if (!value) return 'Chưa hoàn tất';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'Không xác định';
+  return new Intl.DateTimeFormat('vi-VN', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function googleAdsImpact(status: string) {
+  if (status === 'APPLIED') return { label: 'Đã thay đổi Google Ads', tone: 'changed' };
+  if (status === 'PARTIAL') return { label: 'Đã thay đổi một phần', tone: 'partial' };
+  if (status === 'APPLYING') return { label: 'Đang gửi lên Google Ads', tone: 'pending' };
+  if (status === 'FAILED') return { label: 'Không áp dụng thành công', tone: 'failed' };
+  return { label: 'Chưa thay đổi Google Ads', tone: 'neutral' };
 }
 
 export function ChangeHistoryPanel({
@@ -213,6 +231,16 @@ export function ChangeHistoryPanel({
     }
   }, [data, expandedId, focusedChangeRequestId]);
 
+  const pageSummary = (data?.items ?? []).reduce(
+    (summary, item) => {
+      if (item.status === 'APPLIED') summary.applied += 1;
+      else if (item.status === 'FAILED') summary.failed += 1;
+      else summary.inProgress += 1;
+      return summary;
+    },
+    { applied: 0, failed: 0, inProgress: 0 },
+  );
+
   return (
     <section className="changeImpactPage">
       <div className="impactHeader">
@@ -261,6 +289,13 @@ export function ChangeHistoryPanel({
         <span className="impactResultCount">{data?.pagination.total ?? 0} kết quả</span>
       </div>
 
+      <div className="historySummary" aria-label="Tóm tắt các thay đổi trên trang hiện tại">
+        <strong>{data?.items.length ?? 0} yêu cầu trên trang</strong>
+        <span className="success">{pageSummary.applied} đã áp dụng</span>
+        <span className="waiting">{pageSummary.inProgress} chưa hoàn tất</span>
+        <span className="danger">{pageSummary.failed} thất bại</span>
+      </div>
+
       {error ? <div className="error"><AlertCircle size={18} /><span>{error}</span></div> : null}
 
       <div className="historyTableWrap">
@@ -269,14 +304,14 @@ export function ChangeHistoryPanel({
             <tr>
               <th>Thời gian</th>
               <th>Chiến dịch / Nhóm quảng cáo</th>
-              <th>Nguồn</th>
-              <th>Nội dung thay đổi</th>
-              <th>Trạng thái</th>
+              <th>Thay đổi</th>
+              <th>Kết quả trên Google Ads</th>
             </tr>
           </thead>
           <tbody>
             {data?.items.map((item) => {
               const isExpanded = expandedId === item.id;
+              const impact = googleAdsImpact(item.status);
               return [
               <tr
                 key={item.id}
@@ -292,29 +327,33 @@ export function ChangeHistoryPanel({
                 }}
               >
                   <td data-label="Thời gian">
-                  <strong>{new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short' }).format(new Date(item.requestedAt))}</strong>
-                  <small>{new Intl.DateTimeFormat('vi-VN', { timeStyle: 'short' }).format(new Date(item.requestedAt))}</small>
+                  <strong>{formatHistoryDate(item.requestedAt)}</strong>
+                  <small>{item.completedAt ? `Hoàn tất ${formatHistoryDate(item.completedAt)}` : 'Chưa hoàn tất'}</small>
+                  <small title={item.id}>Mã: {item.id.slice(0, 8)}…</small>
                 </td>
                   <td data-label="Chiến dịch">
                   <strong>{item.campaign?.name ?? 'Không xác định'}</strong>
                   <span>{item.adGroup?.name ?? 'Không có nhóm quảng cáo'}</span>
                   <small>ID: {item.campaign?.id ?? '—'} / {item.adGroup?.id ?? '—'}</small>
                 </td>
-                  <td data-label="Nguồn">{originLabels[item.origin]}</td>
-                  <td data-label="Nội dung thay đổi">
+                  <td data-label="Thay đổi">
                   <strong>{item.changeTypes.map((type) => changeTypeLabels[type] ?? type).join(', ')}</strong>
-                  <small>{item.replacementCount} tài nguyên · {isExpanded ? 'Ẩn chi tiết' : 'Bấm để xem chi tiết'}</small>
+                  <small>{originLabels[item.origin]} · {item.replacementCount} tài nguyên</small>
                 </td>
-                  <td data-label="Trạng thái">
+                  <td data-label="Kết quả trên Google Ads">
+                  <div className="historyResultLine">
                   <span className={`historyStatus ${item.status.toLowerCase()}`}>
                     {statusLabels[item.status] ?? item.status}
                   </span>
-                  {item.errorMessage ? <small className="historyError">{item.errorMessage}</small> : null}
+                  <span className={`historyImpact ${impact.tone}`}>{impact.label}</span>
+                  </div>
+                  {item.errorMessage ? <small className="historyError" title={item.errorMessage}>{item.errorMessage}</small> : null}
+                  <small className="historyDetailHint">{isExpanded ? 'Thu gọn chi tiết' : 'Xem nội dung trước và sau'} <ChevronDown size={13} /></small>
                 </td>
               </tr>,
               isExpanded ? (
                 <tr className="historyDetailRow" key={`${item.id}-detail`}>
-                  <td colSpan={5}>
+                  <td colSpan={4}>
                     {detailLoading ? <div className="historyDetailLoading"><RefreshCw size={16} className="spin" /> Đang tải chi tiết...</div> : null}
                     {detailError ? <div className="historyError">{detailError}</div> : null}
                     {detail?.id === item.id ? (
@@ -334,19 +373,21 @@ export function ChangeHistoryPanel({
                               <p>Đã thay tại {detailItem.replacementCount} vị trí{detailItem.mediaType ? ` · Loại ${detailItem.mediaType}` : ''}</p>
                               {replacements.map((replacement, replacementIndex) => (
                                 <div className="historyReplacement" key={`${replacement.oldText}-${replacementIndex}`}>
-                                  <div><span>Nội dung cũ</span><strong>{replacement.oldText || '—'}</strong></div>
-                                  <div><span>Nội dung mới</span><strong>{replacement.newText || '—'}</strong></div>
+                                  <div><span>Trước khi thay đổi</span><strong>{replacement.oldText || '—'}</strong></div>
+                                  <ArrowRight className="historyChangeArrow" size={18} />
+                                  <div><span>Sau khi thay đổi</span><strong>{replacement.newText || '—'}</strong></div>
                                 </div>
                               ))}
                               {detailItem.oldAssetResourceName || detailItem.newAssetResourceName ? (
                                 <div className="historyReplacement">
                                   <div>
-                                    <span>Tài nguyên cũ</span>
+                                    <span>Trước khi thay đổi</span>
                                     {beforePreview ? <img className="historyMediaPreview" src={beforePreview} alt="Tài nguyên trước thay đổi" /> : null}
                                     <strong>{resourceLabel(detailItem.oldAssetResourceName)}</strong>
                                   </div>
+                                  <ArrowRight className="historyChangeArrow" size={18} />
                                   <div>
-                                    <span>Tài nguyên mới</span>
+                                    <span>Sau khi thay đổi</span>
                                     {afterPreview ? <img className="historyMediaPreview" src={afterPreview} alt="Tài nguyên sau thay đổi" /> : null}
                                     <strong>{resourceLabel(detailItem.newAssetResourceName)}</strong>
                                   </div>
@@ -370,7 +411,7 @@ export function ChangeHistoryPanel({
               ];
             })}
             {!loading && !data?.items.length ? (
-              <tr><td colSpan={5}>
+              <tr><td colSpan={4}>
                 <div className="impactEmpty">
                   <Clock3 size={26} />
                   <strong>Không tìm thấy lịch sử phù hợp</strong>

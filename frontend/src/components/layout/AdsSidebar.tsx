@@ -9,7 +9,6 @@ import {
   MousePointerClick,
   Search,
   Settings,
-  Sparkles,
   X,
 } from 'lucide-react';
 import type { OperationsSection } from '../OperationsPanel';
@@ -70,14 +69,6 @@ export function AdsSidebar({
           >
             <Eye size={16} />
             Tổng quan
-          </button>
-          <button
-            type="button"
-            className={operationsSection === 'recommendations' ? 'active' : ''}
-            onClick={navAction(() => onOpenOperations('recommendations'))}
-          >
-            <Sparkles size={16} />
-            Đề xuất
           </button>
           <button
             type="button"

@@ -55,8 +55,8 @@ test('automation uses heartbeat instead of start time when detecting an interrup
 test('automation only targets explicitly selected enabled ad groups', async () => {
   const values: Record<string, unknown[]> = {
     CreativePolicyScopeEntity: [
-      { policyId: 'policy-1', adGroupId: 'group-db-1' },
-      { policyId: 'policy-1', adGroupId: 'group-db-paused' },
+      { policyId: 'policy-1', adGroupId: 'group-db-1', languageCode: 'vi', adGroupTopic: 'Điều khiển điều hòa' },
+      { policyId: 'policy-1', adGroupId: 'group-db-paused', languageCode: 'vi', adGroupTopic: 'Điều khiển điều hòa' },
     ],
     AdGroupEntity: [
       {
@@ -118,6 +118,8 @@ test('automation only targets explicitly selected enabled ad groups', async () =
       campaignName: 'Chiến dịch được phép',
       adGroupId: '1001',
       adGroupName: 'Được phép',
+      languageCode: 'vi',
+      topic: 'Điều khiển điều hòa',
     },
   ]);
 });
@@ -150,6 +152,7 @@ test('automation targets every enabled ad group in a full campaign scope', async
         adGroupId: null,
         includeAllAdGroups: true,
       },
+      { policyId: 'policy-1', campaignId: null, adGroupId: 'group-db-1', includeAllAdGroups: false, languageCode: 'vi', adGroupTopic: 'Điều khiển điều hòa' },
     ],
     AdGroupEntity: [
       {

@@ -9,5 +9,9 @@ export class CreativePolicyScopeEntity {
   @Column({ name: 'ad_group_id', type: 'uuid', nullable: true }) adGroupId!: string | null;
   @Column({ name: 'include_all_ad_groups', type: 'boolean', default: false })
   includeAllAdGroups!: boolean;
+  @Column({ name: 'language_code', type: 'varchar', length: 16, nullable: true })
+  languageCode!: string | null;
+  @Column({ name: 'ad_group_topic', type: 'varchar', length: 500, nullable: true })
+  adGroupTopic!: string | null;
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' }) createdAt!: Date;
 }

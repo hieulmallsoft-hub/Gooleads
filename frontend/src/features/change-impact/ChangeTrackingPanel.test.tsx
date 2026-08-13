@@ -120,8 +120,8 @@ describe('Theo dõi thay đổi', () => {
     expect(await screen.findByText('AC Search')).toBeInTheDocument();
     fireEvent.click(screen.getByText('AC Search'));
 
-    expect((await screen.findAllByText('Nội dung cũ')).length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText('Nội dung mới').length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByText('Trước khi thay đổi')).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Sau khi thay đổi').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('Xem dữ liệu kỹ thuật đầy đủ')).not.toBeInTheDocument();
   });
 });

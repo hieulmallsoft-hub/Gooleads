@@ -42,6 +42,8 @@ type AiReviewBody = {
   time?: string;
 };
 
+type TranslateAssetBody = { text?: string };
+
 type BatchSyncBody = {
   customerId?: string;
   time?: string;
@@ -423,6 +425,12 @@ export class GoogleAdsController {
       timeRange,
       request.user,
     );
+  }
+
+  @Post('assets/translate')
+  @RequirePermissions('ai.generate')
+  translateAsset(@Body() body: TranslateAssetBody) {
+    return this.googleAdsService.translateAssetText(String(body.text ?? ''));
   }
 
   @Post('assets/ai-suggestions/:suggestionId/decision')

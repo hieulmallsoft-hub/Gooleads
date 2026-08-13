@@ -2,6 +2,8 @@ export type LanguageOption = readonly [string, string];
 
 const PRIORITY_LANGUAGE_CODES = [
   'en',
+  'id',
+  'ms',
   'pt',
   'de',
   'es',
@@ -229,13 +231,27 @@ type DisplayNamesConstructor = new (
   options: { type: 'language' },
 ) => { of(code: string): string | undefined };
 
+const LANGUAGE_MARKETS: Record<string, string> = {
+  vi: 'Việt Nam', id: 'Indonesia', ms: 'Malaysia', en: 'Anh, Mỹ và quốc tế',
+  pt: 'Brazil, Bồ Đào Nha', de: 'Đức, Áo, Thụy Sĩ', es: 'Tây Ban Nha và Mỹ Latinh',
+  fr: 'Pháp và các nước nói tiếng Pháp', it: 'Ý', ar: 'Trung Đông và Bắc Phi',
+  ko: 'Hàn Quốc', zh: 'Trung Quốc, Đài Loan, Singapore', ja: 'Nhật Bản',
+  hi: 'Ấn Độ', th: 'Thái Lan', tr: 'Thổ Nhĩ Kỳ', pl: 'Ba Lan',
+  ru: 'Nga và các nước nói tiếng Nga', nl: 'Hà Lan, Bỉ', fil: 'Philippines',
+};
+
 function languageDisplayName(code: string) {
   const displayNamesConstructor = (Intl as unknown as { DisplayNames?: DisplayNamesConstructor }).DisplayNames;
   const displayName = displayNamesConstructor
-    ? new displayNamesConstructor(['en'], { type: 'language' }).of(code)
+    ? new displayNamesConstructor(['vi'], { type: 'language' }).of(code)
     : undefined;
 
-  return displayName ? `${displayName} (${code})` : code.toUpperCase();
+  if (!displayName) return code.toUpperCase();
+  const vietnameseName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+  const market = LANGUAGE_MARKETS[code];
+  return market
+    ? `${vietnameseName} — ${market} (${code})`
+    : `${vietnameseName} (${code})`;
 }
 
 function buildLanguageOptions(): LanguageOption[] {
@@ -257,6 +273,8 @@ function buildLanguageOptions(): LanguageOption[] {
 }
 
 export const LANGUAGE_OPTIONS = buildLanguageOptions();
+export const COMMON_LANGUAGE_OPTIONS = LANGUAGE_OPTIONS.slice(0, PRIORITY_LANGUAGE_CODES.length);
+export const OTHER_LANGUAGE_OPTIONS = LANGUAGE_OPTIONS.slice(PRIORITY_LANGUAGE_CODES.length);
 
 const LANGUAGE_LABELS = new Map(LANGUAGE_OPTIONS);
 

@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { parseJsonSafe } from '../api/client';
-import { getLanguageLabel, LANGUAGE_OPTIONS } from '../config/languages';
+import { COMMON_LANGUAGE_OPTIONS, getLanguageLabel, LANGUAGE_OPTIONS, OTHER_LANGUAGE_OPTIONS } from '../config/languages';
 import type { AuthUser, Campaign } from '../types/googleAds';
 
 export type OperationsSection = 'overview' | 'recommendations' | 'impact' | 'automation' | 'keywords' | 'settings' | 'guide';
@@ -104,6 +104,7 @@ type AutomationCampaignDetail = {
     name: string;
     status: string;
     mode: 'ALL' | 'SELECTED';
+    metricsAvailable: boolean;
     metrics: AutomationMetrics;
   };
   days: number;
@@ -112,6 +113,9 @@ type AutomationCampaignDetail = {
     name: string;
     status: string;
     selected: boolean;
+    metricsAvailable: boolean;
+    languageCode: string;
+    topic: string;
     metrics: AutomationMetrics;
   }>;
 };
@@ -173,6 +177,7 @@ type SettingsData = {
       selectedAdGroupIds: string[];
     }>;
     selectedAdGroupIds: string[];
+    adGroupConfigs: Array<{ adGroupId: string; languageCode: string; topic: string }>;
     allCampaignIds: string[];
     selectedCampaignCount: number;
     selectedAdGroupCount: number;
@@ -267,6 +272,21 @@ function normalizeAutomationSearch(value: string) {
     .trim();
 }
 
+function sameIdSet(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((id) => rightSet.has(id));
+}
+
+function automationRunStatus(value?: string | null) {
+  if (value === 'RUNNING') return 'Đang xử lý';
+  if (value === 'COMPLETED') return 'Đã hoàn tất';
+  if (value === 'PARTIAL') return 'Hoàn tất một phần';
+  if (value === 'FAILED') return 'Thất bại';
+  if (value === 'CANCELLED') return 'Đã hủy';
+  return value || 'Chưa có';
+}
+
 const AUTOMATION_STALE_RUNNING_MINUTES = 30;
 
 function isStaleAutomationRun(
@@ -322,8 +342,11 @@ export function OperationsPanel({
   const [allAutomationCampaignIds, setAllAutomationCampaignIds] =
     useState<string[]>([]);
   const [automationCampaignSearch, setAutomationCampaignSearch] = useState('');
+  const [automationAddOpen, setAutomationAddOpen] = useState(false);
   const [automationCampaignDetail, setAutomationCampaignDetail] =
     useState<AutomationCampaignDetail | null>(null);
+  const [automationMetricsSyncing, setAutomationMetricsSyncing] = useState(false);
+  const [automationAdGroupConfigs, setAutomationAdGroupConfigs] = useState<Record<string, { languageCode: string; topic: string }>>({});
   const [automationCampaignLoadingId, setAutomationCampaignLoadingId] =
     useState('');
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
@@ -394,6 +417,9 @@ export function OperationsPanel({
     setAllAutomationCampaignIds(
       data.automationScope?.allCampaignIds ?? [],
     );
+    setAutomationAdGroupConfigs(Object.fromEntries(
+      (data.automationScope?.adGroupConfigs ?? []).map((config) => [config.adGroupId, { languageCode: config.languageCode, topic: config.topic }]),
+    ));
     setSettingsDraft({
       languageStrategy: data.policy.languageStrategy,
       targetLanguage: data.policy.targetLanguage ?? '',
@@ -734,6 +760,9 @@ export function OperationsPanel({
   }
 
   function setAutomationCampaignMode(campaignId: string, mode: 'ALL' | 'SELECTED') {
+    if (mode === 'ALL') {
+      setSelectedAutomationCampaignIds((current) => [...new Set([...current, campaignId])]);
+    }
     setAllAutomationCampaignIds((current) =>
       mode === 'ALL'
         ? [...new Set([...current, campaignId])]
@@ -765,7 +794,12 @@ export function OperationsPanel({
       if (!response.ok) {
         throw new Error(errorMessage(body, 'Không thể tải nhóm quảng cáo'));
       }
-      setAutomationCampaignDetail(body as AutomationCampaignDetail);
+      const detail = body as AutomationCampaignDetail;
+      setAutomationCampaignDetail(detail);
+      setAutomationAdGroupConfigs((current) => ({
+        ...current,
+        ...Object.fromEntries(detail.adGroups.filter((item) => item.languageCode || item.topic).map((item) => [item.id, { languageCode: item.languageCode, topic: item.topic }])),
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể tải nhóm quảng cáo');
     } finally {
@@ -773,7 +807,39 @@ export function OperationsPanel({
     }
   }
 
-  function toggleAutomationAdGroup(adGroupId: string, selected: boolean) {
+  async function syncAutomationCampaignMetrics() {
+    if (!automationCampaignDetail || automationMetricsSyncing) return;
+    setAutomationMetricsSyncing(true);
+    setError('');
+    try {
+      const end = new Date();
+      const start = new Date(end);
+      start.setDate(start.getDate() - 13);
+      const datePart = (date: Date) => date.toISOString().slice(0, 10);
+      const time = `${datePart(start)},${datePart(end)}`;
+      for (const adGroup of automationCampaignDetail.adGroups) {
+        const response = await request('/google-ads/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customerId, adGroupId: adGroup.id, time }),
+        });
+        const body = await parseJsonSafe(response);
+        if (!response.ok) throw new Error(errorMessage(body, `Không thể đồng bộ số liệu nhóm ${adGroup.name}`));
+      }
+      await loadAutomationCampaign(automationCampaignDetail.campaign.id);
+      setNotice(`Đã đồng bộ số liệu 14 ngày cho ${automationCampaignDetail.campaign.name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể đồng bộ số liệu hiệu suất');
+    } finally {
+      setAutomationMetricsSyncing(false);
+    }
+  }
+
+  function toggleAutomationAdGroup(campaignId: string, adGroupId: string, selected: boolean) {
+    if (selected) {
+      setSelectedAutomationCampaignIds((current) => [...new Set([...current, campaignId])]);
+      setAllAutomationCampaignIds((current) => current.filter((id) => id !== campaignId));
+    }
     setSelectedAutomationAdGroupIds((current) =>
       selected
         ? [...new Set([...current, adGroupId])]
@@ -795,6 +861,7 @@ export function OperationsPanel({
           campaignIds: selectedAutomationCampaignIds,
           allCampaignIds: allAutomationCampaignIds,
           adGroupIds: selectedAutomationAdGroupIds,
+          adGroupConfigs: Object.entries(automationAdGroupConfigs).map(([adGroupId, config]) => ({ adGroupId, ...config })),
         }),
       });
       const body = await parseJsonSafe(response);
@@ -802,9 +869,10 @@ export function OperationsPanel({
         throw new Error(errorMessage(body, 'Không thể lưu phạm vi Automation'));
       }
       setNotice(
-        `Đã lưu phạm vi: ${allAutomationCampaignIds.length} chiến dịch chạy toàn bộ, ${selectedAutomationAdGroupIds.length} nhóm quảng cáo chạy riêng.`,
+        `Đã lưu phạm vi, chưa chạy Automation: ${allAutomationCampaignIds.length} chiến dịch chọn toàn bộ nhóm, ${selectedAutomationAdGroupIds.length} nhóm quảng cáo được chọn riêng.`,
       );
       await loadSettings();
+      setAutomationAddOpen(false);
       window.dispatchEvent(new Event('automation-notifications-refresh'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể lưu phạm vi Automation');
@@ -908,7 +976,7 @@ export function OperationsPanel({
       });
       const body = await parseJsonSafe(response);
       if (!response.ok) throw new Error(errorMessage(body, 'Không thể cập nhật quyền người dùng'));
-      setNotice('User access updated.');
+      setNotice('Đã cập nhật thông tin và quyền của người dùng.');
       await loadAccessUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể cập nhật quyền người dùng');
@@ -1011,25 +1079,53 @@ export function OperationsPanel({
   const automationActionText = automationRunning || automationRunInProgress
     ? 'Đang chạy...'
     : automationRunStale
-      ? 'Retry run'
-      : 'Chạy ngay';
+      ? 'Chạy lại và bật lịch'
+      : settingsDraft.automationEnabled
+        ? 'Chạy ngay'
+        : 'Chạy ngay và bật lịch';
   const automationStatusText = latestAutomationRun?.errorMessage
     ?? (automationRunStale
-      ? 'Previous run looks stuck. Retry is available.'
+      ? 'Lượt chạy trước có thể đã bị gián đoạn. Bạn có thể bấm Chạy lại.'
       : settingsDraft.automationEnabled
-        ? `AI định kỳ đang bật và chạy mỗi ${settingsDraft.reviewIntervalDays} ngày.`
+        ? `Lịch AI đã bật, chu kỳ ${settingsDraft.reviewIntervalDays} ngày. Hệ thống chỉ xử lý khi đến lịch hoặc khi bạn bấm Chạy ngay.`
         : 'AI định kỳ đang tắt. Bấm Chạy ngay để bắt đầu và duy trì theo lịch.');
   const automationCampaigns = useMemo(
     () => settings?.automationScope?.campaigns ?? [],
     [settings?.automationScope?.campaigns],
   );
   const filteredAutomationCampaigns = useMemo(() => {
+    const visibleCampaigns = automationCampaigns.filter((campaign) => campaign.selected);
     const query = normalizeAutomationSearch(automationCampaignSearch);
-    if (!query) return automationCampaigns;
-    return automationCampaigns.filter((campaign) =>
+    if (!query) return visibleCampaigns;
+    return visibleCampaigns.filter((campaign) =>
       normalizeAutomationSearch(`${campaign.name} ${campaign.id}`).includes(query),
     );
   }, [automationCampaignSearch, automationCampaigns]);
+  const availableAutomationCampaigns = useMemo(() => {
+    const query = normalizeAutomationSearch(automationCampaignSearch);
+    return automationCampaigns.filter((campaign) =>
+      !campaign.selected &&
+      campaign.status === 'ENABLED' &&
+      (!query || normalizeAutomationSearch(`${campaign.name} ${campaign.id}`).includes(query)),
+    );
+  }, [automationCampaignSearch, automationCampaigns]);
+  const pendingAutomationAdditions = automationCampaigns.filter(
+    (campaign) => !campaign.selected && selectedAutomationCampaignIds.includes(campaign.id),
+  ).length;
+  const pendingAutomationRemovals = automationCampaigns.filter(
+    (campaign) => campaign.selected && !selectedAutomationCampaignIds.includes(campaign.id),
+  ).length;
+  const savedAutomationCampaignIds = automationCampaigns
+    .filter((campaign) => campaign.selected)
+    .map((campaign) => campaign.id);
+  const savedAutomationAdGroupIds = settings?.automationScope?.selectedAdGroupIds ?? [];
+  const savedAllAutomationCampaignIds = settings?.automationScope?.allCampaignIds ?? [];
+  const automationScopeDirty =
+    !sameIdSet(selectedAutomationCampaignIds, savedAutomationCampaignIds) ||
+    !sameIdSet(selectedAutomationAdGroupIds, savedAutomationAdGroupIds) ||
+    !sameIdSet(allAutomationCampaignIds, savedAllAutomationCampaignIds);
+  const hasAutomationTarget =
+    allAutomationCampaignIds.length > 0 || selectedAutomationAdGroupIds.length > 0;
 
   return (
     <div className="operationsPage">
@@ -1038,7 +1134,7 @@ export function OperationsPanel({
           <h1>{title}</h1>
           <p>{subtitle}</p>
         </div>
-        <button className="iconAction" type="button" onClick={() => void loadSection()} disabled={loading} title="Refresh">
+        <button className="iconAction" type="button" onClick={() => void loadSection()} disabled={loading} title="Tải lại dữ liệu" aria-label="Tải lại dữ liệu">
           <RefreshCw size={17} className={loading ? 'spin' : ''} />
         </button>
       </header>
@@ -1273,14 +1369,57 @@ export function OperationsPanel({
           {section === 'automation' ? (
             <>
             <section className="operationsSection">
+            <div className="automationOverviewCards">
+              <div><span>Lịch Automation</span><strong className={settingsDraft.automationEnabled ? 'connected' : 'disconnected'}>{settingsDraft.automationEnabled ? 'Đã bật lịch' : 'Đã tắt lịch'}</strong></div>
+              <div><span>Chu kỳ</span><strong>{settingsDraft.reviewIntervalDays} ngày/lần</strong></div>
+              <div><span>Lần chạy gần nhất</span><strong>{formatDate(settings.schedule?.lastRunAt)}</strong></div>
+              <div><span>Lần chạy tiếp theo</span><strong>{formatDate(settings.schedule?.nextRunAt)}</strong></div>
+              <div><span>Kết quả gần nhất</span><strong>{latestAutomationRun ? `${latestAutomationRun.appliedCount} áp dụng · ${latestAutomationRun.failedCount} lỗi` : 'Chưa có lượt chạy'}</strong></div>
+            </div>
+            <div className={`automationNextStep ${automationScopeDirty ? 'warning' : hasAutomationTarget ? 'ready' : ''}`}>
+              <div>
+                <span>Bước tiếp theo</span>
+                <strong>
+                  {!selectedAutomationCampaignIds.length
+                    ? 'Chọn chiến dịch cần Automation'
+                    : automationScopeDirty
+                      ? 'Lưu các thay đổi phạm vi'
+                      : !hasAutomationTarget
+                        ? 'Chọn toàn bộ chiến dịch hoặc ít nhất một nhóm quảng cáo'
+                        : settingsDraft.automationEnabled
+                          ? `Không cần thao tác · lượt tiếp theo ${formatDate(settings.schedule?.nextRunAt)}`
+                          : 'Phạm vi đã sẵn sàng · bạn có thể chạy ngay'}
+                </strong>
+                <small>
+                  {!selectedAutomationCampaignIds.length
+                    ? 'Lưu phạm vi không chạy AI và không thay đổi Google Ads.'
+                    : automationScopeDirty
+                      ? 'Các lựa chọn hiện tại mới chỉ nằm trên màn hình, chưa được lưu.'
+                      : !hasAutomationTarget
+                        ? 'Automation sẽ không chạy nếu chưa có nhóm quảng cáo hợp lệ.'
+                        : settingsDraft.automationEnabled
+                          ? 'Lịch đang bật; hệ thống chỉ xử lý đúng phạm vi đã lưu.'
+                          : 'Chạy ngay sẽ áp dụng trực tiếp lên Google Ads và đồng thời bật lịch.'}
+                </small>
+              </div>
+              {!selectedAutomationCampaignIds.length ? (
+                <button className="primaryButton" type="button" onClick={() => { setAutomationAddOpen(true); setAutomationCampaignSearch(''); }}><Plus size={15} />Chọn chiến dịch</button>
+              ) : automationScopeDirty ? (
+                <button className="primaryButton" type="button" disabled={automationScopeSaving} onClick={() => void saveAutomationScope()}><Save size={15} />{automationScopeSaving ? 'Đang lưu...' : 'Lưu thay đổi ngay'}</button>
+              ) : null}
+            </div>
             <div className="sectionTitle">
               <div>
-                <h2>Phạm vi Automation</h2>
-                <p>Chọn toàn bộ chiến dịch hoặc mở chiến dịch để chạy riêng từng nhóm quảng cáo.</p>
+                <h2>Phạm vi Automation đã chọn</h2>
+                <p>Các chiến dịch và nhóm quảng cáo sẽ được xử lý khi bạn chạy ngay hoặc đến lịch tiếp theo.</p>
               </div>
-              <span>
-                {allAutomationCampaignIds.length} chiến dịch chạy toàn bộ · {selectedAutomationAdGroupIds.length} nhóm chạy riêng
-              </span>
+              <div className="automationHeaderActions">
+                <span>{selectedAutomationCampaignIds.length} chiến dịch đã chọn</span>
+                <button className="primaryButton" type="button" onClick={() => { setAutomationAddOpen(true); setAutomationCampaignSearch(''); }}>
+                  <Plus size={15} />
+                  Thêm chiến dịch
+                </button>
+              </div>
             </div>
             <div className="automationCampaignToolbar">
               <label className="searchBox">
@@ -1293,7 +1432,7 @@ export function OperationsPanel({
                   onChange={(event) => setAutomationCampaignSearch(event.target.value)}
                 />
               </label>
-              <span>{filteredAutomationCampaigns.length}/{automationCampaigns.length} chiến dịch</span>
+              <span>{filteredAutomationCampaigns.length} chiến dịch đã chọn</span>
             </div>
             {settings.automationScope?.campaigns.length ? (
               <div className="automationScopeTree">
@@ -1322,7 +1461,7 @@ export function OperationsPanel({
                           <span>
                             <strong>{campaign.name}</strong>
                             <small>
-                              ID {campaign.id} · {campaign.status} ·{' '}
+                              ID {campaign.id} · {automationEntityStatus(campaign.status)} ·{' '}
                               {campaignRunsAll
                                 ? `Toàn bộ ${campaign.adGroupCount} nhóm đang hoạt động`
                                 : `${selectedChildren}/${campaign.adGroupCount} nhóm đã chọn`}
@@ -1333,18 +1472,20 @@ export function OperationsPanel({
                       <button
                         className="secondaryButton"
                         type="button"
-                        disabled={!campaignSelected || automationCampaignLoadingId === campaign.id}
-                        onClick={() => void loadAutomationCampaign(campaign.id)}
+                        disabled={automationCampaignLoadingId === campaign.id}
+                        onClick={() => {
+                          void loadAutomationCampaign(campaign.id);
+                        }}
                       >
                         {automationCampaignLoadingId === campaign.id
                           ? 'Đang tải...'
-                          : 'Thiết lập phạm vi'}
+                          : 'Chọn nhóm quảng cáo'}
                       </button>
                     </div>
                   );
                 })}
                 {!filteredAutomationCampaigns.length ? (
-                  <div className="empty">Không tìm thấy chiến dịch phù hợp.</div>
+                  <div className="empty">Chưa chọn chiến dịch nào trong phạm vi Automation. Bấm “Thêm chiến dịch” để thiết lập.</div>
                 ) : null}
               </div>
             ) : (
@@ -1352,11 +1493,48 @@ export function OperationsPanel({
                 Chưa có chiến dịch trong PostgreSQL. Hãy đồng bộ dữ liệu Google Ads trước khi cấu hình Automation.
               </div>
             )}
+            {automationAddOpen ? (
+              <div className="automationAddBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAutomationAddOpen(false); }}>
+                <aside className="automationAddDrawer" role="dialog" aria-modal="true" aria-label="Thêm chiến dịch vào phạm vi Automation">
+                  <div className="automationAddHeader">
+                    <div><h2>Thêm chiến dịch</h2><p>Chọn một hoặc nhiều chiến dịch đang hoạt động.</p></div>
+                    <button className="iconAction" type="button" onClick={() => setAutomationAddOpen(false)} aria-label="Đóng"><X size={17} /></button>
+                  </div>
+                  <label className="searchBox automationAddSearch">
+                    <Search size={16} />
+                    <input type="search" value={automationCampaignSearch} placeholder="Tìm theo tên hoặc ID chiến dịch" aria-label="Tìm chiến dịch để thêm" onChange={(event) => setAutomationCampaignSearch(event.target.value)} autoFocus />
+                  </label>
+                  <div className="automationAddSummary">
+                    <span>{availableAutomationCampaigns.length} chiến dịch khả dụng</span>
+                    <strong>Đã chọn {pendingAutomationAdditions}</strong>
+                  </div>
+                  <div className="automationAddList">
+                    {availableAutomationCampaigns.map((campaign) => {
+                      const selected = selectedAutomationCampaignIds.includes(campaign.id);
+                      return (
+                        <div className={`automationAddRow${selected ? ' selected' : ''}`} key={campaign.id}>
+                          <label aria-label={`Xem nhóm quảng cáo trước khi chọn chiến dịch ${campaign.name}`}>
+                            <input type="checkbox" checked={selected} disabled={!canManageAutomationScope} onChange={() => void loadAutomationCampaign(campaign.id)} />
+                            <span><strong>{campaign.name}</strong><small>ID {campaign.id} · Đang hoạt động · {campaign.adGroupCount} nhóm quảng cáo</small></span>
+                          </label>
+                          <button className="tableActionButton" type="button" disabled={automationCampaignLoadingId === campaign.id} onClick={() => void loadAutomationCampaign(campaign.id)}>Xem và chọn nhóm</button>
+                        </div>
+                      );
+                    })}
+                    {!availableAutomationCampaigns.length ? <div className="empty">Không tìm thấy chiến dịch khả dụng.</div> : null}
+                  </div>
+                  <div className="automationAddFooter">
+                    <span>{pendingAutomationAdditions ? `${pendingAutomationAdditions} thay đổi chưa lưu` : 'Chưa chọn chiến dịch mới'}</span>
+                    <div><button className="secondaryButton" type="button" onClick={() => setAutomationAddOpen(false)}>Hủy</button><button className="primaryButton" type="button" disabled={!pendingAutomationAdditions || automationScopeSaving} onClick={() => void saveAutomationScope()}><Save size={15} />{automationScopeSaving ? 'Đang lưu...' : `Thêm ${pendingAutomationAdditions} chiến dịch`}</button></div>
+                  </div>
+                </aside>
+              </div>
+            ) : null}
             {automationCampaignLoadingId ? (
               <div className="automationCampaignDetailBackdrop" role="presentation">
                 <div className="automationCampaignDetail automationCampaignLoading" role="status" aria-live="polite">
-                  <strong>Đang tải thiết lập phạm vi...</strong>
-                  <span>Hệ thống đang lấy nhóm quảng cáo và hiệu quả 14 ngày của chiến dịch.</span>
+                  <strong>Đang tải nhóm quảng cáo...</strong>
+                  <span>Hệ thống đang lấy danh sách nhóm quảng cáo và hiệu quả 14 ngày của chiến dịch.</span>
                 </div>
               </div>
             ) : null}
@@ -1374,12 +1552,12 @@ export function OperationsPanel({
                 className="automationCampaignDetail"
                 role="dialog"
                 aria-modal="true"
-                aria-label={`Thiết lập phạm vi ${automationCampaignDetail.campaign.name}`}
+                aria-label={`Chọn nhóm quảng cáo cho ${automationCampaignDetail.campaign.name}`}
               >
                 <div className="sectionTitle">
                   <div>
-                    <h3>{automationCampaignDetail.campaign.name}</h3>
-                    <p>Hiệu quả {automationCampaignDetail.days} ngày gần nhất từ dữ liệu đã đồng bộ.</p>
+                    <h3>Chọn nhóm quảng cáo</h3>
+                    <p>{automationCampaignDetail.campaign.name} · Automation chỉ chạy theo lựa chọn bên dưới.</p>
                   </div>
                   <button
                     className="iconAction"
@@ -1391,13 +1569,19 @@ export function OperationsPanel({
                   </button>
                 </div>
                 <div className="automationMetrics">
-                  <div><span>Lượt hiển thị</span><strong>{formatCompactNumber(automationCampaignDetail.campaign.metrics.impressions)}</strong></div>
-                  <div><span>Lượt nhấp</span><strong>{formatCompactNumber(automationCampaignDetail.campaign.metrics.clicks)}</strong></div>
-                  <div><span>CTR</span><strong>{formatAutomationPercent(automationCampaignDetail.campaign.metrics.ctr)}</strong></div>
-                  <div><span>Chi phí</span><strong>{formatAutomationMoney(automationCampaignDetail.campaign.metrics.cost, settings.account.currencyCode)}</strong></div>
-                  <div><span>Chuyển đổi</span><strong>{formatCompactNumber(automationCampaignDetail.campaign.metrics.conversions)}</strong></div>
-                  <div><span>Giá trị CĐ / chi phí</span><strong>{formatAutomationPercent(automationCampaignDetail.campaign.metrics.roas)}</strong></div>
+                  <div><span>Lượt hiển thị</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatCompactNumber(automationCampaignDetail.campaign.metrics.impressions) : '—'}</strong></div>
+                  <div><span>Lượt nhấp</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatCompactNumber(automationCampaignDetail.campaign.metrics.clicks) : '—'}</strong></div>
+                  <div><span>CTR</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatAutomationPercent(automationCampaignDetail.campaign.metrics.ctr) : '—'}</strong></div>
+                  <div><span>Chi phí</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatAutomationMoney(automationCampaignDetail.campaign.metrics.cost, settings.account.currencyCode) : '—'}</strong></div>
+                  <div><span>Chuyển đổi</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatCompactNumber(automationCampaignDetail.campaign.metrics.conversions) : '—'}</strong></div>
+                  <div><span>Giá trị CĐ / chi phí</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatAutomationPercent(automationCampaignDetail.campaign.metrics.roas) : '—'}</strong></div>
                 </div>
+                {!automationCampaignDetail.campaign.metricsAvailable ? (
+                  <div className="automationMissingMetrics">
+                    <div><strong>Chưa có số liệu hiệu suất trong database</strong><span>Các số 0 trước đây là do chưa đồng bộ, không phải kết quả thực tế bằng 0.</span></div>
+                    <button className="secondaryButton" type="button" disabled={automationMetricsSyncing} onClick={() => void syncAutomationCampaignMetrics()}><RefreshCw size={15} className={automationMetricsSyncing ? 'spin' : ''} />{automationMetricsSyncing ? 'Đang đồng bộ...' : 'Đồng bộ số liệu 14 ngày'}</button>
+                  </div>
+                ) : null}
                 <div className="automationCampaignMode" role="radiogroup" aria-label="Phạm vi chạy của chiến dịch">
                   <label aria-label="Chạy toàn bộ chiến dịch">
                     <input
@@ -1413,7 +1597,7 @@ export function OperationsPanel({
                     <input
                       type="radio"
                       name={`automation-mode-${automationCampaignDetail.campaign.id}`}
-                      checked={!allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id)}
+                      checked={selectedAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) && !allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id)}
                       disabled={!canManageAutomationScope}
                       onChange={() => setAutomationCampaignMode(automationCampaignDetail.campaign.id, 'SELECTED')}
                     />
@@ -1429,25 +1613,23 @@ export function OperationsPanel({
                     <strong>Chi phí</strong>
                     <strong>Giá trị CĐ / chi phí</strong>
                   </div>
-                  {automationCampaignDetail.adGroups.map((adGroup) => (
-                    <label
-                      key={adGroup.id}
-                      aria-label={`Cho phép Automation trong nhóm quảng cáo ${adGroup.name}`}
-                    >
+                  {automationCampaignDetail.adGroups.map((adGroup) => {
+                    const targeted = allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id);
+                    const config = automationAdGroupConfigs[adGroup.id] ?? { languageCode: '', topic: '' };
+                    return (
+                    <div className={`automationAdGroupRow${targeted ? ' selected' : ''}`} key={adGroup.id}>
                       <input
                         type="checkbox"
-                        checked={selectedAutomationAdGroupIds.includes(adGroup.id)}
+                        aria-label={`Cho phép Automation trong nhóm quảng cáo ${adGroup.name}`}
+                        checked={targeted}
                         disabled={
                           !canManageAutomationScope ||
                           allAutomationCampaignIds.includes(
                             automationCampaignDetail.campaign.id,
-                          ) ||
-                          !selectedAutomationCampaignIds.includes(
-                            automationCampaignDetail.campaign.id,
                           )
                         }
                         onChange={(event) =>
-                          toggleAutomationAdGroup(adGroup.id, event.target.checked)
+                          toggleAutomationAdGroup(automationCampaignDetail.campaign.id, adGroup.id, event.target.checked)
                         }
                       />
                       <span>
@@ -1455,29 +1637,50 @@ export function OperationsPanel({
                         <small>ID {adGroup.id} · {automationEntityStatus(adGroup.status)}</small>
                       </span>
                       <span className="automationAdGroupMetrics">
-                        <small data-label="Hiển thị">{formatCompactNumber(adGroup.metrics.impressions)}</small>
-                        <small data-label="CTR">{formatAutomationPercent(adGroup.metrics.ctr)}</small>
-                        <small data-label="Chi phí">{formatAutomationMoney(adGroup.metrics.cost, settings.account.currencyCode)}</small>
-                        <small data-label="Giá trị CĐ / chi phí">{formatAutomationPercent(adGroup.metrics.roas)}</small>
+                        <small data-label="Hiển thị">{adGroup.metricsAvailable ? formatCompactNumber(adGroup.metrics.impressions) : 'Chưa đồng bộ'}</small>
+                        <small data-label="CTR">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.ctr) : '—'}</small>
+                        <small data-label="Chi phí">{adGroup.metricsAvailable ? formatAutomationMoney(adGroup.metrics.cost, settings.account.currencyCode) : '—'}</small>
+                        <small data-label="Giá trị CĐ / chi phí">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.roas) : '—'}</small>
                       </span>
-                    </label>
-                  ))}
+                      {targeted ? <div className="automationAdGroupContext">
+                        <label><span>Ngôn ngữ AI phải sử dụng</span><select value={config.languageCode} onChange={(event) => setAutomationAdGroupConfigs((current) => ({ ...current, [adGroup.id]: { ...config, languageCode: event.target.value } }))}><option value="">Chọn theo tên ngôn ngữ hoặc quốc gia</option><optgroup label="Ngôn ngữ thường dùng">{COMMON_LANGUAGE_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</optgroup><optgroup label="Ngôn ngữ khác">{OTHER_LANGUAGE_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</optgroup></select></label>
+                        <label><span>Chủ đề của nhóm quảng cáo</span><input value={config.topic} maxLength={500} placeholder="Ví dụ: Ứng dụng điều khiển điều hòa từ điện thoại" onChange={(event) => setAutomationAdGroupConfigs((current) => ({ ...current, [adGroup.id]: { ...config, topic: event.target.value } }))} /></label>
+                      </div> : null}
+                    </div>
+                  );})}
                   {!automationCampaignDetail.adGroups.length ? (
                     <div className="empty">Chiến dịch này chưa có nhóm quảng cáo trong dữ liệu đã đồng bộ.</div>
                   ) : null}
                 </div>
+                <div className="automationCampaignDetailActions">
+                  <span>
+                    {allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id)
+                      ? `Đã chọn toàn bộ ${automationCampaignDetail.adGroups.length} nhóm quảng cáo.`
+                      : `${automationCampaignDetail.adGroups.filter((adGroup) => selectedAutomationAdGroupIds.includes(adGroup.id)).length}/${automationCampaignDetail.adGroups.length} nhóm quảng cáo đã chọn.`}
+                  </span>
+                  <button
+                    className="primaryButton"
+                    type="button"
+                    disabled={!selectedAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || automationCampaignDetail.adGroups.some((adGroup) => (allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id)) && (!automationAdGroupConfigs[adGroup.id]?.languageCode || !automationAdGroupConfigs[adGroup.id]?.topic.trim()))}
+                    onClick={() => setAutomationCampaignDetail(null)}
+                  >
+                    Xong
+                  </button>
+                </div>
               </div>
               </div>
             ) : null}
-            <div className="settingsActions">
+            <div className={`settingsActions automationSaveBar${automationScopeDirty ? ' dirty' : ''}`}>
               <span>
-                Mặc định khi tích chiến dịch, Automation chạy toàn bộ. Mở Thiết lập phạm vi nếu chỉ muốn chọn một số nhóm quảng cáo.
+                {automationScopeDirty
+                  ? `${pendingAutomationAdditions} chiến dịch thêm mới · ${pendingAutomationRemovals} chiến dịch sẽ gỡ · có thay đổi nhóm quảng cáo/phạm vi chưa lưu`
+                  : 'Mọi thay đổi phạm vi đã được lưu.'}
               </span>
               {canManageAutomationScope ? (
                 <button
                   className="primaryButton"
                   type="button"
-                  disabled={automationScopeSaving}
+                  disabled={automationScopeSaving || !automationScopeDirty}
                   onClick={() => void saveAutomationScope()}
                 >
                   <Save size={15} />
@@ -1503,16 +1706,16 @@ export function OperationsPanel({
             </div>
           </section>
           <section className="operationsSection">
-            <div className="sectionTitle"><div><h2>AI định kỳ</h2><p>Bấm Chạy ngay để bắt đầu. Bấm Tắt để dừng các lần chạy sau.</p></div><span>{settingsDraft.automationEnabled ? 'Tự động áp dụng lên Google Ads' : 'Đã tắt'}</span></div>
+            <div className="sectionTitle"><div><h2>Chạy Automation</h2><p>“Chạy ngay” xử lý phạm vi đã chọn; lần chạy đầu tiên đồng thời bật lịch định kỳ. “Tắt lịch” chỉ dừng các lượt tương lai.</p></div><span>{settingsDraft.automationEnabled ? 'Lịch đang bật · tự động áp dụng lên Google Ads' : 'Lịch đang tắt'}</span></div>
             <div className="settingsGrid">
               <label><span>AI định kỳ</span><input value={settingsDraft.automationEnabled ? 'Đang bật - theo lịch' : 'Đã tắt'} disabled /></label>
               <label><span>Chế độ áp dụng</span><input value={settingsDraft.automationEnabled ? 'TỰ ĐỘNG - áp dụng trực tiếp lên Google Ads' : 'Đã tắt'} disabled /></label>
               <label><span>Lần chạy gần nhất</span><input value={formatDate(settings.schedule?.lastRunAt)} disabled /></label>
               <label><span>Lần chạy tiếp theo</span><input value={formatDate(settings.schedule?.nextRunAt)} disabled /></label>
-              <label><span>Trạng thái gần nhất</span><input value={latestAutomationRun?.status ?? 'Chưa có'} disabled /></label>
+              <label><span>Trạng thái gần nhất</span><input value={automationRunStatus(latestAutomationRun?.status)} disabled /></label>
               <label><span>Kết quả gần nhất</span><input value={latestAutomationRun ? `${latestAutomationRun.selectedCount} đã chọn / ${latestAutomationRun.appliedCount} đã áp dụng` : 'Chưa chạy'} disabled /></label>
             </div>
-            <div className="settingsActions"><span>{automationStatusText}</span><button className="primaryButton" type="button" disabled={automationRunning || automationRunInProgress || loading || !canRunPeriodicAi || (allAutomationCampaignIds.length === 0 && selectedAutomationAdGroupIds.length === 0)} onClick={() => void runAutomationNow()}><Play size={15} />{automationActionText}</button><button className="secondaryButton dangerButton" type="button" disabled={loading || automationRunning || !settingsDraft.automationEnabled || !canRunPeriodicAi} onClick={() => void stopAutomation()}><X size={15} />Tắt</button></div>
+            <div className="settingsActions"><span>{automationScopeDirty ? 'Hãy lưu phạm vi trước khi chạy để tránh dùng lựa chọn cũ.' : automationStatusText}</span><button className="primaryButton" type="button" disabled={automationScopeDirty || automationRunning || automationRunInProgress || loading || !canRunPeriodicAi || !hasAutomationTarget} onClick={() => void runAutomationNow()}><Play size={15} />{automationActionText}</button><button className="secondaryButton dangerButton" type="button" disabled={loading || automationRunning || !settingsDraft.automationEnabled || !canRunPeriodicAi} onClick={() => void stopAutomation()}><X size={15} />Tắt lịch</button></div>
           </section>
           </>
           ) : null}
