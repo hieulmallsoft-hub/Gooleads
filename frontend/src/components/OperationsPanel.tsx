@@ -105,6 +105,9 @@ type AutomationCampaignDetail = {
     status: string;
     mode: 'ALL' | 'SELECTED';
     metricsAvailable: boolean;
+    syncStatus: string | null;
+    syncCheckedAt: string | null;
+    checkedAdGroupCount: number;
     metrics: AutomationMetrics;
   };
   days: number;
@@ -114,6 +117,9 @@ type AutomationCampaignDetail = {
     status: string;
     selected: boolean;
     metricsAvailable: boolean;
+    syncStatus: string | null;
+    syncCheckedAt: string | null;
+    syncError: string | null;
     languageCode: string;
     topic: string;
     metrics: AutomationMetrics;
@@ -817,6 +823,7 @@ export function OperationsPanel({
       start.setDate(start.getDate() - 13);
       const datePart = (date: Date) => date.toISOString().slice(0, 10);
       const time = `${datePart(start)},${datePart(end)}`;
+      let metricRows = 0;
       for (const adGroup of automationCampaignDetail.adGroups) {
         const response = await request('/google-ads/sync', {
           method: 'POST',
@@ -825,9 +832,12 @@ export function OperationsPanel({
         });
         const body = await parseJsonSafe(response);
         if (!response.ok) throw new Error(errorMessage(body, `Không thể đồng bộ số liệu nhóm ${adGroup.name}`));
+        metricRows += Number(body?.adGroupMetricRows ?? 0);
       }
       await loadAutomationCampaign(automationCampaignDetail.campaign.id);
-      setNotice(`Đã đồng bộ số liệu 14 ngày cho ${automationCampaignDetail.campaign.name}.`);
+      setNotice(metricRows > 0
+        ? `Đã đồng bộ ${metricRows} dòng số liệu 14 ngày cho ${automationCampaignDetail.campaign.name}.`
+        : `Đồng bộ hoàn tất nhưng Google Ads không trả về số liệu 14 ngày cho ${automationCampaignDetail.campaign.name}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể đồng bộ số liệu hiệu suất');
     } finally {
@@ -1578,7 +1588,10 @@ export function OperationsPanel({
                 </div>
                 {!automationCampaignDetail.campaign.metricsAvailable ? (
                   <div className="automationMissingMetrics">
-                    <div><strong>Chưa có số liệu hiệu suất trong database</strong><span>Các số 0 trước đây là do chưa đồng bộ, không phải kết quả thực tế bằng 0.</span></div>
+                    <div>
+                      <strong>{automationCampaignDetail.campaign.syncStatus === 'FAILED' ? 'Đồng bộ số liệu không thành công' : automationCampaignDetail.campaign.checkedAdGroupCount > 0 ? 'Đã kiểm tra · Chưa phát sinh dữ liệu' : 'Chưa kiểm tra số liệu hiệu suất'}</strong>
+                      <span>{automationCampaignDetail.campaign.syncStatus === 'FAILED' ? 'Google Ads hoặc kết nối database đã trả lỗi. Hãy xem lỗi chi tiết rồi thử lại.' : automationCampaignDetail.campaign.checkedAdGroupCount > 0 ? `Google Ads chưa ghi nhận lượt hiển thị trong 14 ngày cho ${automationCampaignDetail.campaign.checkedAdGroupCount}/${automationCampaignDetail.adGroups.length} nhóm đã kiểm tra. Đây là trạng thái bình thường với nhóm quảng cáo mới.` : 'Chưa có lần đồng bộ 14 ngày nào cho các nhóm quảng cáo trong chiến dịch này.'}</span>
+                    </div>
                     <button className="secondaryButton" type="button" disabled={automationMetricsSyncing} onClick={() => void syncAutomationCampaignMetrics()}><RefreshCw size={15} className={automationMetricsSyncing ? 'spin' : ''} />{automationMetricsSyncing ? 'Đang đồng bộ...' : 'Đồng bộ số liệu 14 ngày'}</button>
                   </div>
                 ) : null}
@@ -1637,7 +1650,7 @@ export function OperationsPanel({
                         <small>ID {adGroup.id} · {automationEntityStatus(adGroup.status)}</small>
                       </span>
                       <span className="automationAdGroupMetrics">
-                        <small data-label="Hiển thị">{adGroup.metricsAvailable ? formatCompactNumber(adGroup.metrics.impressions) : 'Chưa đồng bộ'}</small>
+                        <small data-label="Hiển thị">{adGroup.metricsAvailable ? formatCompactNumber(adGroup.metrics.impressions) : adGroup.syncStatus === 'FAILED' ? 'Đồng bộ lỗi' : adGroup.syncCheckedAt ? 'Chưa phát sinh dữ liệu' : 'Chưa kiểm tra'}</small>
                         <small data-label="CTR">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.ctr) : '—'}</small>
                         <small data-label="Chi phí">{adGroup.metricsAvailable ? formatAutomationMoney(adGroup.metrics.cost, settings.account.currencyCode) : '—'}</small>
                         <small data-label="Giá trị CĐ / chi phí">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.roas) : '—'}</small>

@@ -1200,6 +1200,9 @@ export class CreativeOperationsService {
           COALESCE(metrics.conversions, 0)::float8 AS conversions,
           COALESCE(metrics.conversion_value, 0)::float8 AS conversion_value
           ,COALESCE(metrics.metric_days, 0)::int AS metric_days
+          ,latest_sync.status AS sync_status
+          ,latest_sync.completed_at AS sync_checked_at
+          ,latest_sync.error_message AS sync_error
         FROM ad_groups ag
         LEFT JOIN LATERAL (
           SELECT
@@ -1225,10 +1228,19 @@ export class CreativeOperationsService {
                 WHERE metric_ag.campaign_id = $1
               )
         ) metrics ON true
+        LEFT JOIN LATERAL (
+          SELECT sync.status, sync.completed_at, sync.error_message
+          FROM sync_runs sync
+          WHERE sync.account_id = $3
+            AND sync.scope = 'ASSETS'
+            AND sync.metadata ->> 'adGroupId' = ag.google_ad_group_id
+          ORDER BY sync.started_at DESC
+          LIMIT 1
+        ) latest_sync ON true
         WHERE ag.campaign_id = $1
         ORDER BY ag.name ASC
       `,
-      [campaign.id, days],
+      [campaign.id, days, account.id],
     );
     const campaignMetricRows: Array<Record<string, unknown>> =
       await this.dataSource.query(
@@ -1250,6 +1262,9 @@ export class CreativeOperationsService {
         [campaign.id, days],
       );
 
+    const checkedRows = rows.filter((row) => Boolean(row.sync_checked_at));
+    const failedRows = rows.filter((row) => String(row.sync_status ?? '') === 'FAILED');
+
     return {
       campaign: {
         id: campaign.googleCampaignId,
@@ -1257,6 +1272,11 @@ export class CreativeOperationsService {
         status: campaign.status,
         mode: campaignScope?.includeAllAdGroups ? 'ALL' : 'SELECTED',
         metricsAvailable: Number(campaignMetricRows[0]?.metric_days ?? 0) > 0,
+        syncStatus: failedRows.length ? 'FAILED' : checkedRows.length ? 'COMPLETED' : null,
+        syncCheckedAt: checkedRows.length
+          ? String(checkedRows.map((row) => row.sync_checked_at).sort().at(-1))
+          : null,
+        checkedAdGroupCount: checkedRows.length,
         metrics: this.serializeAutomationMetrics(campaignMetricRows[0] ?? {}),
       },
       days,
@@ -1268,6 +1288,9 @@ export class CreativeOperationsService {
         languageCode: scopeByAdGroupId.get(String(row.id ?? ''))?.languageCode ?? '',
         topic: scopeByAdGroupId.get(String(row.id ?? ''))?.adGroupTopic ?? '',
         metricsAvailable: Number(row.metric_days ?? 0) > 0,
+        syncStatus: row.sync_status ? String(row.sync_status) : null,
+        syncCheckedAt: row.sync_checked_at ? String(row.sync_checked_at) : null,
+        syncError: row.sync_error ? String(row.sync_error) : null,
         metrics: this.serializeAutomationMetrics(row),
       })),
     };
