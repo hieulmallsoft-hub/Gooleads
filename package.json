@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "install:all": "npm.cmd install --prefix backend && npm.cmd install --prefix frontend",
-    "build": "npm.cmd run build --prefix backend && npm.cmd run build --prefix frontend",
+    "build": "npm run build --prefix backend && npm run build --prefix frontend",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:migrate": "npm.cmd run db:migrate --prefix backend"

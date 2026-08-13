@@ -915,7 +915,7 @@ export class GoogleAdsService {
       ? this.fitGoogleAdsCopy(input.headline, 30)
       : '';
     const description = input.description
-      ? this.fitGoogleAdsCopy(input.description, 90)
+      ? this.fitGoogleAdsCopy(input.description, 60)
       : '';
     const headlineReplacementMap = this.buildTextReplacementMap(
       input.headlineReplacements,
@@ -1348,7 +1348,11 @@ export class GoogleAdsService {
       throw new BadRequestException('No LOW headline/description assets found for AI suggestions');
     }
 
-    const prompt = this.buildOpenAiTextSuggestionPrompt(candidates, {
+    const existingAdCopy = {
+      headlines: [...new Set(assetPerformance.assets.filter((asset) => asset.fieldType === 'HEADLINE' && asset.text.trim()).map((asset) => asset.text.trim()))],
+      descriptions: [...new Set(assetPerformance.assets.filter((asset) => asset.fieldType === 'DESCRIPTION' && asset.text.trim()).map((asset) => asset.text.trim()))],
+    };
+    const prompt = this.buildOpenAiTextSuggestionPrompt(candidates, existingAdCopy, {
       customerId,
       adGroupId,
       timeRange,
@@ -1520,7 +1524,7 @@ export class GoogleAdsService {
           conversionValue: 0,
           ctr: 0,
           roas: 0,
-          maxLength: fieldType === 'HEADLINE' ? 30 : 90,
+          maxLength: fieldType === 'HEADLINE' ? 30 : 60,
         };
 
       current.impressions += asset.impressions;
@@ -1552,7 +1556,7 @@ export class GoogleAdsService {
         }
 
         const replacement = this.fitGoogleAdsCopy(
-          String(suggestion.suggestion ?? ''),
+          this.sanitizeGeneratedAdCopy(String(suggestion.suggestion ?? '')),
           candidate.maxLength,
         );
         const normalizedReplacement = this.normalizeSuggestionCopy(replacement);
@@ -2540,6 +2544,7 @@ export class GoogleAdsService {
 
   private buildOpenAiTextSuggestionPrompt(
     candidates: AiTextSuggestionCandidate[],
+    existingAdCopy: { headlines: string[]; descriptions: string[] },
     context: {
       customerId: string;
       adGroupId: string;
@@ -2573,7 +2578,9 @@ export class GoogleAdsService {
       '7. Use keywords naturally. Never keyword-stuff, use all caps, repeat exclamation marks, create false urgency, or make unverifiable promises.',
       '8. A headline must communicate one clear idea and make sense on its own. A description must add useful detail and, when supported by context, end with an appropriate action.',
       '9. Do not copy the current text, rejected content, or any historical suggestion verbatim. Do not produce variants that differ only by one weak synonym.',
-      '10. Before returning each item, silently verify relevance, specificity, uniqueness, factual support, policy safety, native fluency, and character length. Rewrite any item that fails.',
+      '10. Compare every proposal with ALL existing headlines and descriptions in the ad group. It must not duplicate an existing sentence, reuse the same core message, or be a near-duplicate with only minor word changes.',
+      '11. Output ad copy using letters, language-specific diacritics, numbers, and spaces only. Do not use emojis, decorative symbols, punctuation, bullets, slashes, pipes, hashtags, currency signs, or repeated special characters.',
+      '12. Before returning each item, silently verify relevance, specificity, uniqueness, factual support, policy safety, native fluency, allowed characters, and character length. Rewrite any item that fails.',
       '',
       'LANGUAGE AND MARKET RULES:',
       `User-configured ad group language: ${context.automationLanguageCode ?? 'not configured'}. When configured, this is the REQUIRED output language for every candidate and overrides automatic detection and the language of currentText.`,
@@ -2587,7 +2594,8 @@ export class GoogleAdsService {
       '6. Use native spelling, accents, grammar, punctuation, word order, and regional vocabulary. Do not produce a literal translation from English.',
       '',
       'GOOGLE ADS AND DATA RULES:',
-      'Respect Google Ads length limits exactly: HEADLINE max 30 characters, DESCRIPTION max 90 characters.',
+      'Use the stricter product limits exactly: HEADLINE max 30 characters, DESCRIPTION max 60 characters. These limits are stricter than the Google Ads platform maximum by design.',
+      'For each LOW headline return exactly one stronger replacement headline. For each LOW description return exactly one stronger replacement description.',
       'Use active KEYWORD, BRAND_TERM, and CTA policy terms only when they fit the source language and meaning. Never use NEGATIVE_KEYWORD or PROHIBITED_CLAIM terms.',
       'Do not reuse any exact text from suggestion history. Rejected text is banned. Approved/applied text can inspire style but must not be copied exactly.',
       'Treat creative policy and term data as the only source of product facts, brand terms, offers, required wording, and prohibited wording.',
@@ -2597,6 +2605,7 @@ export class GoogleAdsService {
       '',
       `Creative policy and term database: ${JSON.stringify(guidance)}`,
       `Suggestion history to avoid: ${JSON.stringify(history)}`,
+      `All current ad group copy that new suggestions must not duplicate: ${JSON.stringify(existingAdCopy)}`,
       `Context: ${JSON.stringify(context)}`,
       `LOW-label text candidates sorted by views: ${JSON.stringify(
         candidates.map((candidate) => ({
@@ -4089,6 +4098,14 @@ export class GoogleAdsService {
     }
 
     return result || normalized.slice(0, maxLength).trim();
+  }
+
+  private sanitizeGeneratedAdCopy(value: string) {
+    return value
+      .normalize('NFC')
+      .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   private getAiProvider(featureName: string): AiProviderConfig {

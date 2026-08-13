@@ -42,7 +42,7 @@ export function TextAssetAssistant(props: Props) {
   if (!asset) return null;
   const isLow = asset.performanceLabel === 'LOW';
   const previewReady = preview?.status === 'PENDING';
-  const textLimit = asset.fieldType === 'HEADLINE' ? 30 : 90;
+  const textLimit = asset.fieldType === 'HEADLINE' ? 30 : 60;
   const manualValue = props.manualText.trim();
   const hasManualText = manualValue.length > 0 && manualValue !== asset.text.trim();
   const canPreview = mode === 'AI' ? Boolean(suggestion && props.suggestionSelected) : hasManualText;

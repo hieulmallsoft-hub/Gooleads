@@ -138,7 +138,7 @@ export class DatabaseSeedService implements OnApplicationBootstrap {
             languageStrategy: 'DETECT_FROM_ASSET',
             targetLanguage: null,
             headlineMaxLength: 30,
-            descriptionMaxLength: 90,
+            descriptionMaxLength: 60,
             approvalMode: 'MANUAL',
             reviewIntervalDays: 14,
             minimumImpressions: '0',
