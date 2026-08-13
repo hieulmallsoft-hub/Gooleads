@@ -1936,8 +1936,6 @@ export default function App() {
           open={navOpen}
           viewMode={viewMode}
           operationsSection={operationsSection}
-          assetTypeFilter={assetTypeFilter}
-          hasSelectedAdGroup={Boolean(adGroupId)}
           onClose={() => setNavOpen(false)}
           onOpenOperations={setOperationsSection}
           onOpenCampaigns={() => {
@@ -1949,16 +1947,6 @@ export default function App() {
             setOperationsSection(null);
             setSelectedCampaign(null);
             setViewMode('adGroups');
-          }}
-          onOpenAssets={(filter = 'ALL') => {
-            if (adGroupId) {
-              void openAssetsById(adGroupId, filter);
-            } else {
-              setOperationsSection(null);
-              setAssetTypeFilter(filter);
-              setViewMode('assets');
-              void loadAdGroups();
-            }
           }}
         />
 

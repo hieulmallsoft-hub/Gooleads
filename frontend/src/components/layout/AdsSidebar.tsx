@@ -5,7 +5,6 @@ import {
   Eye,
   FileText,
   BookOpen,
-  Image,
   MousePointerClick,
   Search,
   Settings,
@@ -14,32 +13,24 @@ import {
 import type { OperationsSection } from '../OperationsPanel';
 import type { ViewMode } from '../../types/googleAds';
 
-type AssetTypeFilter = 'ALL' | 'IMAGE' | 'VIDEO';
-
 type AdsSidebarProps = {
   open: boolean;
   viewMode: ViewMode;
   operationsSection: OperationsSection | null;
-  assetTypeFilter: AssetTypeFilter;
-  hasSelectedAdGroup: boolean;
   onClose: () => void;
   onOpenOperations: (section: OperationsSection) => void;
   onOpenCampaigns: () => void;
   onOpenAdGroups: () => void;
-  onOpenAssets: (filter?: AssetTypeFilter) => void;
 };
 
 export function AdsSidebar({
   open,
   viewMode,
   operationsSection,
-  assetTypeFilter,
-  hasSelectedAdGroup,
   onClose,
   onOpenOperations,
   onOpenCampaigns,
   onOpenAdGroups,
-  onOpenAssets,
 }: AdsSidebarProps) {
   const navAction = (action: () => void) => () => {
     action();
@@ -102,15 +93,6 @@ export function AdsSidebar({
           >
             <MousePointerClick size={16} />
             Nhóm quảng cáo
-          </button>
-          <button
-            type="button"
-            className={!operationsSection && viewMode === 'assets' && assetTypeFilter === 'ALL' ? 'active' : ''}
-            onClick={navAction(() => onOpenAssets('ALL'))}
-          >
-            <Image size={16} />
-            Tài nguyên
-            {!hasSelectedAdGroup ? <span className="navHint">chọn nhóm</span> : null}
           </button>
           <div className="navSectionLabel">Cấu hình</div>
           <button
