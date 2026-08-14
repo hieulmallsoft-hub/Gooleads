@@ -6,16 +6,16 @@ function service() {
   return new CreativeAutomationService({} as any, {} as any, {} as any, {} as any, {} as any) as any;
 }
 
-test('automation filters invalid/duplicate suggestions and respects max changes', () => {
+test('automation filters invalid suggestions and keeps every usable LOW replacement', () => {
   const result = service().buildReplacementInput([
     { suggestionId: 's1', fieldType: 'HEADLINE', text: 'Old', variants: [{ id: 'v1', content: { text: 'New' } }] },
     { suggestionId: 's2', fieldType: 'DESCRIPTION', text: 'Same', suggestion: 'Same' },
     { suggestionId: 's3', fieldType: 'UNKNOWN', text: 'A', suggestion: 'B' },
     { suggestionId: 's4', fieldType: 'DESCRIPTION', text: 'Long old', suggestion: 'Long new' },
-  ], 1);
+  ]);
   assert.deepEqual(result, {
     headlineReplacements: [{ oldText: 'Old', newText: 'New', suggestionId: 's1', variantId: 'v1' }],
-    descriptionReplacements: [],
+    descriptionReplacements: [{ oldText: 'Long old', newText: 'Long new', suggestionId: 's4' }],
   });
 });
 

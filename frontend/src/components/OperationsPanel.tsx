@@ -1703,17 +1703,16 @@ export function OperationsPanel({
           <section className="operationsSection">
             <div className="sectionTitle">
               <div>
-                <h2>Lịch và giới hạn</h2>
-                <p>Giới hạn số nội dung được thay trong mỗi lượt để kiểm soát rủi ro và quota.</p>
+                <h2>Lịch Automation</h2>
+                <p>Mỗi lượt chạy sẽ xử lý toàn bộ tiêu đề và mô tả mang nhãn LOW trong phạm vi đã chọn.</p>
               </div>
             </div>
             <div className="settingsGrid">
               <label><span>Chu kỳ chạy (ngày)</span><input type="number" min="1" max="365" value={settingsDraft.reviewIntervalDays} onChange={(event) => setSettingsDraft((current) => ({ ...current, reviewIntervalDays: Number(event.target.value) }))} /></label>
-              <label><span>Số thay đổi tối đa mỗi lượt</span><input type="number" min="1" max="100" value={settingsDraft.maxChangesPerRun} onChange={(event) => setSettingsDraft((current) => ({ ...current, maxChangesPerRun: Number(event.target.value) }))} /></label>
             </div>
             <div className="settingsActions">
-              <span>Cấu hình này được áp dụng cho cả Chạy ngay và các lượt chạy theo lịch.</span>
-              <button className="primaryButton" type="button" disabled={loading || !canRunPeriodicAi} onClick={() => void saveAutomationLimits()}><Save size={15} />Lưu lịch và giới hạn</button>
+              <span>Chu kỳ này áp dụng cho cả Chạy ngay và các lượt chạy theo lịch.</span>
+              <button className="primaryButton" type="button" disabled={loading || !canRunPeriodicAi} onClick={() => void saveAutomationLimits()}><Save size={15} />Lưu lịch</button>
             </div>
           </section>
           <section className="operationsSection">

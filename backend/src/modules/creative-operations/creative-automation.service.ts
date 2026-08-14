@@ -198,12 +198,6 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         now,
       );
       const targets = await this.getAutomationTargets(policy, timeRange, options.accountIds);
-      const maxChanges = Math.max(
-        options.maxChangesOverride ?? policy.maxChangesPerRun,
-        1,
-      );
-      let remainingChanges = maxChanges;
-
       if (!targets.length) {
         await this.saveRunItem(run.id, 'SKIPPED', 'No enabled ad groups found for this policy');
       }
@@ -222,24 +216,13 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         }
         run.lastHeartbeatAt = new Date();
         await runRepository.save(run);
-        if (remainingChanges <= 0) {
-          await this.saveRunItem(
-            run.id,
-            'SKIPPED',
-            `Run reached the max change limit (${maxChanges}); remaining ad groups were not processed`,
-          );
-          break;
-        }
-
         try {
-          const result = await this.runAdGroupAutomation(
+          await this.runAdGroupAutomation(
             run,
             policy,
             target,
             timeRange,
-            remainingChanges,
           );
-          remainingChanges -= result.selectedCount;
         } catch (error) {
           const isEmptyTarget = this.isEmptyAutomationTargetError(error);
           if (!isEmptyTarget) {
@@ -317,7 +300,6 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     policy: CreativePolicyEntity,
     target: AutomationTarget,
     timeRange: string,
-    maxChanges: number,
   ) {
     await this.googleAdsSyncService.sync(target.customerId, target.adGroupId, timeRange);
     if (!(await this.isTargetStillEnabled(target))) {
@@ -349,7 +331,6 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
 
     const replacements = this.buildReplacementInput(
       Array.isArray(saved.suggestions) ? (saved.suggestions as SavedTextSuggestion[]) : [],
-      maxChanges,
     );
     const selectedCount =
       replacements.headlineReplacements.length + replacements.descriptionReplacements.length;
@@ -454,15 +435,11 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     return { selectedCount };
   }
 
-  private buildReplacementInput(suggestions: SavedTextSuggestion[], maxChanges: number) {
+  private buildReplacementInput(suggestions: SavedTextSuggestion[]) {
     const headlineReplacements: TextReplacement[] = [];
     const descriptionReplacements: TextReplacement[] = [];
 
     for (const suggestion of suggestions) {
-      if (headlineReplacements.length + descriptionReplacements.length >= maxChanges) {
-        break;
-      }
-
       const fieldType = String(suggestion.fieldType ?? '').toUpperCase();
       if (fieldType !== 'HEADLINE' && fieldType !== 'DESCRIPTION') {
         continue;
