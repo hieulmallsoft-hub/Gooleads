@@ -1431,16 +1431,9 @@ export class GoogleAdsService {
         adGroupTopic: savedAdGroupContext?.topic ?? null,
       };
     } catch (error) {
-      return this.buildFallbackTextSuggestions(candidates, {
-        model: `${aiProvider.model} fallback`,
-        source: aiProvider.source,
-        adGroupId,
-        timeRange,
-        targetLanguageCode: configuredLanguage?.code ?? adGroupFallbackLanguage.code,
-        targetLanguageName: configuredLanguage?.name ?? adGroupFallbackLanguage.name,
-        languageSource: configuredLanguage ? 'AD_GROUP_CONFIG' : 'DETECTED',
-        adGroupTopic: savedAdGroupContext?.topic ?? null,
-      });
+      throw new InternalServerErrorException(
+        'AI chưa tạo được gợi ý hợp lệ, đúng ngôn ngữ và đúng giới hạn Google Ads. Vui lòng kiểm tra ngôn ngữ và nội dung ứng dụng của nhóm quảng cáo rồi tạo lại.',
+      );
     }
   }
 
@@ -1555,9 +1548,9 @@ export class GoogleAdsService {
           return null;
         }
 
-        const replacement = this.fitGoogleAdsCopy(
-          this.sanitizeGeneratedAdCopy(String(suggestion.suggestion ?? '')),
-          candidate.maxLength,
+        const replacement = this.sanitizeGeneratedAdCopy(
+          String(suggestion.suggestion ?? ''),
+          candidate.fieldType,
         );
         const normalizedReplacement = this.normalizeSuggestionCopy(replacement);
         const normalizedCurrent = this.normalizeSuggestionCopy(candidate.text);
@@ -1568,13 +1561,17 @@ export class GoogleAdsService {
 
         if (
           !replacement ||
+          replacement.length > candidate.maxLength ||
+          !this.isGeneratedAdCopyEditoriallySafe(replacement) ||
           normalizedReplacement === normalizedCurrent
         ) {
           return null;
         }
 
+        // A rejected AI result must never be replaced with generic copy from an
+        // unrelated product. Omitting it is safer than applying the wrong copy.
         const finalReplacement = languageMismatch || usedSuggestions.has(normalizedReplacement)
-          ? this.buildFallbackCopySuggestion(candidate, usedSuggestions)
+          ? ''
           : replacement;
         const normalizedFinalReplacement = this.normalizeSuggestionCopy(finalReplacement);
 
@@ -2579,8 +2576,10 @@ export class GoogleAdsService {
       '8. A headline must communicate one clear idea and make sense on its own. A description must add useful detail and, when supported by context, end with an appropriate action.',
       '9. Do not copy the current text, rejected content, or any historical suggestion verbatim. Do not produce variants that differ only by one weak synonym.',
       '10. Compare every proposal with ALL existing headlines and descriptions in the ad group. It must not duplicate an existing sentence, reuse the same core message, or be a near-duplicate with only minor word changes.',
-      '11. Output ad copy using letters, language-specific diacritics, numbers, and spaces only. Do not use emojis, decorative symbols, punctuation, bullets, slashes, pipes, hashtags, currency signs, or repeated special characters.',
-      '12. Before returning each item, silently verify relevance, specificity, uniqueness, factual support, policy safety, native fluency, allowed characters, and character length. Rewrite any item that fails.',
+      '11. Follow Google Ads editorial rules: no gimmicky capitalization, repeated words, repeated or unnecessary punctuation, emojis, decorative symbols, phone numbers used as ad copy, misleading claims, clickbait, or attempts to bypass review.',
+      '12. Headlines may use letters, native diacritics, numbers, spaces, and only necessary language-appropriate punctuation. Descriptions may use normal sentence punctuation. Never use decorative symbols, bullets, pipes, hashtags, emoji, or repeated punctuation.',
+      '13. Text must be clear, professional, grammatically correct, understandable on its own, and relevant to the destination app. Do not use vague fragments, excessive spacing, or an unsupported call to action.',
+      '14. Before returning each item, silently verify relevance, specificity, uniqueness, factual support, policy safety, native fluency, allowed characters, and character length. Rewrite any item that fails.',
       '',
       'LANGUAGE AND MARKET RULES:',
       `User-configured ad group language: ${context.automationLanguageCode ?? 'not configured'}. When configured, this is the REQUIRED output language for every candidate and overrides automatic detection and the language of currentText.`,
@@ -2598,7 +2597,9 @@ export class GoogleAdsService {
       'For each LOW headline return exactly one stronger replacement headline. For each LOW description return exactly one stronger replacement description.',
       'Use active KEYWORD, BRAND_TERM, and CTA policy terms only when they fit the source language and meaning. Never use NEGATIVE_KEYWORD or PROHIBITED_CLAIM terms.',
       'Do not reuse any exact text from suggestion history. Rejected text is banned. Approved/applied text can inspire style but must not be copied exactly.',
-      'Treat creative policy and term data as the only source of product facts, brand terms, offers, required wording, and prohibited wording.',
+      'Treat the user-configured ad group topic, current ad group copy, creative policy, and term data as the only sources of product facts, brand terms, offers, required wording, and prohibited wording.',
+      'The user-configured topic may be written in Vietnamese. Use it only as factual product context; do not copy its language. Output must still use the required ad group language.',
+      'If supplied context is insufficient, write a conservative benefit based only on current copy. Never guess the app category or borrow facts from another product.',
       'Use performance metrics only to understand priority and weakness; never turn those metrics into an advertising claim.',
       'For rationale, briefly state the customer-focused angle and why it is stronger than the current text. Do not claim that performance is guaranteed.',
       'For summary, keep headline and approach under 8 words.',
@@ -4100,12 +4101,45 @@ export class GoogleAdsService {
     return result || normalized.slice(0, maxLength).trim();
   }
 
-  private sanitizeGeneratedAdCopy(value: string) {
+  private sanitizeGeneratedAdCopy(
+    value: string,
+    fieldType: 'HEADLINE' | 'DESCRIPTION' = 'HEADLINE',
+  ) {
+    const allowedPunctuation = fieldType === 'DESCRIPTION'
+      ? /[^\p{L}\p{M}\p{N}\s.,!?;:'’()\-]/gu
+      : /[^\p{L}\p{M}\p{N}\s'’\-]/gu;
+
     return value
       .normalize('NFC')
-      .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ')
+      .replace(allowedPunctuation, ' ')
+      .replace(/([!?.,;:])\1+/g, '$1')
+      .replace(/\s+([.,!?;:])/g, '$1')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  private isGeneratedAdCopyEditoriallySafe(value: string) {
+    const words = value.match(/[\p{L}\p{M}\p{N}]+/gu) ?? [];
+    const casedWords = words.filter((word) => /\p{L}/u.test(word) && word.length >= 3);
+    const allCapsWords = casedWords.filter(
+      (word) => word === word.toLocaleUpperCase() && word !== word.toLocaleLowerCase(),
+    );
+
+    if (casedWords.length >= 2 && allCapsWords.length / casedWords.length > 0.5) {
+      return false;
+    }
+
+    if (/\b([\p{L}\p{M}\p{N}]{2,})\s+\1\b/iu.test(value)) {
+      return false;
+    }
+
+    // Phone numbers in creative text are commonly disallowed editorial content;
+    // ordinary years and short product model numbers remain valid.
+    if (/(?:\d[\s().-]*){7,}/u.test(value)) {
+      return false;
+    }
+
+    return true;
   }
 
   private getAiProvider(featureName: string): AiProviderConfig {
