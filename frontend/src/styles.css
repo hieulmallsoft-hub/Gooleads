@@ -3989,6 +3989,7 @@ tbody tr:hover td:first-child {
 .automationCampaignDetailActions { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px -18px -18px; padding: 12px 18px; border-top: 1px solid var(--border); background: rgba(255,255,255,.98); box-shadow: 0 -6px 18px rgba(15,23,42,.06); }
 .automationCampaignDetailActions span { color: var(--text-3); font-size: 12px; font-weight: 650; }
 .automationMissingMetrics { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 12px 0; padding: 12px 14px; border: 1px solid #f3cf75; border-left: 4px solid #d68b00; border-radius: 9px; background: #fffbeb; }
+.automationMissingMetrics.synced { border-color: #bfdbfe; border-left-color: var(--blue-600); background: #eff6ff; }
 .automationMissingMetrics > div { display: grid; gap: 3px; }
 .automationMissingMetrics strong { font-size: 13px; }
 .automationMissingMetrics span { color: #795500; font-size: 12px; }

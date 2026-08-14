@@ -1586,15 +1586,13 @@ export function OperationsPanel({
                   <div><span>Chuyển đổi</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatCompactNumber(automationCampaignDetail.campaign.metrics.conversions) : '—'}</strong></div>
                   <div><span>Giá trị CĐ / chi phí</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatAutomationPercent(automationCampaignDetail.campaign.metrics.roas) : '—'}</strong></div>
                 </div>
-                {!automationCampaignDetail.campaign.metricsAvailable ? (
-                  <div className="automationMissingMetrics">
+                <div className={`automationMissingMetrics${automationCampaignDetail.campaign.metricsAvailable ? ' synced' : ''}`}>
                     <div>
-                      <strong>{automationCampaignDetail.campaign.syncStatus === 'FAILED' ? 'Đồng bộ số liệu không thành công' : automationCampaignDetail.campaign.checkedAdGroupCount > 0 ? 'Đã kiểm tra · Chưa phát sinh dữ liệu' : 'Chưa kiểm tra số liệu hiệu suất'}</strong>
-                      <span>{automationCampaignDetail.campaign.syncStatus === 'FAILED' ? 'Google Ads hoặc kết nối database đã trả lỗi. Hãy xem lỗi chi tiết rồi thử lại.' : automationCampaignDetail.campaign.checkedAdGroupCount > 0 ? `Google Ads chưa ghi nhận lượt hiển thị trong 14 ngày cho ${automationCampaignDetail.campaign.checkedAdGroupCount}/${automationCampaignDetail.adGroups.length} nhóm đã kiểm tra. Đây là trạng thái bình thường với nhóm quảng cáo mới.` : 'Chưa có lần đồng bộ 14 ngày nào cho các nhóm quảng cáo trong chiến dịch này.'}</span>
+                      <strong>{automationCampaignDetail.campaign.syncStatus === 'FAILED' ? 'Đồng bộ số liệu không thành công' : automationCampaignDetail.campaign.metricsAvailable ? 'Số liệu hiệu suất 14 ngày' : automationCampaignDetail.campaign.checkedAdGroupCount > 0 ? 'Đã kiểm tra · Chưa phát sinh dữ liệu' : 'Chưa kiểm tra số liệu hiệu suất'}</strong>
+                      <span>{automationCampaignDetail.campaign.syncStatus === 'FAILED' ? 'Google Ads hoặc kết nối database đã trả lỗi. Hãy xem lỗi chi tiết rồi thử lại.' : automationCampaignDetail.campaign.metricsAvailable ? 'Bấm đồng bộ để lấy số liệu mới nhất cho tất cả nhóm quảng cáo trong chiến dịch.' : automationCampaignDetail.campaign.checkedAdGroupCount > 0 ? `Google Ads chưa ghi nhận lượt hiển thị trong 14 ngày cho ${automationCampaignDetail.campaign.checkedAdGroupCount}/${automationCampaignDetail.adGroups.length} nhóm đã kiểm tra. Đây là trạng thái bình thường với nhóm quảng cáo mới.` : 'Chưa có lần đồng bộ 14 ngày nào cho các nhóm quảng cáo trong chiến dịch này.'}</span>
                     </div>
                     <button className="secondaryButton" type="button" disabled={automationMetricsSyncing} onClick={() => void syncAutomationCampaignMetrics()}><RefreshCw size={15} className={automationMetricsSyncing ? 'spin' : ''} />{automationMetricsSyncing ? 'Đang đồng bộ...' : 'Đồng bộ số liệu 14 ngày'}</button>
-                  </div>
-                ) : null}
+                </div>
                 <div className="automationCampaignMode" role="radiogroup" aria-label="Phạm vi chạy của chiến dịch">
                   <label aria-label="Chạy toàn bộ chiến dịch">
                     <input
