@@ -134,7 +134,6 @@ function normalizeStoredOperationsSection(value: unknown): OperationsSection | n
   if (
     value === 'overview' ||
     value === 'impact' ||
-    value === 'keywords' ||
     value === 'settings'
     || value === 'guide'
   ) {

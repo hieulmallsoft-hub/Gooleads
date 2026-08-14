@@ -6,7 +6,6 @@ import {
   FileText,
   BookOpen,
   MousePointerClick,
-  Search,
   Settings,
   X,
 } from 'lucide-react';
@@ -95,14 +94,6 @@ export function AdsSidebar({
             Nhóm quảng cáo
           </button>
           <div className="navSectionLabel">Cấu hình</div>
-          <button
-            type="button"
-            className={operationsSection === 'keywords' ? 'active' : ''}
-            onClick={navAction(() => onOpenOperations('keywords'))}
-          >
-            <Search size={16} />
-            Từ khóa và quy tắc
-          </button>
           <button
             type="button"
             className={operationsSection === 'settings' ? 'active' : ''}
