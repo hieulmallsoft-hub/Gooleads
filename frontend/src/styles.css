@@ -3465,6 +3465,26 @@ tbody tr:hover td:first-child {
   border: 1px solid var(--red-border);
 }
 
+.performanceLabel {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border-radius: 99px;
+  padding: 4px 10px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.performanceLabel.low {
+  color: #dc2626;
+  background: var(--red-bg);
+  border-color: var(--red-border);
+}
+
 .roas-bar-wrap {
   flex: 1;
   min-width: 50px;

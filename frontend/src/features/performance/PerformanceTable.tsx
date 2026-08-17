@@ -9,7 +9,6 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import {
-  assessmentClass,
   formatNumber,
   formatPercent,
   roasClass,
@@ -69,7 +68,7 @@ type PerformanceTableProps = {
   onOpenTextAssistant: (asset: Asset, translateOnly?: boolean) => void;
 };
 
-type AssetStaticColumnKey = 'ctr' | 'label' | 'assessment' | 'action';
+type AssetStaticColumnKey = 'ctr' | 'label' | 'action';
 type AssetVisibleColumnKey = AssetSortKey | AssetStaticColumnKey;
 
 const rowsPerPageOptions = [10, 25, 50, 100];
@@ -128,7 +127,6 @@ const assetColumns: { key: AssetSortKey; label: string }[] = [
 const assetStaticColumns: { key: AssetStaticColumnKey; label: string }[] = [
   { key: 'ctr', label: 'CTR' },
   { key: 'label', label: 'Nhãn' },
-  { key: 'assessment', label: 'Đánh giá' },
   { key: 'action', label: 'Hành động' },
 ];
 
@@ -139,7 +137,6 @@ const defaultAssetColumnKeys: AssetVisibleColumnKey[] = [
   'cost',
   'roas',
   'label',
-  'assessment',
   'action',
 ];
 
@@ -295,14 +292,10 @@ export function PerformanceTable(props: PerformanceTableProps) {
     switch (key) {
       case 'ctr':
         return formatPercent(asset.ctr);
-      case 'label':
-        return asset.performanceLabel || '-';
-      case 'assessment':
-        return (
-          <span className={`assessment ${assessmentClass(asset.assessment)}`}>
-            {asset.assessment || '-'}
-          </span>
-        );
+      case 'label': {
+        const label = (asset.performanceLabel || 'UNKNOWN').toUpperCase();
+        return <span className={`performanceLabel ${label === 'LOW' ? 'low' : ''}`}>{label}</span>;
+      }
       case 'action':
         return asset.action || '-';
       default:
@@ -412,7 +405,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                       <td key={column.key}>{renderAssetSortableCell(asset, column.key, currencyCode)}</td>
                     ))}
                     {visibleStaticAssetColumns.map((column) => (
-                      <td key={column.key} title={column.key === 'assessment' || column.key === 'action' ? asset.reason : undefined}>
+                      <td key={column.key} title={column.key === 'action' ? asset.reason : undefined}>
                         {renderAssetStaticCell(asset, column.key)}
                       </td>
                     ))}
