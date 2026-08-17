@@ -481,6 +481,8 @@ export function ChangeImpactPanel({
         <button
           type="button"
           role="tab"
+          id="change-impact-tab"
+          aria-controls="change-impact-panel"
           aria-selected={tab === 'impact'}
           className={tab === 'impact' ? 'active' : ''}
           onClick={() => setTab('impact')}
@@ -490,6 +492,8 @@ export function ChangeImpactPanel({
         <button
           type="button"
           role="tab"
+          id="change-history-tab"
+          aria-controls="change-history-panel"
           aria-selected={tab === 'history'}
           className={tab === 'history' ? 'active' : ''}
           onClick={() => setTab('history')}
@@ -497,9 +501,15 @@ export function ChangeImpactPanel({
           Lịch sử thay đổi
         </button>
       </div>
-      {tab === 'impact'
-        ? <PerformanceAfterChanges customerId={customerId} />
-        : <ChangeHistoryPanel customerId={customerId} focusedChangeRequestId={focusedChangeRequestId} />}
+      {tab === 'impact' ? (
+        <div id="change-impact-panel" role="tabpanel" aria-labelledby="change-impact-tab">
+          <PerformanceAfterChanges customerId={customerId} />
+        </div>
+      ) : (
+        <div id="change-history-panel" role="tabpanel" aria-labelledby="change-history-tab">
+          <ChangeHistoryPanel customerId={customerId} focusedChangeRequestId={focusedChangeRequestId} />
+        </div>
+      )}
     </div>
   );
 }

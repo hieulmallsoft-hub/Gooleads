@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { parseJsonSafe } from '../api/client';
+import { extractApiError, parseJsonSafe } from '../api/client';
 import { COMMON_LANGUAGE_OPTIONS, getLanguageLabel, LANGUAGE_OPTIONS, OTHER_LANGUAGE_OPTIONS } from '../config/languages';
 import type { AuthUser, Campaign } from '../types/googleAds';
 
@@ -228,9 +228,7 @@ const SCOPE_OPTIONS = [
 ] as const;
 
 function errorMessage(body: any, fallback: string) {
-  if (typeof body?.message === 'string') return body.message;
-  if (Array.isArray(body?.message)) return body.message.join(', ');
-  return fallback;
+  return extractApiError(body, fallback);
 }
 
 function formatDate(value: string | null | undefined) {
@@ -355,6 +353,22 @@ export function OperationsPanel({
   const [automationAdGroupConfigs, setAutomationAdGroupConfigs] = useState<Record<string, { languageCode: string; topic: string }>>({});
   const [automationCampaignLoadingId, setAutomationCampaignLoadingId] =
     useState('');
+
+  useEffect(() => {
+    if (!automationAddOpen && !automationCampaignDetail) return undefined;
+
+    const closeTopLayer = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (automationCampaignDetail) {
+        setAutomationCampaignDetail(null);
+      } else {
+        setAutomationAddOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', closeTopLayer);
+    return () => window.removeEventListener('keydown', closeTopLayer);
+  }, [automationAddOpen, automationCampaignDetail]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [selectedAccessUserId, setSelectedAccessUserId] = useState('');
   const [accountAccessAllowed, setAccountAccessAllowed] = useState(false);
@@ -526,7 +540,7 @@ export function OperationsPanel({
           setError(err instanceof Error ? err.message : 'Không thể làm mới tổng quan');
         });
       }
-    }, 30_000);
+    }, 5 * 60_000);
 
     return () => window.clearInterval(timer);
   }, [section, customerId]);
@@ -1584,7 +1598,7 @@ export function OperationsPanel({
                   <div><span>CTR</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatAutomationPercent(automationCampaignDetail.campaign.metrics.ctr) : '—'}</strong></div>
                   <div><span>Chi phí</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatAutomationMoney(automationCampaignDetail.campaign.metrics.cost, settings.account.currencyCode) : '—'}</strong></div>
                   <div><span>Chuyển đổi</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatCompactNumber(automationCampaignDetail.campaign.metrics.conversions) : '—'}</strong></div>
-                  <div><span>Giá trị CĐ / chi phí</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatAutomationPercent(automationCampaignDetail.campaign.metrics.roas) : '—'}</strong></div>
+                  <div title="Giá trị chuyển đổi chia cho chi phí quảng cáo"><span>ROAS</span><strong>{automationCampaignDetail.campaign.metricsAvailable ? formatAutomationPercent(automationCampaignDetail.campaign.metrics.roas) : '—'}</strong></div>
                 </div>
                 <div className={`automationMissingMetrics${automationCampaignDetail.campaign.metricsAvailable ? ' synced' : ''}`}>
                     <div>
@@ -1622,7 +1636,7 @@ export function OperationsPanel({
                     <strong>Hiển thị</strong>
                     <strong>CTR</strong>
                     <strong>Chi phí</strong>
-                    <strong>Giá trị CĐ / chi phí</strong>
+                    <strong title="Giá trị chuyển đổi chia cho chi phí quảng cáo">ROAS</strong>
                   </div>
                   {automationCampaignDetail.adGroups.map((adGroup) => {
                     const targeted = allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id);
@@ -1651,7 +1665,7 @@ export function OperationsPanel({
                         <small data-label="Hiển thị">{adGroup.metricsAvailable ? formatCompactNumber(adGroup.metrics.impressions) : adGroup.syncStatus === 'FAILED' ? 'Đồng bộ lỗi' : adGroup.syncCheckedAt ? 'Chưa phát sinh dữ liệu' : 'Chưa kiểm tra'}</small>
                         <small data-label="CTR">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.ctr) : '—'}</small>
                         <small data-label="Chi phí">{adGroup.metricsAvailable ? formatAutomationMoney(adGroup.metrics.cost, settings.account.currencyCode) : '—'}</small>
-                        <small data-label="Giá trị CĐ / chi phí">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.roas) : '—'}</small>
+                        <small data-label="ROAS">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.roas) : '—'}</small>
                       </span>
                       {targeted ? <div className="automationAdGroupContext">
                         <label><span>Ngôn ngữ AI phải sử dụng</span><select value={config.languageCode} onChange={(event) => setAutomationAdGroupConfigs((current) => ({ ...current, [adGroup.id]: { ...config, languageCode: event.target.value } }))}><option value="">Chọn theo tên ngôn ngữ hoặc quốc gia</option><optgroup label="Ngôn ngữ thường dùng">{COMMON_LANGUAGE_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</optgroup><optgroup label="Ngôn ngữ khác">{OTHER_LANGUAGE_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</optgroup></select></label>

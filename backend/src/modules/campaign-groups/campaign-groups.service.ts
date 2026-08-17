@@ -149,7 +149,7 @@ export class CampaignGroupsService {
   private assertCustomerAccess(user: AuthenticatedUser, customerId: string) {
     if (user.role === 'ADMIN') return;
     if (!user.accountAccess.some((access) => access.customerId === customerId)) {
-      throw new ForbiddenException('You do not have access to this Google Ads customer');
+      throw new ForbiddenException(`Bạn không có quyền truy cập tài khoản Google Ads ${customerId}`);
     }
   }
 

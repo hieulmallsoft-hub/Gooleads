@@ -1,3 +1,15 @@
+export type DailyMetric = {
+  date: string;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+  conversionValue: number;
+  ctr: number;
+  roas: number;
+  costPerConversion: number;
+};
+
 export type Campaign = {
   id: string;
   name: string;
@@ -9,6 +21,7 @@ export type Campaign = {
   conversions: number;
   conversionValue: number;
   roas: number;
+  dailyMetrics?: DailyMetric[];
 };
 
 export type AppRole = 'ADMIN' | 'EDITOR' | 'VIEWER';
@@ -33,12 +46,14 @@ export type AuthMeResponse = {
 export type CampaignResponse = {
   campaigns: Campaign[];
   timeRange: string;
+  currencyCode?: string | null;
   totalCost: number;
   totalClicks: number;
   totalConversions: number;
   totalImpressions: number;
   avgCtr: number;
   avgRoas: number;
+  dailyMetrics?: DailyMetric[];
 };
 
 export type AdGroup = {
@@ -54,17 +69,20 @@ export type AdGroup = {
   conversions: number;
   conversionValue: number;
   roas: number;
+  dailyMetrics?: DailyMetric[];
 };
 
 export type AdGroupResponse = {
   adGroups: AdGroup[];
   timeRange: string;
+  currencyCode?: string | null;
   totalCost: number;
   totalClicks: number;
   totalConversions: number;
   totalImpressions: number;
   avgCtr: number;
   avgRoas: number;
+  dailyMetrics?: DailyMetric[];
 };
 
 export type Asset = {
@@ -98,12 +116,14 @@ export type AssetResponse = {
   assets: Asset[];
   adGroupId: string;
   timeRange: string;
+  currencyCode?: string | null;
   totalCost: number;
   totalClicks: number;
   totalConversions: number;
   totalImpressions: number;
   avgCtr: number;
   avgRoas: number;
+  dailyMetrics?: DailyMetric[];
 };
 
 export type ReplaceLowAssetsResponse = {

@@ -39,6 +39,15 @@ export function TextAssetAssistant(props: Props) {
     setMode(asset?.performanceLabel === 'LOW' ? 'AI' : 'MANUAL');
   }, [asset?.id, asset?.fieldType, asset?.text, asset?.performanceLabel]);
 
+  useEffect(() => {
+    if (!asset) return undefined;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') props.onClose();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [asset, props.onClose]);
+
   if (!asset) return null;
   const isLow = asset.performanceLabel === 'LOW';
   const previewReady = preview?.status === 'PENDING';
@@ -59,7 +68,7 @@ export function TextAssetAssistant(props: Props) {
       <section className="textAssistant" role="dialog" aria-modal="true" aria-label="Trợ lý chỉnh sửa nội dung" onMouseDown={(event) => event.stopPropagation()}>
         <header className="textAssistantHeader">
           <div>
-            <span>{asset.fieldType === 'HEADLINE' ? 'Tiêu đề hiệu quả thấp' : 'Mô tả hiệu quả thấp'}</span>
+            <span>{asset.fieldType === 'HEADLINE' ? 'Tiêu đề quảng cáo' : 'Mô tả quảng cáo'} · {asset.performanceLabel || 'Chưa có nhãn'}</span>
             <h2>Chỉnh sửa nội dung</h2>
           </div>
           <button className="iconButton" type="button" onClick={props.onClose} aria-label="Đóng"><X size={18} /></button>

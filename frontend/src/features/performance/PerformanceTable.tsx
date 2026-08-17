@@ -74,6 +74,14 @@ type AssetVisibleColumnKey = AssetSortKey | AssetStaticColumnKey;
 
 const rowsPerPageOptions = [10, 25, 50, 100];
 
+function formatMoney(value: number, currencyCode: string) {
+  const amount = new Intl.NumberFormat('vi-VN', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(value ?? 0);
+  return `${amount} ${currencyCode}`;
+}
+
 const campaignColumns: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'Chiến dịch' },
   { key: 'id', label: 'ID' },
@@ -83,7 +91,7 @@ const campaignColumns: { key: SortKey; label: string }[] = [
   { key: 'ctr', label: 'CTR' },
   { key: 'cost', label: 'Chi phí' },
   { key: 'conversionValue', label: 'Giá trị chuyển đổi' },
-  { key: 'roas', label: 'Giá trị CĐ / chi phí' },
+  { key: 'roas', label: 'ROAS' },
 ];
 
 const googleStatusLabel: Record<string, string> = {
@@ -102,7 +110,7 @@ const adGroupColumns: { key: AdGroupSortKey; label: string }[] = [
   { key: 'ctr', label: 'CTR' },
   { key: 'cost', label: 'Chi phí' },
   { key: 'conversionValue', label: 'Giá trị chuyển đổi' },
-  { key: 'roas', label: 'Giá trị CĐ / chi phí' },
+  { key: 'roas', label: 'ROAS' },
 ];
 
 const assetColumns: { key: AssetSortKey; label: string }[] = [
@@ -113,7 +121,7 @@ const assetColumns: { key: AssetSortKey; label: string }[] = [
   { key: 'cost', label: 'Chi phí' },
   { key: 'conversions', label: 'Chuyển đổi' },
   { key: 'conversionValue', label: 'Giá trị chuyển đổi' },
-  { key: 'roas', label: 'Giá trị CĐ / chi phí' },
+  { key: 'roas', label: 'ROAS' },
   { key: 'score', label: 'Điểm' },
 ];
 
@@ -125,8 +133,14 @@ const assetStaticColumns: { key: AssetStaticColumnKey; label: string }[] = [
 ];
 
 const defaultAssetColumnKeys: AssetVisibleColumnKey[] = [
-  ...assetColumns.map((column) => column.key),
-  ...assetStaticColumns.map((column) => column.key),
+  'fieldType',
+  'impressions',
+  'clicks',
+  'cost',
+  'roas',
+  'label',
+  'assessment',
+  'action',
 ];
 
 function SortHeader<T extends string>({
@@ -142,15 +156,20 @@ function SortHeader<T extends string>({
 }) {
   return (
     <th
-      className={activeKey === column.key ? 'sorted' : ''}
-      onClick={() => onSort(column.key)}
+      className={`sortableHeader${activeKey === column.key ? ' sorted' : ''}`}
+      aria-sort={activeKey === column.key ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
-      <span className="sort-indicator">
+      <button
+        className="sort-indicator sort-header-button"
+        type="button"
+        onClick={() => onSort(column.key)}
+        aria-label={`Sắp xếp theo ${column.label}`}
+      >
         {column.label}
         {activeKey === column.key && direction === 'asc'
           ? <ArrowUp size={12} className="sort-icon" />
           : <ArrowDown size={12} className="sort-icon" />}
-      </span>
+      </button>
     </th>
   );
 }
@@ -170,7 +189,7 @@ function EmptyTableState({
   );
 }
 
-function renderAssetSortableCell(asset: Asset, key: AssetSortKey) {
+function renderAssetSortableCell(asset: Asset, key: AssetSortKey, currencyCode: string) {
   switch (key) {
     case 'fieldType':
       return asset.fieldType || '-';
@@ -181,11 +200,11 @@ function renderAssetSortableCell(asset: Asset, key: AssetSortKey) {
     case 'clicks':
       return formatNumber(asset.clicks);
     case 'cost':
-      return formatNumber(asset.cost);
+      return formatMoney(asset.cost, currencyCode);
     case 'conversions':
       return formatNumber(asset.conversions);
     case 'conversionValue':
-      return formatNumber(asset.conversionValue);
+      return formatMoney(asset.conversionValue, currencyCode);
     case 'roas':
       return <span className={`roas ${roasClass(asset.roas)}`}>{formatPercent(asset.roas)}</span>;
     case 'score':
@@ -236,6 +255,18 @@ export function PerformanceTable(props: PerformanceTableProps) {
     onOpenTextAssistant,
   } = props;
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const currencyCode = (
+    viewMode === 'assets'
+      ? assetData?.currencyCode
+      : viewMode === 'adGroups'
+        ? adGroupData?.currencyCode
+        : campaignData?.currencyCode
+  ) || 'USD';
+  const columnLabel = (column: { key: string; label: string }) => {
+    if (column.key === 'cost') return `Chi phí (${currencyCode})`;
+    if (column.key === 'conversionValue') return `Giá trị chuyển đổi (${currencyCode})`;
+    return column.label;
+  };
   const [visibleAssetColumnKeys, setVisibleAssetColumnKeys] = useState<AssetVisibleColumnKey[]>(
     defaultAssetColumnKeys,
   );
@@ -329,7 +360,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                         checked={visibleAssetColumnSet.has(column.key)}
                         onChange={() => toggleAssetColumn(column.key)}
                       />
-                      {column.label}
+                      {columnLabel(column)}
                     </label>
                   ))}
                 </div>
@@ -351,7 +382,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                 {visibleSortableAssetColumns.map((column) => (
                   <SortHeader
                     key={column.key}
-                    column={column}
+                    column={{ ...column, label: columnLabel(column) }}
                     activeKey={assetSortKey}
                     direction={assetSortDir}
                     onSort={onAssetSort}
@@ -372,15 +403,13 @@ export function PerformanceTable(props: PerformanceTableProps) {
                         {asset.type === 'TEXT' && asset.text ? (
                           <span className="assetInlineActions">
                             <button type="button" className="assetMiniButton" onClick={() => onOpenTextAssistant(asset, true)} title="Dịch nghĩa"><Languages size={13} /></button>
-                            {asset.performanceLabel === 'LOW' ? (
-                              <button type="button" className="assetMiniButton edit" onClick={() => onOpenTextAssistant(asset)} title="Gợi ý sửa bằng AI"><Pencil size={13} /></button>
-                            ) : null}
+                            <button type="button" className="assetMiniButton edit" onClick={() => onOpenTextAssistant(asset)} title={asset.performanceLabel === 'LOW' ? 'Sửa nội dung hoặc dùng gợi ý AI' : 'Sửa nội dung thủ công'}><Pencil size={13} /></button>
                           </span>
                         ) : null}
                       </div>
                     </td>
                     {visibleSortableAssetColumns.map((column) => (
-                      <td key={column.key}>{renderAssetSortableCell(asset, column.key)}</td>
+                      <td key={column.key}>{renderAssetSortableCell(asset, column.key, currencyCode)}</td>
                     ))}
                     {visibleStaticAssetColumns.map((column) => (
                       <td key={column.key} title={column.key === 'assessment' || column.key === 'action' ? asset.reason : undefined}>
@@ -426,7 +455,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                 {adGroupColumns.map((column) => (
                   <SortHeader
                     key={column.key}
-                    column={column}
+                    column={{ ...column, label: columnLabel(column) }}
                     activeKey={adGroupSortKey}
                     direction={adGroupSortDir}
                     onSort={onAdGroupSort}
@@ -466,9 +495,9 @@ export function PerformanceTable(props: PerformanceTableProps) {
                   <td>{formatNumber(adGroup.impressions ?? 0)}</td>
                   <td>{formatNumber(adGroup.clicks ?? 0)}</td>
                   <td>{formatPercent(adGroup.ctr ?? 0)}</td>
-                  <td>{formatNumber(adGroup.cost)}</td>
-                  <td>{formatNumber(adGroup.conversionValue)}</td>
-                  <td><span className={`roas ${roasClass(adGroup.roas)}`}>{formatPercent(adGroup.roas)}</span></td>
+                  <td>{formatMoney(adGroup.cost, currencyCode)}</td>
+                  <td>{formatMoney(adGroup.conversionValue, currencyCode)}</td>
+                  <td title={`Mỗi 1 ${currencyCode} chi phí tạo ra ${formatNumber(adGroup.roas)} ${currencyCode} giá trị chuyển đổi`}><span className={`roas ${roasClass(adGroup.roas)}`}>{formatPercent(adGroup.roas)}</span></td>
                   <td>
                     <button
                       className="tableActionButton"
@@ -519,7 +548,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                 {campaignColumns.map((column) => (
                   <SortHeader
                     key={column.key}
-                    column={column}
+                    column={{ ...column, label: columnLabel(column) }}
                     activeKey={campaignSortKey}
                     direction={campaignSortDir}
                     onSort={onCampaignSort}
@@ -551,11 +580,11 @@ export function PerformanceTable(props: PerformanceTableProps) {
                     <td>{formatNumber(campaign.impressions ?? 0)}</td>
                     <td>{formatNumber(campaign.clicks ?? 0)}</td>
                     <td>{formatPercent(campaign.ctr ?? 0)}</td>
-                    <td>{formatNumber(campaign.cost)}</td>
-                    <td>{formatNumber(campaign.conversionValue)}</td>
+                    <td>{formatMoney(campaign.cost, currencyCode)}</td>
+                    <td>{formatMoney(campaign.conversionValue, currencyCode)}</td>
                     <td>
                       <div className="roas-cell">
-                        <span className={`roas ${className}`}>{formatPercent(campaign.roas)}</span>
+                        <span className={`roas ${className}`} title={`Mỗi 1 ${currencyCode} chi phí tạo ra ${formatNumber(campaign.roas)} ${currencyCode} giá trị chuyển đổi`}>{formatPercent(campaign.roas)}</span>
                         <span className="roas-bar-wrap">
                           <span className={`roas-bar ${className}`} style={{ width: `${barWidth}%` }} />
                         </span>

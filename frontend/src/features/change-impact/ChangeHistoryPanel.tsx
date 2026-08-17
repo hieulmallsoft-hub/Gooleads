@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useState } from 'react';
-import { AlertCircle, ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Clock3, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, ArrowRight, ChevronDown, ChevronLeft, ChevronRight, Clock3, RefreshCw, Search, X } from 'lucide-react';
 import { apiFetch, extractApiError, parseJsonSafe } from '../../api/client';
 
 type HistoryItem = {
@@ -259,6 +259,7 @@ export function ChangeHistoryPanel({
         <label className="impactSearch">
           <Search size={16} />
           <input
+            aria-label="Tìm lịch sử theo tên hoặc ID chiến dịch, nhóm quảng cáo"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Tìm tên hoặc ID chiến dịch/nhóm quảng cáo"
@@ -286,6 +287,20 @@ export function ChangeHistoryPanel({
           <option value="PARTIAL">Áp dụng một phần</option>
           <option value="FAILED">Thất bại</option>
         </select>
+        {query || source !== 'ALL' || status !== 'ALL' ? (
+          <button
+            className="tableActionButton"
+            type="button"
+            onClick={() => {
+              setQuery('');
+              setSource('ALL');
+              setStatus('ALL');
+              setPage(1);
+            }}
+          >
+            <X size={14} /> Xóa bộ lọc
+          </button>
+        ) : null}
         <span className="impactResultCount">{data?.pagination.total ?? 0} kết quả</span>
       </div>
 

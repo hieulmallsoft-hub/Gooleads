@@ -28,6 +28,7 @@ type CampaignPerformance = {
   conversions: number;
   conversionValue: number;
   roas: number;
+  dailyMetrics: DailyMetric[];
 };
 
 type AdGroupPerformance = {
@@ -44,7 +45,69 @@ type AdGroupPerformance = {
   conversions: number;
   conversionValue: number;
   roas: number;
+  dailyMetrics: DailyMetric[];
 };
+
+type DailyMetric = {
+  date: string;
+  impressions: number;
+  clicks: number;
+  cost: number;
+  conversions: number;
+  conversionValue: number;
+  ctr: number;
+  roas: number;
+  costPerConversion: number;
+};
+
+type MetricAccumulator = Omit<DailyMetric, 'date' | 'ctr' | 'roas' | 'costPerConversion'>;
+
+function aggregateMetricRows(rows: any[], keyOf: (row: any) => string) {
+  const totalsByKey = new Map<string, MetricAccumulator>();
+  const dailyByKey = new Map<string, Map<string, MetricAccumulator>>();
+  const dailyTotals = new Map<string, MetricAccumulator>();
+
+  const add = (target: Map<string, MetricAccumulator>, key: string, row: any) => {
+    if (!key) return;
+    const current = target.get(key) ?? { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionValue: 0 };
+    current.impressions += Number(row.metrics?.impressions ?? 0);
+    current.clicks += Number(row.metrics?.clicks ?? 0);
+    current.cost += Number(row.metrics?.costMicros ?? 0) / 1_000_000;
+    current.conversions += Number(row.metrics?.conversions ?? 0);
+    current.conversionValue += Number(row.metrics?.conversionsValue ?? 0);
+    target.set(key, current);
+  };
+
+  for (const row of rows) {
+    const key = keyOf(row);
+    const date = String(row.segments?.date ?? '');
+    add(totalsByKey, key, row);
+    if (!date) continue;
+    const keyedDays = dailyByKey.get(key) ?? new Map<string, MetricAccumulator>();
+    add(keyedDays, date, row);
+    dailyByKey.set(key, keyedDays);
+    add(dailyTotals, date, row);
+  }
+
+  return { totalsByKey, dailyByKey, dailyTotals };
+}
+
+function metricResult(metrics?: MetricAccumulator, date = ''): DailyMetric {
+  const value = metrics ?? { impressions: 0, clicks: 0, cost: 0, conversions: 0, conversionValue: 0 };
+  return {
+    date,
+    ...value,
+    ctr: value.impressions > 0 ? value.clicks / value.impressions : 0,
+    roas: value.cost > 0 ? value.conversionValue / value.cost : 0,
+    costPerConversion: value.conversions > 0 ? value.cost / value.conversions : 0,
+  };
+}
+
+function sortedDailyMetrics(values?: Map<string, MetricAccumulator>) {
+  return Array.from(values?.entries() ?? [])
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([date, metrics]) => metricResult(metrics, date));
+}
 
 type AssetPerformance = {
   id: string;
@@ -367,32 +430,31 @@ export class GoogleAdsService {
       this.searchAll(customerId, statusQuery),
       this.searchAll(customerId, performanceQuery),
     ]);
-    const metricsByCampaignId = new Map(
-      (performanceResponse.results ?? []).map((row: any) => [String(row.campaign?.id ?? ''), row]),
+    const performanceRows = performanceResponse.results ?? [];
+    const { totalsByKey, dailyByKey, dailyTotals } = aggregateMetricRows(
+      performanceRows,
+      (row) => String(row.campaign?.id ?? ''),
     );
     const campaigns: CampaignPerformance[] = (statusResponse.results ?? []).map((statusRow: any): CampaignPerformance => {
       const campaignId = String(statusRow.campaign?.id ?? '');
-      const row: any = metricsByCampaignId.get(campaignId) ?? statusRow;
-      const impressions = Number(row.metrics?.impressions ?? 0);
-      const clicks = Number(row.metrics?.clicks ?? 0);
-      const cost = Number(row.metrics?.costMicros ?? 0) / 1_000_000;
-      const conversions = Number(row.metrics?.conversions ?? 0);
-      const conversionValue = Number(row.metrics?.conversionsValue ?? 0);
+      const metrics = metricResult(totalsByKey.get(campaignId));
 
       return {
         id: campaignId,
         name: String(statusRow.campaign?.name ?? ''),
         status: String(statusRow.campaign?.status ?? 'UNKNOWN'),
-        impressions,
-        clicks,
-        ctr: impressions > 0 ? clicks / impressions : 0,
-        cost,
-        conversions,
-        conversionValue,
-        roas: cost > 0 ? conversionValue / cost : 0,
+        impressions: metrics.impressions,
+        clicks: metrics.clicks,
+        ctr: metrics.ctr,
+        cost: metrics.cost,
+        conversions: metrics.conversions,
+        conversionValue: metrics.conversionValue,
+        roas: metrics.roas,
+        dailyMetrics: sortedDailyMetrics(dailyByKey.get(campaignId)),
       };
     });
     await this.persistCampaignHierarchy(customerId, campaigns, [], true);
+    const currencyCode = await this.getAccountCurrencyCode(customerId);
 
     const totalCost = campaigns.reduce(
       (sum: number, campaign: CampaignPerformance) => sum + campaign.cost,
@@ -418,12 +480,14 @@ export class GoogleAdsService {
     return {
       campaigns,
       timeRange,
+      currencyCode,
       totalCost,
       totalClicks,
       totalConversions,
       totalImpressions,
       avgCtr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
       avgRoas: totalCost > 0 ? totalConversionValue / totalCost : 0,
+      dailyMetrics: sortedDailyMetrics(dailyTotals),
     };
   }
 
@@ -449,30 +513,38 @@ export class GoogleAdsService {
     `;
 
     const response = await this.searchAll(customerId, query);
-    const adGroups: AdGroupPerformance[] = (response.results ?? []).map((row: any): AdGroupPerformance => {
-      const impressions = Number(row.metrics?.impressions ?? 0);
-      const clicks = Number(row.metrics?.clicks ?? 0);
-      const cost = Number(row.metrics?.costMicros ?? 0) / 1_000_000;
-      const conversions = Number(row.metrics?.conversions ?? 0);
-      const conversionValue = Number(row.metrics?.conversionsValue ?? 0);
+    const performanceRows = response.results ?? [];
+    const { totalsByKey, dailyByKey, dailyTotals } = aggregateMetricRows(
+      performanceRows,
+      (row) => String(row.adGroup?.id ?? ''),
+    );
+    const adGroupRows = new Map<string, any>();
+    for (const row of performanceRows) {
+      const id = String(row.adGroup?.id ?? '');
+      if (id && !adGroupRows.has(id)) adGroupRows.set(id, row);
+    }
+    const adGroups: AdGroupPerformance[] = Array.from(adGroupRows.entries()).map(([adGroupId, row]): AdGroupPerformance => {
+      const metrics = metricResult(totalsByKey.get(adGroupId));
 
       return {
-        id: String(row.adGroup?.id ?? ''),
+        id: adGroupId,
         name: String(row.adGroup?.name ?? ''),
         campaignId: String(row.campaign?.id ?? ''),
         campaignName: String(row.campaign?.name ?? ''),
         campaignStatus: String(row.campaign?.status ?? 'UNKNOWN'),
         status: String(row.adGroup?.status ?? ''),
-        impressions,
-        clicks,
-        ctr: impressions > 0 ? clicks / impressions : 0,
-        cost,
-        conversions,
-        conversionValue,
-        roas: cost > 0 ? conversionValue / cost : 0,
+        impressions: metrics.impressions,
+        clicks: metrics.clicks,
+        ctr: metrics.ctr,
+        cost: metrics.cost,
+        conversions: metrics.conversions,
+        conversionValue: metrics.conversionValue,
+        roas: metrics.roas,
+        dailyMetrics: sortedDailyMetrics(dailyByKey.get(adGroupId)),
       };
     });
     await this.persistCampaignHierarchy(customerId, [], adGroups);
+    const currencyCode = await this.getAccountCurrencyCode(customerId);
 
     const totalCost = adGroups.reduce(
       (sum: number, adGroup: AdGroupPerformance) => sum + adGroup.cost,
@@ -498,12 +570,14 @@ export class GoogleAdsService {
     return {
       adGroups,
       timeRange,
+      currencyCode,
       totalCost,
       totalClicks,
       totalConversions,
       totalImpressions,
       avgCtr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
       avgRoas: totalCost > 0 ? totalConversionValue / totalCost : 0,
+      dailyMetrics: sortedDailyMetrics(dailyTotals),
     };
   }
 
@@ -634,26 +708,31 @@ export class GoogleAdsService {
     `;
 
     const response = await this.searchAll(customerId, query);
-    const assets: AssetPerformance[] = (response.results ?? []).map((row: any): AssetPerformance => {
-      const metrics = row.metrics ?? {};
+    const performanceRows = response.results ?? [];
+    const assetKey = (row: any) => String(
+      row.adGroupAdAssetView?.resourceName
+        ?? `${row.adGroupAd?.resourceName ?? ''}:${row.asset?.resourceName ?? ''}:${row.adGroupAdAssetView?.fieldType ?? ''}`,
+    );
+    const { totalsByKey, dailyTotals } = aggregateMetricRows(performanceRows, assetKey);
+    const assetRows = new Map<string, any>();
+    for (const row of performanceRows) {
+      const key = assetKey(row);
+      if (key && !assetRows.has(key)) assetRows.set(key, row);
+    }
+    const assets: AssetPerformance[] = Array.from(assetRows.entries()).map(([key, row]): AssetPerformance => {
+      const metrics = metricResult(totalsByKey.get(key));
       const asset = row.asset ?? {};
       const assetView = row.adGroupAdAssetView ?? {};
-      const clicks = Number(metrics.clicks ?? 0);
-      const impressions = Number(metrics.impressions ?? 0);
-      const cost = Number(metrics.costMicros ?? 0) / 1_000_000;
-      const conversions = Number(metrics.conversions ?? 0);
-      const conversionValue = Number(metrics.conversionsValue ?? 0);
 
       const performanceLabel = String(assetView.performanceLabel ?? '');
-      const roas = cost > 0 ? conversionValue / cost : 0;
       const evaluation = this.evaluateAsset({
-        impressions,
-        clicks,
-        ctr: impressions > 0 ? clicks / impressions : 0,
-        cost,
-        conversions,
-        conversionValue,
-        roas,
+        impressions: metrics.impressions,
+        clicks: metrics.clicks,
+        ctr: metrics.ctr,
+        cost: metrics.cost,
+        conversions: metrics.conversions,
+        conversionValue: metrics.conversionValue,
+        roas: metrics.roas,
         performanceLabel,
       });
 
@@ -670,14 +749,14 @@ export class GoogleAdsService {
         imageWidth: Number(asset.imageAsset?.fullSize?.widthPixels ?? 0),
         imageHeight: Number(asset.imageAsset?.fullSize?.heightPixels ?? 0),
         videoId: String(asset.youtubeVideoAsset?.youtubeVideoId ?? ''),
-        impressions,
-        clicks,
-        ctr: impressions > 0 ? clicks / impressions : 0,
-        cost,
-        conversions,
-        conversionValue,
-        cpa: conversions > 0 ? cost / conversions : 0,
-        roas,
+        impressions: metrics.impressions,
+        clicks: metrics.clicks,
+        ctr: metrics.ctr,
+        cost: metrics.cost,
+        conversions: metrics.conversions,
+        conversionValue: metrics.conversionValue,
+        cpa: metrics.costPerConversion,
+        roas: metrics.roas,
         ...evaluation,
       };
     });
@@ -701,13 +780,23 @@ export class GoogleAdsService {
       assets,
       adGroupId,
       timeRange,
+      currencyCode: await this.getAccountCurrencyCode(customerId),
       totalCost,
       totalClicks,
       totalConversions,
       totalImpressions,
       avgCtr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
       avgRoas: totalCost > 0 ? totalConversionValue / totalCost : 0,
+      dailyMetrics: sortedDailyMetrics(dailyTotals),
     };
+  }
+
+  private async getAccountCurrencyCode(customerId: string) {
+    if (!this.dataSource?.isInitialized) return null;
+    const account = await this.dataSource
+      .getRepository(GoogleAdsAccountEntity)
+      .findOneBy({ customerId });
+    return account?.currencyCode?.trim().toUpperCase() || null;
   }
 
   async getSyncSnapshot(customerId: string, timeRange: string, adGroupId: string) {
@@ -923,7 +1012,7 @@ export class GoogleAdsService {
     );
     const descriptionReplacementMap = this.buildTextReplacementMap(
       input.descriptionReplacements,
-      90,
+      60,
     );
     const headlineReplacementLinkMap = this.buildTextReplacementLinkMap(input.headlineReplacements);
     const descriptionReplacementLinkMap = this.buildTextReplacementLinkMap(input.descriptionReplacements);
@@ -937,17 +1026,27 @@ export class GoogleAdsService {
       throw new BadRequestException('Enter or choose headline/description suggestions');
     }
 
-    const lowAssets = await this.findLowTextAssets(customerId, adGroupId, timeRange);
-    const targetAssets = lowAssets.filter((asset) => {
+    const textAssets = await this.findTextAssets(customerId, adGroupId, timeRange);
+    const targetAssets = textAssets.filter((asset) => {
       if (asset.fieldType === 'HEADLINE') {
-        return Boolean(headline || headlineReplacementMap.has(asset.text));
+        if (headlineReplacementMap.has(asset.text)) {
+          const link = headlineReplacementLinkMap.get(asset.text);
+          const isAiSuggestion = Boolean(link?.suggestionId || link?.variantId);
+          return !isAiSuggestion || asset.performanceLabel === 'LOW';
+        }
+        return Boolean(headline && asset.performanceLabel === 'LOW');
       }
-      return Boolean(description || descriptionReplacementMap.has(asset.text));
+      if (descriptionReplacementMap.has(asset.text)) {
+        const link = descriptionReplacementLinkMap.get(asset.text);
+        const isAiSuggestion = Boolean(link?.suggestionId || link?.variantId);
+        return !isAiSuggestion || asset.performanceLabel === 'LOW';
+      }
+      return Boolean(description && asset.performanceLabel === 'LOW');
     });
 
     if (targetAssets.length === 0) {
       throw new NotFoundException(
-        'No LOW headline or description assets found for this ad group and time range',
+        'Không tìm thấy tiêu đề hoặc mô tả phù hợp để chỉnh sửa trong nhóm quảng cáo này',
       );
     }
 
@@ -997,7 +1096,7 @@ export class GoogleAdsService {
       if (headlineReplacements + descriptionReplacements === 0) {
         skippedAds.push({
           resourceName,
-          reason: 'Weak text was not found inside the current ad copy',
+          reason: 'Không tìm thấy nội dung cần thay trong quảng cáo hiện tại',
         });
         continue;
       }
@@ -1057,7 +1156,7 @@ export class GoogleAdsService {
 
     if (operations.length === 0) {
       throw new BadRequestException({
-        message: 'No editable APP_AD rows were found for the LOW text assets',
+        message: 'Không tìm thấy quảng cáo ứng dụng có thể chỉnh sửa cho nội dung đã chọn',
         skippedAds,
       });
     }
@@ -3452,7 +3551,7 @@ export class GoogleAdsService {
     };
   }
 
-  private async findLowTextAssets(
+  private async findTextAssets(
     customerId: string,
     adGroupId: string,
     timeRange: string,
@@ -3504,8 +3603,7 @@ export class GoogleAdsService {
           performanceLabel,
         };
       })
-      .filter((asset: LowTextAsset | null): asset is LowTextAsset => Boolean(asset))
-      .filter((asset: LowTextAsset) => asset.performanceLabel === 'LOW');
+      .filter((asset: LowTextAsset | null): asset is LowTextAsset => Boolean(asset));
   }
 
   private async findMediaAssetUsages(

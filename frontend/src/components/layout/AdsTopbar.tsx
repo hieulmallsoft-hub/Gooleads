@@ -5,6 +5,7 @@ import type { AuthUser } from '../../types/googleAds';
 
 type AdsTopbarProps = {
   customerId: string;
+  customerLabel: string;
   searchText: string;
   searchPlaceholder: string;
   showSearch: boolean;
@@ -19,6 +20,7 @@ type AdsTopbarProps = {
 
 export function AdsTopbar({
   customerId,
+  customerLabel,
   searchText,
   searchPlaceholder,
   showSearch,
@@ -49,6 +51,7 @@ export function AdsTopbar({
         <label className="topSearch">
           <Search size={16} />
           <input
+            aria-label={searchPlaceholder}
             value={searchText}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={searchPlaceholder}
@@ -59,7 +62,10 @@ export function AdsTopbar({
       )}
 
       <div className="topbarMeta">
-        <span>{customerId || 'Chưa chọn tài khoản'}</span>
+        <span className="topbarAccount" title={customerLabel || customerId}>
+          <small>Tài khoản đang xem</small>
+          <strong>{customerLabel || customerId || 'Chưa chọn tài khoản'}</strong>
+        </span>
         {currentUser ? (
           <span className={`roleBadge role-${currentUser.role.toLowerCase()}`}>
             {currentUser.displayName} · {currentUser.role}

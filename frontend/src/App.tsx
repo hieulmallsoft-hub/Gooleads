@@ -34,7 +34,6 @@ import {
 import {
   AD_GROUP_STORAGE_KEY,
   AUTO_AI_STORAGE_KEY,
-  CUSTOMER_STORAGE_KEY,
   DESCRIPTION_MAX_LENGTH,
   HEADLINE_MAX_LENGTH,
   PAGE_SIZE,
@@ -180,6 +179,11 @@ function normalizeStoredCampaign(value: unknown): Campaign | null {
   };
 }
 
+function actionError(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return `${fallback}. Hãy thử lại; nếu lỗi tiếp tục xảy ra, hãy kiểm tra kết nối Google Ads hoặc liên hệ quản trị viên.`;
+}
+
 function formatAutomationNotificationDate(value: unknown) {
   const date = new Date(String(value ?? ''));
   if (Number.isNaN(date.getTime())) return 'AI định kỳ';
@@ -231,9 +235,9 @@ export default function App() {
   const [customerId, setCustomerId] = useState(
     () => initialStoredCustomerId || seededCustomerOptions[0]?.value || '',
   );
+  const [customerAccountsLoading, setCustomerAccountsLoading] = useState(false);
+  const [customerAccountsError, setCustomerAccountsError] = useState('');
   const [adGroupOptions, setAdGroupOptions] = useState<CustomerOption[]>(initialAdGroupOptions);
-  const [newCustomerId, setNewCustomerId] = useState('');
-  const [customerInputError, setCustomerInputError] = useState('');
   const [timeRange, setTimeRange] = useState(() => normalizeStoredTimeRange(initialViewState.timeRange));
   const [navOpen, setNavOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(() => normalizeStoredViewMode(initialViewState.viewMode));
@@ -453,6 +457,8 @@ export default function App() {
     let cancelled = false;
 
     async function loadCustomerAccounts() {
+      setCustomerAccountsLoading(true);
+      setCustomerAccountsError('');
       try {
         const response = await apiFetch('/google-ads/accounts');
       const body = await parseJsonSafe(response);
@@ -463,27 +469,36 @@ export default function App() {
         if (cancelled) return;
 
         const result = body as GoogleAdsAccountResponse;
-        setCustomerOptions((currentOptions) => {
-          const optionsById = new Map(
-            currentOptions.map((option) => [option.value, option]),
-          );
-
-          for (const account of result.accounts) {
+        const authorizedOptions = result.accounts
+          .map((account) => {
             const normalizedId = normalizeNumericId(account.customerId);
-            if (!normalizedId) continue;
-
-            optionsById.set(normalizedId, {
+            if (!normalizedId) return null;
+            return {
               value: normalizedId,
               label: account.displayName
                 ? `${account.displayName} (${normalizedId})`
                 : normalizedId,
-            });
-          }
+            };
+          })
+          .filter((option): option is CustomerOption => option !== null);
 
-          return Array.from(optionsById.values());
-        });
-      } catch {
+        setCustomerOptions(authorizedOptions);
+        setCustomerId((currentCustomerId) =>
+          authorizedOptions.some((option) => option.value === currentCustomerId)
+            ? currentCustomerId
+            : authorizedOptions[0]?.value ?? '',
+        );
+      } catch (loadError) {
         // Keep configured and locally saved customer IDs if the backend is unavailable.
+        if (!cancelled) {
+          setCustomerAccountsError(
+            loadError instanceof Error
+              ? loadError.message
+              : 'Không thể kiểm tra danh sách tài khoản Google Ads được cấp quyền',
+          );
+        }
+      } finally {
+        if (!cancelled) setCustomerAccountsLoading(false);
       }
     }
 
@@ -696,7 +711,7 @@ export default function App() {
       setAdGroupData(adGroupBody);
     } catch (err) {
       setData(null);
-      setError(err instanceof Error ? err.message : 'Lỗi không xác định');
+      setError(actionError(err, 'Không thể tải dữ liệu chiến dịch'));
     } finally {
       setLoading(false);
     }
@@ -718,7 +733,7 @@ export default function App() {
       setAdGroupData(body);
     } catch (err) {
       setAdGroupData(null);
-      setAdGroupError(err instanceof Error ? err.message : 'Lỗi không xác định');
+      setAdGroupError(actionError(err, 'Không thể tải dữ liệu nhóm quảng cáo'));
     } finally {
       setAdGroupLoading(false);
     }
@@ -817,7 +832,7 @@ export default function App() {
       if (activeAssetScopeRef.current !== requestScope) return;
       setAssetData(null);
       setAssetLoadVersion((version) => version + 1);
-      setAssetError(err instanceof Error ? err.message : 'Lỗi không xác định');
+      setAssetError(actionError(err, 'Không thể tải dữ liệu tài nguyên'));
     } finally {
       if (activeAssetScopeRef.current === requestScope) setAssetLoading(false);
     }
@@ -923,7 +938,7 @@ export default function App() {
       if (activeAssetScopeRef.current !== requestScope) return;
       setAiReview(null);
       setApprovedCreativeSuggestionIds([]);
-      setAiReviewError(err instanceof Error ? err.message : 'Lỗi không xác định');
+      setAiReviewError(actionError(err, 'Không thể tạo đánh giá AI'));
     } finally {
       if (activeAssetScopeRef.current === requestScope) setAiReviewLoading(false);
     }
@@ -1005,7 +1020,7 @@ export default function App() {
       if (activeAssetScopeRef.current !== requestScope) return;
       setAiTextSuggestions(null);
       setSelectedTextSuggestionKeys([]);
-      setAiTextError(err instanceof Error ? err.message : 'Lỗi không xác định');
+      setAiTextError(actionError(err, 'Không thể tạo gợi ý nội dung bằng AI'));
     } finally {
       if (activeAssetScopeRef.current === requestScope) setAiTextLoading(false);
     }
@@ -1093,7 +1108,7 @@ export default function App() {
       setReplacementVideoUrl('');
       await loadAssets();
     } catch (err) {
-      setMediaReplaceError(err instanceof Error ? err.message : 'Lỗi không xác định');
+      setMediaReplaceError(actionError(err, 'Không thể chuẩn bị tài nguyên hình ảnh hoặc video thay thế'));
     } finally {
       setMediaReplaceLoading(false);
     }
@@ -1210,7 +1225,7 @@ export default function App() {
       setReplaceStatus(`Bản xem trước đã sẵn sàng: ${request.items.length} quảng cáo và ${plannedTexts} nội dung văn bản. Hãy kiểm tra trước khi áp dụng.`);
       setAdGroupId(normalizedAdGroupId);
     } catch (err) {
-      setReplaceError(err instanceof Error ? err.message : 'Lỗi không xác định');
+      setReplaceError(actionError(err, 'Không thể tạo bản xem trước thay đổi'));
     } finally {
       setReplaceLoading(false);
     }
@@ -1259,7 +1274,7 @@ export default function App() {
       await loadAssets();
       setTextChangeRequest(applyResponse.changeRequest);
     } catch (err) {
-      setReplaceError(err instanceof Error ? err.message : 'Lỗi không xác định');
+      setReplaceError(actionError(err, 'Không thể áp dụng thay đổi lên Google Ads'));
     } finally {
       setReplaceLoading(false);
     }
@@ -1276,24 +1291,6 @@ export default function App() {
     if (authUser) {
       void loadCampaignsEffect();
     }
-  }, [authUser, customerId, timeRange]);
-
-  useEffect(() => {
-    if (!authUser || !customerId) return;
-
-    const refreshCampaigns = () => void loadCampaignsEffect();
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') refreshCampaigns();
-    };
-    const timer = window.setInterval(refreshCampaigns, 60_000);
-    window.addEventListener('focus', refreshCampaigns);
-    document.addEventListener('visibilitychange', refreshWhenVisible);
-
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', refreshCampaigns);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
-    };
   }, [authUser, customerId, timeRange]);
 
   useEffect(() => {
@@ -1322,7 +1319,9 @@ export default function App() {
     }
 
     void loadAutomationNotifications();
-    const timer = window.setInterval(() => void loadAutomationNotifications(), 60_000);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadAutomationNotifications();
+    }, 15 * 60_000);
     const refresh = () => void loadAutomationNotifications();
     window.addEventListener('automation-notifications-refresh', refresh);
 
@@ -1393,17 +1392,6 @@ export default function App() {
   useEffect(() => {
     try {
       window.localStorage.setItem(
-        CUSTOMER_STORAGE_KEY,
-        JSON.stringify(customerOptions.map((customer) => customer.value)),
-      );
-    } catch {
-      // Ignore localStorage failures; the current session still works.
-    }
-  }, [customerOptions]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
         AD_GROUP_STORAGE_KEY,
         JSON.stringify(adGroupOptions.map((adGroup) => adGroup.value)),
       );
@@ -1411,25 +1399,6 @@ export default function App() {
       // Ignore localStorage failures; the current session still works.
     }
   }, [adGroupOptions]);
-
-  function handleAddCustomerId() {
-    const normalizedId = normalizeNumericId(newCustomerId);
-
-    if (!/^\d{10}$/.test(normalizedId)) {
-      setCustomerInputError('ID khách hàng phải có 10 chữ số');
-      return;
-    }
-
-    setCustomerInputError('');
-    setCustomerId(normalizedId);
-    setNewCustomerId('');
-    setCustomerOptions((currentOptions) => {
-      if (currentOptions.some((customer) => customer.value === normalizedId)) {
-        return currentOptions;
-      }
-      return [...currentOptions, { value: normalizedId, label: normalizedId }];
-    });
-  }
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -1906,6 +1875,7 @@ export default function App() {
     <div className="adsApp">
       <AdsTopbar
         customerId={customerId}
+        customerLabel={customerOptions.find((option) => option.value === customerId)?.label ?? ''}
         searchText={searchText}
         searchPlaceholder={searchPlaceholder}
         showSearch={!operationsSection}
@@ -2007,12 +1977,14 @@ export default function App() {
 
           <div className="controls">
             <label className="field">
-              <span>ID khách hàng</span>
+              <span>Tài khoản Google Ads</span>
               <select
                 aria-label="ID khách hàng"
                 value={customerId}
+                disabled={customerAccountsLoading || !customerOptions.length}
                 onChange={(event) => setCustomerId(event.target.value)}
               >
+                {!customerOptions.length ? <option value="">Không có tài khoản được cấp quyền</option> : null}
                 {customerOptions.map((customer) => (
                   <option key={customer.value} value={customer.value}>
                     {customer.label}
@@ -2020,33 +1992,6 @@ export default function App() {
                 ))}
               </select>
             </label>
-            {viewMode === 'campaigns' ? (
-              <>
-                <label className="field customerAdd">
-                  <span>ID khách hàng mới</span>
-                  <input
-                    aria-label="Add customer ID"
-                    value={newCustomerId}
-                    onChange={(event) => {
-                      setNewCustomerId(event.target.value);
-                      setCustomerInputError('');
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        handleAddCustomerId();
-                      }
-                    }}
-                    placeholder="1234567890"
-                  />
-                  {customerInputError ? <span className="fieldError">{customerInputError}</span> : null}
-                </label>
-                <button className="secondaryButton" type="button" onClick={handleAddCustomerId}>
-                  <Plus size={15} />
-                  Add
-                </button>
-              </>
-            ) : null}
             {viewMode === 'assets' ? (
               <>
                 <label className="field customerAdd campaignSelectField">
@@ -2175,6 +2120,16 @@ export default function App() {
             ) : null}
           </div>
 
+          {customerAccountsError ? (
+            <div className="inlineError" role="alert">
+              Không thể xác minh quyền tài khoản: {customerAccountsError}. Hãy tải lại trang hoặc liên hệ quản trị viên.
+            </div>
+          ) : !customerAccountsLoading && !customerOptions.length ? (
+            <div className="inlineError" role="alert">
+              Bạn chưa được cấp quyền cho tài khoản Google Ads nào. Hãy nhờ quản trị viên cấp tài khoản trước khi xem dữ liệu.
+            </div>
+          ) : null}
+
           <div className="filterGroup alignRight">
             <span className="filterChip">
               {viewMode === 'assets'
@@ -2217,6 +2172,7 @@ export default function App() {
           campaigns={filteredCampaigns}
           adGroups={filteredAdGroups}
           assets={filteredAssets}
+          selectedCampaign={selectedCampaign}
           campaignLoading={loading}
           adGroupLoading={adGroupLoading}
           assetLoading={assetLoading}

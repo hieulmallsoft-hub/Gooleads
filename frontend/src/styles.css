@@ -112,6 +112,29 @@ button, input, select { font: inherit; }
   min-width: 0;
 }
 
+.topbarAccount {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  line-height: 1.15;
+  text-align: right;
+}
+
+.topbarAccount small {
+  color: #bdc1c6;
+  font-size: 10px;
+}
+
+.topbarAccount strong {
+  max-width: 250px;
+  overflow: hidden;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .topbarBrand img {
   width: 92px;
   height: 26px;
@@ -1968,8 +1991,7 @@ button:disabled {
 
 .overview-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(138px, 180px)) minmax(0, 1fr) 168px;
-  border-bottom: 1px solid var(--border);
+  grid-template-columns: repeat(4, minmax(138px, 1fr));
   background: #fff;
 }
 
@@ -1980,7 +2002,7 @@ button:disabled {
   gap: 4px;
   min-height: 64px;
   padding: 10px 14px;
-  cursor: pointer;
+  cursor: default;
   transition: background var(--transition), color var(--transition);
   position: relative;
   border: 0;
@@ -2090,6 +2112,40 @@ button:disabled {
   background: #ffffff;
 }
 
+.chart-empty-state {
+  min-height: 190px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px;
+  color: var(--text-3);
+  text-align: center;
+  background: #fafbfc;
+}
+
+.summaryContextNotice {
+  padding: 9px 14px;
+  border-top: 1px solid #d2e3fc;
+  border-bottom: 1px solid #d2e3fc;
+  background: #eef4ff;
+  color: #3c5f8a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chart-empty-state strong {
+  color: var(--text-1);
+  font-size: 14px;
+}
+
+.chart-empty-state span {
+  max-width: 620px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .trend-chart-svg {
   width: 100%;
   height: 188px;
@@ -2132,6 +2188,16 @@ button:disabled {
 .cost-path {
   stroke: #f29900;
 }
+
+.trend-point {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.trend-point.clicks-path { fill: #1a73e8; }
+.trend-point.roas-path { fill: #d93025; }
+.trend-point.cpa-path { fill: #188038; }
+.trend-point.cost-path { fill: #f29900; }
 
 .purchases-path {
   stroke: #1e8e3e;
@@ -3177,7 +3243,7 @@ th {
   z-index: 3;
   padding: 10px 12px;
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -3185,12 +3251,12 @@ th {
   background: #f8fafd;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   transition: color var(--transition), background var(--transition);
 }
 
-th:hover {
+th.sortableHeader:hover {
   color: var(--blue-600);
   background: #eef4ff;
 }
@@ -3199,6 +3265,23 @@ th .sort-indicator {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+th .sort-header-button {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+th .sort-header-button:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--blue-600);
+  outline-offset: 3px;
 }
 
 th .sort-icon {
@@ -4184,9 +4267,12 @@ tbody tr:hover td:first-child {
 
 @media (max-width: 960px) {
   .adsTopbar {
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 360px);
+    grid-template-columns: auto minmax(180px, 1fr) auto;
   }
-  .topbarMeta { display: none; }
+  .topbarMeta { display: flex; gap: 6px; }
+  .topbarMeta .roleBadge { display: none; }
+  .topbarAccount small { display: none; }
+  .topbarAccount strong { max-width: 150px; }
   .adsBody { grid-template-columns: 1fr; }
   .adsNav {
     position: fixed;
@@ -4256,12 +4342,14 @@ tbody tr:hover td:first-child {
 
 @media (max-width: 600px) {
   .adsTopbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
     height: auto;
     gap: 8px;
     padding: 8px 12px;
   }
-  .topSearch { width: 100%; }
+  .topSearch { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+  .topbarMeta { grid-column: 2; grid-row: 1; }
+  .topbarAccount strong { max-width: 110px; }
   .shell { margin: 0; padding: 12px; }
   h1 { font-size: 20px; }
   .hero { padding: 12px; border-radius: var(--radius); }

@@ -19,7 +19,7 @@ export class CampaignAccessService {
 
   assertCanViewCustomer(user: AuthenticatedUser, customerId: string) {
     if (!this.canViewCustomer(user, customerId)) {
-      throw new ForbiddenException('You do not have access to this Google Ads account');
+      throw new ForbiddenException(`Bạn không có quyền truy cập tài khoản Google Ads ${customerId}`);
     }
   }
 
@@ -38,7 +38,7 @@ export class CampaignAccessService {
   ) {
     if (user.role === 'ADMIN') return;
     if (user.role !== 'EDITOR') {
-      throw new ForbiddenException('You do not have edit permission');
+      throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung này');
     }
     this.assertCanViewCustomer(user, customerId);
   }
@@ -46,24 +46,24 @@ export class CampaignAccessService {
   async assertCanDecideSuggestion(user: AuthenticatedUser, suggestionId: string) {
     if (user.role === 'ADMIN') return;
     if (user.role !== 'EDITOR') {
-      throw new ForbiddenException('You do not have edit permission');
+      throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung này');
     }
 
     const suggestion = await this.dataSource
       .getRepository(AiSuggestionEntity)
       .findOneBy({ id: suggestionId });
-    if (!suggestion) throw new NotFoundException('AI suggestion not found');
+    if (!suggestion) throw new NotFoundException('Không tìm thấy đề xuất AI');
 
     const reviewRun = await this.dataSource
       .getRepository(AiReviewRunEntity)
       .findOneBy({ id: suggestion.reviewRunId });
     if (!reviewRun?.adGroupId) {
-      throw new ForbiddenException('This suggestion is not linked to an editable ad group');
+      throw new ForbiddenException('Đề xuất này không thuộc nhóm quảng cáo mà bạn được phép chỉnh sửa');
     }
 
     const context = await this.findCampaignByInternalAdGroup(reviewRun.adGroupId);
     if (!context) {
-      throw new NotFoundException('Suggestion campaign context is unavailable');
+      throw new NotFoundException('Không xác định được chiến dịch của đề xuất');
     }
 
     this.assertCanViewCustomer(user, context.account.customerId);
@@ -72,20 +72,20 @@ export class CampaignAccessService {
   async assertCanApplyChangeRequest(user: AuthenticatedUser, changeRequestId: string) {
     if (user.role === 'ADMIN') return;
     if (user.role !== 'EDITOR') {
-      throw new ForbiddenException('You do not have edit permission');
+      throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung này');
     }
 
     const request = await this.dataSource
       .getRepository(ChangeRequestEntity)
       .findOneBy({ id: changeRequestId });
-    if (!request) throw new NotFoundException('Change request not found');
+    if (!request) throw new NotFoundException('Không tìm thấy yêu cầu thay đổi');
     if (!request.adGroupId) {
-      throw new ForbiddenException('This change request is not linked to an editable ad group');
+      throw new ForbiddenException('Yêu cầu thay đổi không thuộc nhóm quảng cáo mà bạn được phép chỉnh sửa');
     }
 
     const context = await this.findCampaignByInternalAdGroup(request.adGroupId);
     if (!context) {
-      throw new NotFoundException('Change request campaign context is unavailable');
+      throw new NotFoundException('Không xác định được chiến dịch của yêu cầu thay đổi');
     }
 
     this.assertCanViewCustomer(user, context.account.customerId);
