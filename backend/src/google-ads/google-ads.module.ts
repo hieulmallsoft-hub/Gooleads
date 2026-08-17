@@ -10,6 +10,8 @@ import { ChangeRequestService } from './change-request.service';
 import { GoogleAdsApiService } from './google-ads-api.service';
 import { GoogleAdsMutationService } from './google-ads-mutation.service';
 import { GoogleAdsQueryService } from './google-ads-query.service';
+import { GoogleAdsSnapshotService } from './google-ads-snapshot.service';
+import { GoogleAdsPeriodicSyncService } from './google-ads-periodic-sync.service';
 
 @Module({
   controllers: [GoogleAdsController],
@@ -20,6 +22,8 @@ import { GoogleAdsQueryService } from './google-ads-query.service';
     GoogleAdsService,
     GoogleAdsSyncService,
     GoogleAdsSyncQueueService,
+    GoogleAdsSnapshotService,
+    GoogleAdsPeriodicSyncService,
     AiPersistenceService,
     AiReviewService,
     AssetReplacementService,
@@ -32,6 +36,7 @@ import { GoogleAdsQueryService } from './google-ads-query.service';
     GoogleAdsService,
     GoogleAdsSyncService,
     GoogleAdsSyncQueueService,
+    GoogleAdsSnapshotService,
     AiPersistenceService,
     AiReviewService,
     AssetReplacementService,

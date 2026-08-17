@@ -267,6 +267,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [adGroupLoading, setAdGroupLoading] = useState(false);
   const [assetLoading, setAssetLoading] = useState(false);
+  const [manualSyncLoading, setManualSyncLoading] = useState(false);
   const [error, setError] = useState('');
   const [adGroupError, setAdGroupError] = useState('');
   const [assetError, setAssetError] = useState('');
@@ -1616,6 +1617,41 @@ export default function App() {
     }
   }
 
+  async function syncCurrentView() {
+    if (!canEditSelectedCampaign) {
+      if (viewMode === 'assets') await loadAssets();
+      else await loadCampaigns();
+      return;
+    }
+
+    setManualSyncLoading(true);
+    const setActiveError = viewMode === 'assets' ? setAssetError : setError;
+    setActiveError('');
+    try {
+      const syncSelectedAdGroup = viewMode === 'assets' && Boolean(adGroupId);
+      const response = await apiFetch(
+        syncSelectedAdGroup ? '/google-ads/sync' : '/google-ads/sync/account',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(syncSelectedAdGroup
+            ? { customerId, adGroupId, time: timeRange }
+            : { customerId, time: timeRange }),
+        },
+      );
+      const body = await parseJsonSafe(response);
+      if (!response.ok) {
+        throw new Error(extractApiError(body, 'Không thể đồng bộ dữ liệu Google Ads'));
+      }
+      await loadCampaigns();
+      if (syncSelectedAdGroup) await loadAssets();
+    } catch (err) {
+      setActiveError(actionError(err, 'Không thể đồng bộ dữ liệu Google Ads'));
+    } finally {
+      setManualSyncLoading(false);
+    }
+  }
+
   function openTextAssistant(asset: Asset, translateOnly = false) {
     setAssistantAsset(asset);
     setAssetTranslation('');
@@ -2084,19 +2120,15 @@ export default function App() {
             <button
               className="primaryButton"
               type="button"
-              onClick={() => {
-                if (viewMode === 'assets') {
-                  void loadAssets();
-                } else if (viewMode === 'adGroups') {
-                  void loadAdGroups();
-                } else {
-                  void loadCampaigns();
-                }
-              }}
-              disabled={activeLoading || replaceLoading}
+              onClick={() => void syncCurrentView()}
+              disabled={activeLoading || manualSyncLoading || replaceLoading}
             >
-              <RefreshCw size={15} className={activeLoading ? 'spin' : ''} />
-              {activeLoading ? 'Đang tải...' : 'Tải dữ liệu'}
+              <RefreshCw size={15} className={activeLoading || manualSyncLoading ? 'spin' : ''} />
+              {manualSyncLoading
+                ? 'Đang đồng bộ...'
+                : canEditSelectedCampaign
+                  ? 'Đồng bộ Google Ads'
+                  : 'Làm mới màn hình'}
             </button>
           </div>
         </section>

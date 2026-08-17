@@ -89,6 +89,13 @@ export function PerformanceSummary({
         ? adGroups
         : campaigns;
   const currencyCode = sourceData?.currencyCode || campaignData?.currencyCode || 'USD';
+  const lastSyncedAt = sourceData?.lastSyncedAt ?? campaignData?.lastSyncedAt;
+  const snapshotLabel = lastSyncedAt
+    ? new Intl.DateTimeFormat('vi-VN', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+      }).format(new Date(lastSyncedAt))
+    : null;
 
   const summarizeVisibleRows = viewMode !== 'assets' && visibleRows.length > 0;
   const totalClicks = showingCampaignFallback && selectedCampaignMetrics
@@ -161,6 +168,13 @@ export function PerformanceSummary({
             </div>
         ))}
       </div>
+
+      {sourceData?.dataSource === 'DATABASE_SNAPSHOT' ? (
+        <div className="snapshotFreshness" role="status">
+          <span>Dữ liệu đồng bộ từ Google Ads</span>
+          <strong>{snapshotLabel ? `Cập nhật gần nhất ${snapshotLabel}` : 'Chưa có lần đồng bộ thành công'}</strong>
+        </div>
+      ) : null}
 
       {showingCampaignFallback ? (
         <div className="summaryContextNotice">

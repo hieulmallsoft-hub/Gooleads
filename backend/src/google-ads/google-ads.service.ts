@@ -799,7 +799,14 @@ export class GoogleAdsService {
     return account?.currencyCode?.trim().toUpperCase() || null;
   }
 
-  async getSyncSnapshot(customerId: string, timeRange: string, adGroupId: string) {
+  async getSyncSnapshot(customerId: string, timeRange: string, adGroupId?: string) {
+    const adGroupFilter = adGroupId ? `ad_group.id = ${adGroupId} AND` : '';
+    const campaignStatusQuery = `
+      SELECT campaign.id, campaign.resource_name, campaign.name,
+             campaign.status, campaign.advertising_channel_type
+      FROM campaign
+      WHERE campaign.status != REMOVED
+    `;
     const campaignQuery = `
       SELECT
         campaign.id,
@@ -830,8 +837,14 @@ export class GoogleAdsService {
         metrics.conversions,
         metrics.conversions_value
       FROM ad_group
-      WHERE ad_group.id = ${adGroupId}
-        AND ${this.dateSegmentCondition(timeRange)}
+      WHERE ${adGroupFilter} ${this.dateSegmentCondition(timeRange)}
+    `;
+    const adGroupStatusQuery = `
+      SELECT campaign.id, ad_group.id, ad_group.resource_name,
+             ad_group.name, ad_group.status
+      FROM ad_group
+      WHERE ${adGroupFilter} campaign.status != REMOVED
+        AND ad_group.status != REMOVED
     `;
     const assetQuery = `
       SELECT
@@ -860,21 +873,44 @@ export class GoogleAdsService {
         metrics.conversions,
         metrics.conversions_value
       FROM ad_group_ad_asset_view
-      WHERE ad_group.id = ${adGroupId}
-        AND ${this.dateSegmentCondition(timeRange)}
+      WHERE ${adGroupFilter} ${this.dateSegmentCondition(timeRange)}
         AND ad_group_ad_asset_view.enabled = TRUE
     `;
+    const assetStatusQuery = `
+      SELECT ad_group.id, ad_group_ad.resource_name, ad_group_ad.status,
+             ad_group_ad.ad.id, ad_group_ad.ad.type,
+             ad_group_ad_asset_view.resource_name,
+             ad_group_ad_asset_view.field_type,
+             ad_group_ad_asset_view.performance_label,
+             ad_group_ad_asset_view.enabled,
+             asset.id, asset.resource_name, asset.name, asset.type,
+             asset.text_asset.text,
+             asset.image_asset.full_size.url,
+             asset.image_asset.full_size.width_pixels,
+             asset.image_asset.full_size.height_pixels,
+             asset.youtube_video_asset.youtube_video_id
+      FROM ad_group_ad_asset_view
+      WHERE ${adGroupFilter} ad_group_ad_asset_view.enabled = TRUE
+    `;
 
-    const [campaignResponse, adGroupResponse, assetResponse] = await Promise.all([
+    const [campaignStatusResponse, campaignResponse, adGroupStatusResponse, adGroupResponse, assetStatusResponse, assetResponse] = await Promise.all([
+      this.searchAll(customerId, campaignStatusQuery),
       this.searchAll(customerId, campaignQuery),
+      this.searchAll(customerId, adGroupStatusQuery),
       this.searchAll(customerId, adGroupQuery),
+      this.searchAll(customerId, assetStatusQuery),
       this.searchAll(customerId, assetQuery),
     ]);
 
     const selectedCampaignIds = new Set(
-      (adGroupResponse.results ?? []).map((row: any) => String(row.campaign?.id ?? '')),
+      [...(adGroupStatusResponse.results ?? []), ...(adGroupResponse.results ?? [])]
+        .map((row: any) => String(row.campaign?.id ?? '')),
     );
-    const campaigns: GoogleAdsSyncCampaign[] = (campaignResponse.results ?? [])
+    const campaignRows = [
+      ...(campaignResponse.results ?? []),
+      ...(campaignStatusResponse.results ?? []),
+    ];
+    const campaigns: GoogleAdsSyncCampaign[] = campaignRows
       .filter((row: any) => selectedCampaignIds.has(String(row.campaign?.id ?? '')))
       .map(
       (row: any) => ({
@@ -891,7 +927,10 @@ export class GoogleAdsService {
         conversionValue: Number(row.metrics?.conversionsValue ?? 0),
       }),
     );
-    const adGroups: GoogleAdsSyncAdGroup[] = (adGroupResponse.results ?? []).map(
+    const adGroups: GoogleAdsSyncAdGroup[] = [
+      ...(adGroupResponse.results ?? []),
+      ...(adGroupStatusResponse.results ?? []),
+    ].map(
       (row: any) => ({
         id: String(row.adGroup?.id ?? ''),
         resourceName: String(row.adGroup?.resourceName ?? ''),
@@ -906,7 +945,10 @@ export class GoogleAdsService {
         conversionValue: Number(row.metrics?.conversionsValue ?? 0),
       }),
     );
-    const assets: GoogleAdsSyncAsset[] = (assetResponse.results ?? []).map(
+    const assets: GoogleAdsSyncAsset[] = [
+      ...(assetResponse.results ?? []),
+      ...(assetStatusResponse.results ?? []),
+    ].map(
       (row: any) => ({
         adId: String(row.adGroupAd?.ad?.id ?? ''),
         adResourceName: String(row.adGroupAd?.resourceName ?? ''),

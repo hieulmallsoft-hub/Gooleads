@@ -15,6 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { GoogleAdsService } from './google-ads.service';
 import { GoogleAdsSyncService } from './google-ads-sync.service';
 import { GoogleAdsSyncQueueService } from './google-ads-sync-queue.service';
+import { GoogleAdsSnapshotService } from './google-ads-snapshot.service';
 import { AiPersistenceService } from './ai-persistence.service';
 import { AiReviewService } from './ai-review.service';
 import { AssetReplacementService } from './asset-replacement.service';
@@ -189,6 +190,7 @@ export class GoogleAdsController {
     private readonly googleAdsService: GoogleAdsService,
     private readonly googleAdsSyncService: GoogleAdsSyncService,
     private readonly googleAdsSyncQueueService: GoogleAdsSyncQueueService,
+    private readonly googleAdsSnapshotService: GoogleAdsSnapshotService,
     private readonly aiPersistenceService: AiPersistenceService,
     private readonly aiReviewService: AiReviewService,
     private readonly assetReplacementService: AssetReplacementService,
@@ -222,7 +224,7 @@ export class GoogleAdsController {
     const normalizedCustomerId = normalizeCustomerId(customerId);
     const timeRange = normalizeTimeRange(time);
     this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
-    return this.googleAdsService.getCampaignPerformance(normalizedCustomerId, timeRange);
+    return this.googleAdsSnapshotService.getCampaignPerformance(normalizedCustomerId, timeRange);
   }
 
   @Get('ad-groups')
@@ -234,7 +236,7 @@ export class GoogleAdsController {
     const normalizedCustomerId = normalizeCustomerId(customerId);
     const timeRange = normalizeTimeRange(time);
     this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
-    return this.googleAdsService.getAdGroupPerformance(normalizedCustomerId, timeRange);
+    return this.googleAdsSnapshotService.getAdGroupPerformance(normalizedCustomerId, timeRange);
   }
 
   @Get('assets')
@@ -252,7 +254,7 @@ export class GoogleAdsController {
       normalizedCustomerId,
       normalizedAdGroupId,
     );
-    return this.googleAdsService.getAssetPerformance(
+    return this.googleAdsSnapshotService.getAssetPerformance(
       normalizedCustomerId,
       normalizedAdGroupId,
       timeRange,
@@ -272,6 +274,22 @@ export class GoogleAdsController {
       normalizedCustomerId,
       normalizedAdGroupId,
       timeRange,
+    );
+  }
+
+  @Post('sync/account')
+  @RequirePermissions('automation.manage')
+  async syncAccount(
+    @Body() body: { customerId?: string; time?: string },
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    const normalizedCustomerId = normalizeCustomerId(body.customerId);
+    this.campaignAccessService.assertCanViewCustomer(request.user, normalizedCustomerId);
+    const timeRange = normalizeTimeRange(body.time ?? 'LAST_7_DAYS');
+    return this.googleAdsSyncService.syncAccount(
+      normalizedCustomerId,
+      timeRange,
+      5 * 60 * 1000,
     );
   }
 

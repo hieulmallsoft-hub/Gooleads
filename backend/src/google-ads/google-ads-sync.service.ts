@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { AdAssetDailyMetricEntity } from '../database/entities/ad-asset-daily-metric.entity';
 import { AdAssetLinkEntity } from '../database/entities/ad-asset-link.entity';
@@ -109,6 +109,27 @@ export class GoogleAdsSyncService {
   }
 
   async sync(customerId: string, adGroupId: string, timeRange: string) {
+    return this.runSync(customerId, timeRange, adGroupId);
+  }
+
+  async syncAccount(customerId: string, timeRange: string, minimumIntervalMs = 0) {
+    if (minimumIntervalMs > 0) {
+      const account = await this.dataSource.getRepository(GoogleAdsAccountEntity)
+        .findOneBy({ customerId });
+      if (account?.lastSyncedAt) {
+        const retryInMs = minimumIntervalMs - (Date.now() - account.lastSyncedAt.getTime());
+        if (retryInMs > 0) {
+          throw new HttpException(
+            `Dữ liệu vừa được đồng bộ. Bạn có thể đồng bộ lại sau ${Math.ceil(retryInMs / 60_000)} phút.`,
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+      }
+    }
+    return this.runSync(customerId, timeRange);
+  }
+
+  private async runSync(customerId: string, timeRange: string, adGroupId?: string) {
     const accountRepository = this.dataSource.getRepository(GoogleAdsAccountEntity);
     const syncRunRepository = this.dataSource.getRepository(SyncRunEntity);
     const account = await this.accountRegistry.getOrCreate(customerId);
@@ -123,7 +144,12 @@ export class GoogleAdsSyncService {
         rowsRead: 0,
         rowsWritten: 0,
         errorMessage: null,
-        metadata: { customerId, adGroupId, timeRange, mode: 'LOW_ONLY' },
+        metadata: {
+          customerId,
+          ...(adGroupId ? { adGroupId } : {}),
+          timeRange,
+          mode: adGroupId ? 'AD_GROUP_FULL' : 'ACCOUNT_FULL',
+        },
         startedAt: new Date(),
         completedAt: null,
       }),
@@ -135,13 +161,9 @@ export class GoogleAdsSyncService {
         timeRange,
         adGroupId,
       );
-      const snapshot = {
-        campaigns: sourceSnapshot.campaigns,
-        adGroups: sourceSnapshot.adGroups,
-        assets: sourceSnapshot.assets.filter(
-          (asset) => asset.performanceLabel === 'LOW',
-        ),
-      };
+      // Persist the complete Google Ads snapshot. Automation can still select LOW
+      // assets later, but read-only screens must not lose GOOD/BEST/UNKNOWN assets.
+      const snapshot = sourceSnapshot;
       const dates = [
         ...snapshot.campaigns.map((item) => item.date),
         ...snapshot.adGroups.map((item) => item.date),
@@ -153,7 +175,7 @@ export class GoogleAdsSyncService {
       const rowsRead =
         snapshot.campaigns.length + snapshot.adGroups.length + snapshot.assets.length;
       const result = await this.dataSource.transaction((manager) =>
-        this.persistSnapshot(manager, account, syncRun, snapshot),
+        this.persistSnapshot(manager, account, syncRun, snapshot, !adGroupId),
       );
 
       syncRun.rangeStart = dates[0] ?? null;
@@ -208,6 +230,7 @@ export class GoogleAdsSyncService {
       adGroups: GoogleAdsSyncAdGroup[];
       assets: GoogleAdsSyncAsset[];
     },
+    fullAccount: boolean,
   ) {
     const now = new Date();
     const campaignRows = this.uniqueBy(snapshot.campaigns, (item) => item.id);
@@ -232,6 +255,14 @@ export class GoogleAdsSyncService {
       })),
       ['accountId', 'googleCampaignId'],
     );
+    if (fullAccount) {
+      await manager.query(`
+        UPDATE campaigns
+        SET status = 'REMOVED', last_seen_at = $2
+        WHERE account_id = $1
+          AND NOT (google_campaign_id = ANY($3::text[]))
+      `, [account.id, now, campaignRows.map((item) => item.id)]);
+    }
     const campaigns = await campaignRepository.findBy({ accountId: account.id });
     const campaignMap = new Map(campaigns.map((item) => [item.googleCampaignId, item]));
 
@@ -265,6 +296,16 @@ export class GoogleAdsSyncService {
       }),
       ['campaignId', 'googleAdGroupId'],
     );
+    if (fullAccount) {
+      await manager.query(`
+        UPDATE ad_groups AS ad_group
+        SET status = 'REMOVED', last_seen_at = $2
+        FROM campaigns AS campaign
+        WHERE ad_group.campaign_id = campaign.id
+          AND campaign.account_id = $1
+          AND NOT (ad_group.google_ad_group_id = ANY($3::text[]))
+      `, [account.id, now, adGroupRows.map((item) => item.id)]);
+    }
     const adGroups = campaignIds.length
       ? await adGroupRepository.findBy({ campaignId: In(campaignIds) })
       : [];

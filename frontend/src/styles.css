@@ -4691,3 +4691,27 @@ tbody tr:hover td:first-child {
 .historyPagination { display: flex; justify-content: center; align-items: center; gap: 14px; }
 .historyPagination button { display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; border: 1px solid #dadce0; border-radius: 8px; background: #fff; cursor: pointer; }
 .historyPagination button:disabled { opacity: .5; cursor: default; }
+.snapshotFreshness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid #dbe4f0;
+  background: #f6f9fd;
+  color: #536174;
+  font-size: 12px;
+}
+
+.snapshotFreshness strong {
+  color: #1f4f8f;
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .snapshotFreshness {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}
