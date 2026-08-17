@@ -1646,7 +1646,16 @@ export default function App() {
       await loadCampaigns();
       if (syncSelectedAdGroup) await loadAssets();
     } catch (err) {
-      setActiveError(actionError(err, 'Không thể đồng bộ dữ liệu Google Ads'));
+      const message = actionError(err, 'Không thể đồng bộ dữ liệu Google Ads');
+      const quotaLimited = /hết hạn mức|RESOURCE_(?:TEMPORARILY_)?EXHAUSTED|quota|429/i.test(message);
+      // A failed live refresh must never clear or hide the last database snapshot.
+      await loadCampaigns();
+      if (viewMode === 'assets' && adGroupId) await loadAssets();
+      setActiveError(
+        quotaLimited
+          ? 'Google Ads đang giới hạn lượt đồng bộ. Website vẫn dùng dữ liệu đã lưu gần nhất; nếu bảng đang trống thì tài khoản này chưa có lần đồng bộ thành công. Hệ thống sẽ tự thử lại ở chu kỳ tiếp theo.'
+          : message,
+      );
     } finally {
       setManualSyncLoading(false);
     }

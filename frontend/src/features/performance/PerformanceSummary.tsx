@@ -96,6 +96,9 @@ export function PerformanceSummary({
         timeStyle: 'short',
       }).format(new Date(lastSyncedAt))
     : null;
+  const databaseRange = sourceData?.dataRangeStart && sourceData?.dataRangeEnd
+    ? `${sourceData.dataRangeStart.split('-').reverse().join('/')} – ${sourceData.dataRangeEnd.split('-').reverse().join('/')}`
+    : null;
 
   const summarizeVisibleRows = viewMode !== 'assets' && visibleRows.length > 0;
   const totalClicks = showingCampaignFallback && selectedCampaignMetrics
@@ -171,7 +174,7 @@ export function PerformanceSummary({
 
       {sourceData?.dataSource === 'DATABASE_SNAPSHOT' ? (
         <div className="snapshotFreshness" role="status">
-          <span>Dữ liệu đồng bộ từ Google Ads</span>
+          <span>{databaseRange ? `Dữ liệu hiện có trong DB: ${databaseRange}` : 'Database chưa có chỉ số cho khoảng ngày này'}</span>
           <strong>{snapshotLabel ? `Cập nhật gần nhất ${snapshotLabel}` : 'Chưa có lần đồng bộ thành công'}</strong>
         </div>
       ) : null}

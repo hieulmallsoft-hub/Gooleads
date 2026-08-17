@@ -56,6 +56,8 @@ export type CampaignResponse = {
   dailyMetrics?: DailyMetric[];
   lastSyncedAt?: string | null;
   dataSource?: 'DATABASE_SNAPSHOT' | 'GOOGLE_ADS_LIVE';
+  dataRangeStart?: string | null;
+  dataRangeEnd?: string | null;
 };
 
 export type AdGroup = {
@@ -87,6 +89,8 @@ export type AdGroupResponse = {
   dailyMetrics?: DailyMetric[];
   lastSyncedAt?: string | null;
   dataSource?: 'DATABASE_SNAPSHOT' | 'GOOGLE_ADS_LIVE';
+  dataRangeStart?: string | null;
+  dataRangeEnd?: string | null;
 };
 
 export type Asset = {
@@ -130,6 +134,8 @@ export type AssetResponse = {
   dailyMetrics?: DailyMetric[];
   lastSyncedAt?: string | null;
   dataSource?: 'DATABASE_SNAPSHOT' | 'GOOGLE_ADS_LIVE';
+  dataRangeStart?: string | null;
+  dataRangeEnd?: string | null;
 };
 
 export type ReplaceLowAssetsResponse = {

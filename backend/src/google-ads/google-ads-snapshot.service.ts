@@ -26,7 +26,9 @@ export class GoogleAdsSnapshotService {
              COALESCE(SUM(metric.clicks), 0) AS clicks,
              COALESCE(SUM(metric.cost_micros), 0) AS "costMicros",
              COALESCE(SUM(metric.conversions), 0) AS conversions,
-             COALESCE(SUM(metric.conversion_value), 0) AS "conversionValue"
+             COALESCE(SUM(metric.conversion_value), 0) AS "conversionValue",
+             MIN(metric.metric_date) AS "metricStart",
+             MAX(metric.metric_date) AS "metricEnd"
       FROM campaigns campaign
       JOIN google_ads_accounts account ON account.id = campaign.account_id
       LEFT JOIN campaign_daily_metrics metric
@@ -40,6 +42,8 @@ export class GoogleAdsSnapshotService {
       id: String(row.id),
       name: String(row.name ?? ''),
       status: String(row.status ?? 'UNKNOWN'),
+      metricStart: row.metricStart ? String(row.metricStart).slice(0, 10) : null,
+      metricEnd: row.metricEnd ? String(row.metricEnd).slice(0, 10) : null,
       ...this.metric(row),
       dailyMetrics: [],
     }));
@@ -59,7 +63,9 @@ export class GoogleAdsSnapshotService {
              COALESCE(SUM(metric.clicks), 0) AS clicks,
              COALESCE(SUM(metric.cost_micros), 0) AS "costMicros",
              COALESCE(SUM(metric.conversions), 0) AS conversions,
-             COALESCE(SUM(metric.conversion_value), 0) AS "conversionValue"
+             COALESCE(SUM(metric.conversion_value), 0) AS "conversionValue",
+             MIN(metric.metric_date) AS "metricStart",
+             MAX(metric.metric_date) AS "metricEnd"
       FROM ad_groups ad_group
       JOIN campaigns campaign ON campaign.id = ad_group.campaign_id
       JOIN google_ads_accounts account ON account.id = campaign.account_id
@@ -78,6 +84,8 @@ export class GoogleAdsSnapshotService {
       campaignName: String(row.campaignName ?? ''),
       campaignStatus: String(row.campaignStatus ?? 'UNKNOWN'),
       status: String(row.status ?? 'UNKNOWN'),
+      metricStart: row.metricStart ? String(row.metricStart).slice(0, 10) : null,
+      metricEnd: row.metricEnd ? String(row.metricEnd).slice(0, 10) : null,
       ...this.metric(row),
       dailyMetrics: [],
     }));
@@ -103,7 +111,9 @@ export class GoogleAdsSnapshotService {
              COALESCE(SUM(metric.clicks), 0) AS clicks,
              COALESCE(SUM(metric.cost_micros), 0) AS "costMicros",
              COALESCE(SUM(metric.conversions), 0) AS conversions,
-             COALESCE(SUM(metric.conversion_value), 0) AS "conversionValue"
+             COALESCE(SUM(metric.conversion_value), 0) AS "conversionValue",
+             MIN(metric.metric_date) AS "metricStart",
+             MAX(metric.metric_date) AS "metricEnd"
       FROM ad_asset_links link
       JOIN assets asset ON asset.id = link.asset_id
       JOIN ads ad ON ad.id = link.ad_id
@@ -128,6 +138,8 @@ export class GoogleAdsSnapshotService {
         performanceLabel: String(row.performanceLabel ?? 'UNKNOWN'), text: String(row.text ?? ''),
         imageUrl: String(row.imageUrl ?? ''), imageWidth: Number(row.imageWidth ?? 0),
         imageHeight: Number(row.imageHeight ?? 0), videoId: String(row.videoId ?? ''),
+        metricStart: row.metricStart ? String(row.metricStart).slice(0, 10) : null,
+        metricEnd: row.metricEnd ? String(row.metricEnd).slice(0, 10) : null,
         ...metrics, cpa: metrics.costPerConversion, ...this.evaluate(metrics, String(row.performanceLabel ?? '')),
       };
     });
@@ -152,12 +164,16 @@ export class GoogleAdsSnapshotService {
     const totalConversions = items.reduce((sum, item) => sum + item.conversions, 0);
     const totalImpressions = items.reduce((sum, item) => sum + item.impressions, 0);
     const totalConversionValue = items.reduce((sum, item) => sum + item.conversionValue, 0);
+    const metricStarts = items.map((item) => item.metricStart).filter(Boolean).sort();
+    const metricEnds = items.map((item) => item.metricEnd).filter(Boolean).sort();
     return {
       [key]: items,
       timeRange,
       currencyCode: account.currencyCode ?? null,
       lastSyncedAt: account.lastSyncedAt ?? null,
       dataSource: 'DATABASE_SNAPSHOT',
+      dataRangeStart: metricStarts[0] ?? null,
+      dataRangeEnd: metricEnds.at(-1) ?? null,
       totalCost, totalClicks, totalConversions, totalImpressions,
       avgCtr: totalImpressions > 0 ? totalClicks / totalImpressions : 0,
       avgRoas: totalCost > 0 ? totalConversionValue / totalCost : 0,
