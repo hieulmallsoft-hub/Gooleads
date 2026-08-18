@@ -4,7 +4,6 @@ import { NotificationBell, type AppNotification } from './NotificationBell';
 import type { AuthUser } from '../../types/googleAds';
 
 type AdsTopbarProps = {
-  menuOpen: boolean;
   customerId: string;
   customerLabel: string;
   searchText: string;
@@ -20,7 +19,6 @@ type AdsTopbarProps = {
 };
 
 export function AdsTopbar({
-  menuOpen,
   customerId,
   customerLabel,
   searchText,
@@ -40,9 +38,7 @@ export function AdsTopbar({
         <button
           className="iconButton"
           type="button"
-          aria-label={menuOpen ? 'Đóng menu' : 'Mở menu'}
-          aria-expanded={menuOpen}
-          aria-controls="main-navigation"
+          aria-label="Mở menu"
           onClick={onMenuToggle}
         >
           <Menu size={20} />
