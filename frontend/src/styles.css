@@ -4469,6 +4469,348 @@ tbody tr:hover td:first-child {
   gap: 9px;
 }
 
+/* ─── Product polish layer ──────────────────────────────────── */
+.shell {
+  padding: 22px 28px 40px;
+  max-width: none;
+}
+
+.pageHeader,
+.operationsHeader {
+  padding-bottom: 16px;
+}
+
+.pageTitleBlock h1,
+.operationsHeader h1 {
+  color: #1f2937;
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.operationsHeader {
+  border-bottom: 0;
+}
+
+.primaryButton,
+.secondaryButton {
+  height: 40px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+
+.primaryButton {
+  min-width: 104px;
+  padding-inline: 16px;
+  box-shadow: 0 2px 5px rgba(26,115,232,.22);
+}
+
+.secondaryButton {
+  box-shadow: none;
+}
+
+.field input,
+.field select,
+.currentAccountLabel strong {
+  height: 40px;
+  border-color: #d8dde5;
+  border-radius: 7px;
+}
+
+.filters {
+  top: 60px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.tableWrap {
+  border-color: #dfe4ea;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15,23,42,.04);
+}
+
+.tableHeader {
+  min-height: 62px;
+  padding: 13px 16px;
+  background: #fff;
+}
+
+th {
+  height: 38px;
+  padding: 9px 12px;
+  background: #f6f8fb;
+  color: #667085;
+  font-size: 10.5px;
+  letter-spacing: .045em;
+}
+
+td {
+  padding: 11px 12px;
+  border-bottom-color: #edf0f4;
+}
+
+tbody tr {
+  transition: background-color .15s ease;
+}
+
+tbody tr:hover {
+  background: #f8fbff;
+}
+
+.overview-tabs {
+  gap: 10px;
+}
+
+.overview-tab {
+  min-height: 76px;
+  padding: 13px 16px;
+  border: 1px solid #dfe4ea;
+  border-top: 3px solid #dfe4ea;
+  border-radius: 10px;
+  background: #fff;
+  color: #182230;
+  box-shadow: 0 1px 2px rgba(15,23,42,.04);
+}
+
+.overview-tab:hover {
+  border-color: #cbd3dd;
+  background: #fbfcfe;
+  box-shadow: 0 3px 10px rgba(15,23,42,.06);
+  filter: none;
+}
+
+.overview-tab::before { display: none; }
+.overview-tab.tab-clicks { border-top-color: #1a73e8; }
+.overview-tab.tab-roas { border-top-color: #d93025; }
+.overview-tab.tab-cpa { border-top-color: #188038; }
+.overview-tab.tab-cost { border-top-color: #f29900; }
+.overview-tab.tab-clicks,
+.overview-tab.tab-roas,
+.overview-tab.tab-cpa,
+.overview-tab.tab-cost,
+.overview-tab.tab-clicks.active,
+.overview-tab.tab-roas.active,
+.overview-tab.tab-cpa.active,
+.overview-tab.tab-cost.active {
+  background: #fff;
+  color: #182230;
+}
+
+.overview-tab .tab-header {
+  color: #667085;
+  opacity: 1;
+  font-size: 10.5px;
+}
+
+.tab-body strong {
+  color: #182230;
+  font-size: 22px;
+  letter-spacing: -.025em;
+}
+
+.operationsPage {
+  gap: 14px;
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+}
+
+.operationsPage .operationsSection {
+  padding: 20px 22px;
+  border: 1px solid #e1e6ec;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15,23,42,.045);
+}
+
+.operationsPage .sectionTitle {
+  min-height: 0;
+  padding: 0 0 14px;
+}
+
+.operationsPage .sectionTitle h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #253044;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.stepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  border-radius: 50%;
+  background: #e8f0fe;
+  color: #185abc;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.automationOverviewCards {
+  margin: 0 0 18px;
+}
+
+.automationOverviewCards > div {
+  min-height: 70px;
+  padding: 13px 15px;
+  border-color: #e1e6ec;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15,23,42,.035);
+}
+
+.automationOverviewCards > div:first-child { border-left: 3px solid #1a73e8; }
+.automationOverviewCards > div:nth-child(2) { border-left: 3px solid #f29900; }
+.automationOverviewCards > div:nth-child(3) { border-left: 3px solid #188038; }
+
+.operationsPage .settingsGrid {
+  gap: 10px;
+}
+
+.operationsPage .settingsGrid label {
+  gap: 6px;
+}
+
+.operationsPage .settingsGrid input:disabled {
+  border-color: #e5e9ef;
+  background: #f8fafc;
+  color: #526174;
+}
+
+.operationsPage .automationCampaignToolbar {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e5e9ef;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+
+.operationsPage .automationScopeCampaignRow {
+  border-color: #e2e7ed;
+  border-radius: 9px;
+}
+
+.settingsActions {
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #edf0f4;
+}
+
+.automationSaveBar {
+  margin: 14px -4px -4px;
+  border-color: #dfe5ec;
+  box-shadow: 0 -4px 12px rgba(15,23,42,.04);
+}
+
+.textAssistantBackdrop {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15,23,42,.46);
+  backdrop-filter: blur(2px);
+}
+
+.textAssistant {
+  width: min(680px, calc(100vw - 48px));
+  height: auto;
+  max-height: min(820px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.8);
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(15,23,42,.28);
+}
+
+.textAssistantHeader {
+  padding: 17px 20px 13px;
+  background: #fbfcfe;
+}
+
+.textAssistantHeader h2 {
+  font-size: 19px;
+}
+
+.textAssistantContent {
+  gap: 13px;
+  padding: 16px 20px 20px;
+}
+
+.textAssistantCurrent,
+.textAssistantSuggestion,
+.textAssistantManual,
+.assistantApplyBox {
+  padding: 13px;
+  border-color: #dfe4ea;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+
+.textAssistantCurrent {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.textAssistantCurrent > strong,
+.textAssistantCurrent > .translationResult {
+  grid-column: 1 / -1;
+}
+
+.textAssistantCurrent .tableActionButton {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.textAssistantManual textarea {
+  min-height: 78px;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.textAssistantFooter {
+  padding: 13px 20px;
+  box-shadow: none;
+}
+
+.textAssistant.manualOnly .textAssistantContent {
+  gap: 12px;
+}
+
+.automationAddDrawer {
+  border-left: 1px solid #dfe4ea;
+}
+
+.automationCampaignDetail {
+  border: 1px solid rgba(255,255,255,.8);
+  box-shadow: 0 24px 70px rgba(15,23,42,.25);
+}
+
+@media (max-width: 700px) {
+  .textAssistantBackdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .textAssistant {
+    width: 100%;
+    max-height: 92vh;
+    border-radius: 14px 14px 0 0;
+  }
+  .textAssistantCurrent {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .textAssistantCurrent .tableActionButton {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+}
+
 /* ─── Keyframes ──────────────────────────────────────────────── */
 @keyframes heroIn {
   from { opacity: 0; transform: translateY(-10px); }
@@ -4727,6 +5069,78 @@ tbody tr:hover td:first-child {
 .impactMetric em.negative { color: #d93025; }
 .impactCard footer { padding: 9px 18px; background: #fafbfc; font-size: 11px; }
 .impactEmpty { padding: 48px 20px; display: grid; justify-items: center; gap: 8px; border: 1px dashed #c9cdd2; border-radius: 14px; color: #5f6368; text-align: center; }
+
+/* Change impact: compact reporting workspace instead of a marketing landing page. */
+.changeImpactPage {
+  gap: 14px;
+  padding: 22px 28px 32px;
+}
+
+.impactHeader {
+  align-items: center;
+  padding-bottom: 4px;
+}
+
+.impactHeader h1 {
+  margin: 3px 0 3px;
+  color: #1f2937;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+
+.impactHeader p { font-size: 13px; }
+.impactActions select { height: 40px; }
+
+.impactSummary { gap: 10px; }
+.impactSummaryCard {
+  min-height: 76px;
+  gap: 5px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15,23,42,.035);
+}
+.impactSummaryCard strong { font-size: 23px; }
+
+.impactToolbar {
+  padding: 12px;
+  border: 1px solid #e1e6ec;
+  border-radius: 11px;
+  background: #f8fafc;
+}
+
+.impactNote {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #667085;
+}
+.impactNote summary {
+  width: max-content;
+  cursor: pointer;
+  color: #526174;
+  font-size: 12px;
+  font-weight: 600;
+}
+.impactNote p {
+  max-width: 980px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f6f8fb;
+  line-height: 1.5;
+}
+
+.impactEmpty {
+  min-height: 132px;
+  align-content: center;
+  padding: 28px 20px;
+  border-color: #d7dde5;
+  border-radius: 11px;
+  background: #fbfcfe;
+}
+.impactEmpty svg { color: #8491a3; }
+.impactEmpty strong { color: #344054; }
 
 @media (max-width: 900px) {
   .automationOverviewCards { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -65,11 +65,11 @@ export function TextAssetAssistant(props: Props) {
 
   return (
     <div className="textAssistantBackdrop" role="presentation" onMouseDown={props.onClose}>
-      <section className="textAssistant" role="dialog" aria-modal="true" aria-label="Trợ lý chỉnh sửa nội dung" onMouseDown={(event) => event.stopPropagation()}>
+      <section className={`textAssistant${isLow ? '' : ' manualOnly'}`} role="dialog" aria-modal="true" aria-label="Trợ lý chỉnh sửa nội dung" onMouseDown={(event) => event.stopPropagation()}>
         <header className="textAssistantHeader">
           <div>
             <span>{asset.fieldType === 'HEADLINE' ? 'Tiêu đề quảng cáo' : 'Mô tả quảng cáo'} · {asset.performanceLabel || 'Chưa có nhãn'}</span>
-            <h2>Chỉnh sửa nội dung</h2>
+            <h2>{asset.fieldType === 'HEADLINE' ? 'Sửa tiêu đề' : 'Sửa mô tả'}</h2>
           </div>
           <button className="iconButton" type="button" onClick={props.onClose} aria-label="Đóng"><X size={18} /></button>
         </header>
@@ -87,14 +87,14 @@ export function TextAssetAssistant(props: Props) {
             ) : null}
           </div>
 
-          <div className="editModePicker" role="radiogroup" aria-label="Chọn cách chỉnh sửa">
+          {isLow ? <div className="editModePicker" role="radiogroup" aria-label="Chọn cách chỉnh sửa">
             <button type="button" className={mode === 'AI' ? 'active' : ''} disabled={!isLow} onClick={() => chooseMode('AI')}>
               <Sparkles size={16} /><span><strong>Dùng gợi ý AI</strong><small>AI viết lại theo ngôn ngữ gốc</small></span>
             </button>
             <button type="button" className={mode === 'MANUAL' ? 'active' : ''} onClick={() => chooseMode('MANUAL')}>
               <PenLine size={16} /><span><strong>Tự nhập nội dung</strong><small>Bạn kiểm soát hoàn toàn câu chữ</small></span>
             </button>
-          </div>
+          </div> : null}
 
           {mode === 'AI' && isLow ? (
             <div className="textAssistantSuggestion">

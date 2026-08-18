@@ -323,9 +323,9 @@ function PerformanceAfterChanges({ customerId }: { customerId: string }) {
     <section className="changeImpactPage">
       <div className="impactHeader">
         <div>
-          <span className="eyebrow">Đo lường</span>
-          <h1>Chiến dịch sau khi thay đổi có hiệu quả hơn không?</h1>
-          <p>Tìm chiến dịch vừa thay đổi và xem ngay hiệu quả tăng, giảm hay vẫn đang chờ dữ liệu.</p>
+          <span className="eyebrow">Theo dõi kết quả</span>
+          <h1>Hiệu quả sau thay đổi</h1>
+          <p>So sánh hiệu suất trước và sau khi nội dung được cập nhật.</p>
         </div>
         <div className="impactActions">
           <label>
@@ -389,11 +389,13 @@ function PerformanceAfterChanges({ customerId }: { customerId: string }) {
         <span className="impactResultCount">{data?.pagination.total ?? 0} kết quả</span>
       </div>
 
-      <div className="impactNote">
-        <strong>Cách tính:</strong>{' '}
-        Hệ thống so sánh cùng số ngày trước và sau thay đổi, không tính ngày thực hiện thay đổi.
-        Kết quả còn có thể chịu ảnh hưởng từ ngân sách, giá thầu, đối tượng hoặc tính mùa vụ.
-      </div>
+      <details className="impactNote">
+        <summary>Cách hệ thống tính kết quả</summary>
+        <p>
+          Hệ thống so sánh cùng số ngày trước và sau thay đổi, không tính ngày thực hiện thay đổi.
+          Kết quả còn có thể chịu ảnh hưởng từ ngân sách, giá thầu, đối tượng hoặc tính mùa vụ.
+        </p>
+      </details>
 
       {!loading && data?.changes.length === 0 ? (
         <div className="impactEmpty">

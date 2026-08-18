@@ -1462,7 +1462,7 @@ export function OperationsPanel({
             </div> : null}
             <div className="sectionTitle">
               <div>
-                <h2>1. Phạm vi chạy</h2>
+                <h2 aria-label="1. Phạm vi chạy"><span className="stepNumber" aria-hidden="true">1</span>Phạm vi chạy</h2>
                 <p>Chọn chiến dịch và nhóm quảng cáo mà Automation được phép xử lý.</p>
               </div>
               <div className="automationHeaderActions">
@@ -1757,7 +1757,7 @@ export function OperationsPanel({
           <section className="operationsSection">
             <div className="sectionTitle">
               <div>
-                <h2>2. Lịch chạy</h2>
+                <h2 aria-label="2. Lịch chạy"><span className="stepNumber" aria-hidden="true">2</span>Lịch chạy</h2>
                 <p>Automation chỉ xử lý tiêu đề và mô tả mang nhãn LOW trong phạm vi đã lưu.</p>
               </div>
             </div>
@@ -1770,7 +1770,7 @@ export function OperationsPanel({
             </div>
           </section>
           <section className="operationsSection">
-            <div className="sectionTitle"><div><h2>3. Chế độ xử lý</h2><p>Chạy ngay để xử lý phạm vi đã lưu. Tắt lịch chỉ dừng các lượt chạy trong tương lai.</p></div><span>{settingsDraft.automationEnabled ? 'Đang tự động áp dụng lên Google Ads' : 'Lịch đang tắt'}</span></div>
+            <div className="sectionTitle"><div><h2 aria-label="3. Chế độ xử lý"><span className="stepNumber" aria-hidden="true">3</span>Chế độ xử lý</h2><p>Chạy ngay để xử lý phạm vi đã lưu. Tắt lịch chỉ dừng các lượt chạy trong tương lai.</p></div><span>{settingsDraft.automationEnabled ? 'Đang tự động áp dụng lên Google Ads' : 'Lịch đang tắt'}</span></div>
             <div className="settingsGrid">
               <label><span>AI định kỳ</span><input value={settingsDraft.automationEnabled ? 'Đang bật - theo lịch' : 'Đã tắt'} disabled /></label>
               <label><span>Chế độ áp dụng</span><input value={settingsDraft.automationEnabled ? 'TỰ ĐỘNG - áp dụng trực tiếp lên Google Ads' : 'Đã tắt'} disabled /></label>
