@@ -232,11 +232,32 @@ function errorMessage(body: any, fallback: string) {
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return 'Chưa có';
-  return new Intl.DateTimeFormat('en-GB', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value));
+  if (!value) return 'Chưa xác định';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Ngày không hợp lệ';
+  const calendarDate = new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(date);
+  const time = new Intl.DateTimeFormat('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+  return `${calendarDate} lúc ${time}`;
+}
+
+function formatNextRunDate(value: string | null | undefined) {
+  if (!value) return 'Chưa lên lịch';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Ngày không hợp lệ';
+  const differenceMs = date.getTime() - Date.now();
+  const differenceDays = Math.ceil(Math.abs(differenceMs) / 86_400_000);
+  const relative = differenceMs >= 0
+    ? differenceDays === 0 ? 'hôm nay' : `còn ${differenceDays} ngày`
+    : differenceDays === 0 ? 'đã qua' : `đã qua ${differenceDays} ngày`;
+  return `${formatDate(value)} · ${relative}`;
 }
 
 function formatCompactNumber(value: number) {
@@ -1214,7 +1235,7 @@ export function OperationsPanel({
               <div><span>Lần đồng bộ gần nhất</span><strong>{formatDate(overview.lastSync?.startedAt)}</strong></div>
               <div><span>Trạng thái đồng bộ</span><strong>{overview.lastSync?.status ?? 'Chưa có'}</strong></div>
               <div><span>AI định kỳ</span><strong>{overview.automation?.enabled ? 'Đang bật' : 'Đã tắt'}</strong></div>
-              <div><span>Lần chạy AI tiếp theo</span><strong>{formatDate(overview.automation?.nextRunAt)}</strong></div>
+              <div><span>Lịch chạy AI tiếp theo</span><strong>{formatNextRunDate(overview.automation?.nextRunAt)}</strong></div>
             </div>
           </section>
           <section className="operationsSection">
@@ -1427,7 +1448,7 @@ export function OperationsPanel({
             <section className="operationsSection">
             <div className="automationOverviewCards">
               <div><span>Lịch Automation</span><strong className={settingsDraft.automationEnabled ? 'connected' : 'disconnected'}>{settingsDraft.automationEnabled ? 'Đã bật lịch' : 'Đã tắt lịch'}</strong></div>
-              <div><span>Lần chạy tiếp theo</span><strong>{formatDate(settings.schedule?.nextRunAt)}</strong></div>
+              <div><span>Lịch chạy tiếp theo</span><strong>{formatNextRunDate(settings.schedule?.nextRunAt)}</strong></div>
               <div><span>Kết quả gần nhất</span><strong>{latestAutomationRun ? `${latestAutomationRun.appliedCount} áp dụng · ${latestAutomationRun.failedCount} lỗi` : 'Chưa có lượt chạy'}</strong></div>
             </div>
             {(!hasAutomationTarget || automationScopeDirty) ? <div className={`automationNextStep ${automationScopeDirty ? 'warning' : ''}`}>
@@ -1441,7 +1462,7 @@ export function OperationsPanel({
                       : !hasAutomationTarget
                         ? 'Chọn toàn bộ chiến dịch hoặc ít nhất một nhóm quảng cáo'
                         : settingsDraft.automationEnabled
-                          ? `Không cần thao tác · lượt tiếp theo ${formatDate(settings.schedule?.nextRunAt)}`
+                          ? `Không cần thao tác · lượt tiếp theo ${formatNextRunDate(settings.schedule?.nextRunAt)}`
                           : 'Phạm vi đã sẵn sàng · bạn có thể chạy ngay'}
                 </strong>
                 <small>
@@ -1775,7 +1796,7 @@ export function OperationsPanel({
               <label><span>AI định kỳ</span><input value={settingsDraft.automationEnabled ? 'Đang bật - theo lịch' : 'Đã tắt'} disabled /></label>
               <label><span>Chế độ áp dụng</span><input value={settingsDraft.automationEnabled ? 'TỰ ĐỘNG - áp dụng trực tiếp lên Google Ads' : 'Đã tắt'} disabled /></label>
               <label><span>Lần chạy gần nhất</span><input value={formatDate(settings.schedule?.lastRunAt)} disabled /></label>
-              <label><span>Lần chạy tiếp theo</span><input value={formatDate(settings.schedule?.nextRunAt)} disabled /></label>
+              <label><span>Lịch chạy tiếp theo</span><input value={formatNextRunDate(settings.schedule?.nextRunAt)} disabled /></label>
               <label><span>Trạng thái gần nhất</span><input value={automationRunStatus(latestAutomationRun?.status)} disabled /></label>
               <label><span>Kết quả gần nhất</span><input value={latestAutomationRun ? `${latestAutomationRun.selectedCount} đã chọn / ${latestAutomationRun.appliedCount} đã áp dụng` : 'Chưa chạy'} disabled /></label>
             </div>
