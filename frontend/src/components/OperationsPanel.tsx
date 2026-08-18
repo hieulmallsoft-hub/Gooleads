@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Check,
@@ -338,6 +338,7 @@ export function OperationsPanel({
     automationEnabled: false,
   });
   const [automationRunning, setAutomationRunning] = useState(false);
+  const automationStopRequestedRef = useRef(false);
   const [automationScopeSaving, setAutomationScopeSaving] = useState(false);
   const [selectedAutomationCampaignIds, setSelectedAutomationCampaignIds] =
     useState<string[]>([]);
@@ -346,6 +347,7 @@ export function OperationsPanel({
   const [allAutomationCampaignIds, setAllAutomationCampaignIds] =
     useState<string[]>([]);
   const [automationCampaignSearch, setAutomationCampaignSearch] = useState('');
+  const [automationAddSearch, setAutomationAddSearch] = useState('');
   const [automationAddOpen, setAutomationAddOpen] = useState(false);
   const [automationCampaignDetail, setAutomationCampaignDetail] =
     useState<AutomationCampaignDetail | null>(null);
@@ -705,6 +707,8 @@ export function OperationsPanel({
   async function stopAutomation() {
     if (!canRunPeriodicAi) return;
 
+    const stoppingActiveRun = automationRunning || automationRunInProgress;
+    if (stoppingActiveRun) automationStopRequestedRef.current = true;
     setLoading(true);
     setError('');
     setNotice('');
@@ -722,7 +726,11 @@ export function OperationsPanel({
       const body = await parseJsonSafe(response);
       if (!response.ok) throw new Error(errorMessage(body, 'Không thể tắt tự động hóa'));
       setSettingsDraft((current) => ({ ...current, automationEnabled: false, approvalMode: 'MANUAL' }));
-      setNotice('Đã tắt AI định kỳ. Hệ thống sẽ không chạy lại cho đến khi bạn bấm Chạy ngay.');
+      setNotice(
+        stoppingActiveRun
+          ? 'Đã gửi yêu cầu dừng. Automation sẽ kết thúc nội dung đang xử lý và không bắt đầu nhóm quảng cáo tiếp theo.'
+          : 'Đã tắt AI định kỳ. Hệ thống sẽ không chạy lại cho đến khi bạn bấm Chạy ngay.',
+      );
       await loadSettings();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể tắt tự động hóa');
@@ -916,7 +924,10 @@ export function OperationsPanel({
   async function runAutomationNow() {
     if (!canRunPeriodicAi) return;
 
+    const wasAutomationEnabled = settingsDraft.automationEnabled;
+    automationStopRequestedRef.current = false;
     setAutomationRunning(true);
+    setSettingsDraft((current) => ({ ...current, automationEnabled: true }));
     setError('');
     setNotice('');
     try {
@@ -926,9 +937,6 @@ export function OperationsPanel({
       });
       const body = await parseJsonSafe(response);
       if (!response.ok) throw new Error(errorMessage(body, 'Không thể chạy tự động hóa'));
-      setNotice(
-        `AI định kỳ đã hoàn tất: chọn ${Number(body.selectedCount ?? 0)} đề xuất, áp dụng ${Number(body.appliedCount ?? 0)} thay đổi.`,
-      );
       const selectedCount = Number(body.selectedCount ?? 0);
       const appliedCount = Number(body.appliedCount ?? 0);
       const itemReasons = Array.isArray(body.items)
@@ -938,14 +946,19 @@ export function OperationsPanel({
             .slice(0, 3)
         : [];
       const reasonText = itemReasons.length ? ` ${itemReasons.join(' | ')}` : '';
-      setNotice(
-        appliedCount > 0
-          ? `AI định kỳ đã bắt đầu: chọn ${selectedCount} đề xuất và áp dụng ${appliedCount} thay đổi. Hệ thống sẽ tiếp tục chạy theo lịch cho đến khi bạn bấm Tắt.`
-          : `AI định kỳ đã bắt đầu nhưng chưa áp dụng nội dung nào trong lần này. Hệ thống vẫn tiếp tục chạy theo lịch cho đến khi bạn bấm Tắt.${reasonText}`,
-      );
+      if (!automationStopRequestedRef.current) {
+        setNotice(
+          appliedCount > 0
+            ? `AI định kỳ đã bắt đầu: chọn ${selectedCount} đề xuất và áp dụng ${appliedCount} thay đổi. Hệ thống sẽ tiếp tục chạy theo lịch cho đến khi bạn bấm Tắt.`
+            : `AI định kỳ đã bắt đầu nhưng chưa áp dụng nội dung nào trong lần này. Hệ thống vẫn tiếp tục chạy theo lịch cho đến khi bạn bấm Tắt.${reasonText}`,
+        );
+      }
       await loadSettings();
       window.dispatchEvent(new Event('automation-notifications-refresh'));
     } catch (err) {
+      if (!automationStopRequestedRef.current) {
+        setSettingsDraft((current) => ({ ...current, automationEnabled: wasAutomationEnabled }));
+      }
       setError(err instanceof Error ? err.message : 'Không thể chạy tự động hóa');
     } finally {
       setAutomationRunning(false);
@@ -1147,13 +1160,13 @@ export function OperationsPanel({
     );
   }, [automationCampaignSearch, automationCampaigns, savedAutomationCampaignIdSet]);
   const availableAutomationCampaigns = useMemo(() => {
-    const query = normalizeAutomationSearch(automationCampaignSearch);
+    const query = normalizeAutomationSearch(automationAddSearch);
     return automationCampaigns.filter((campaign) =>
       !savedAutomationCampaignIdSet.has(campaign.id) &&
       campaign.status === 'ENABLED' &&
       (!query || normalizeAutomationSearch(`${campaign.name} ${campaign.id}`).includes(query)),
     );
-  }, [automationCampaignSearch, automationCampaigns, savedAutomationCampaignIdSet]);
+  }, [automationAddSearch, automationCampaigns, savedAutomationCampaignIdSet]);
   const pendingAutomationAdditions = automationCampaigns.filter(
     (campaign) => !savedAutomationCampaignIdSet.has(campaign.id) && selectedAutomationCampaignIds.includes(campaign.id),
   ).length;
@@ -1454,7 +1467,7 @@ export function OperationsPanel({
               </div>
               <div className="automationHeaderActions">
                 <span>{selectedAutomationCampaignIds.length} chiến dịch đã chọn</span>
-                <button className="primaryButton" type="button" onClick={() => { setAutomationAddOpen(true); setAutomationCampaignSearch(''); }}>
+                <button className="primaryButton" type="button" onClick={() => { setAutomationAddOpen(true); setAutomationAddSearch(''); }}>
                   <Plus size={15} />
                   Thêm chiến dịch
                 </button>
@@ -1541,7 +1554,7 @@ export function OperationsPanel({
                   </div>
                   <label className="searchBox automationAddSearch">
                     <Search size={16} />
-                    <input type="search" value={automationCampaignSearch} placeholder="Tìm theo tên hoặc ID chiến dịch" aria-label="Tìm chiến dịch để thêm" onChange={(event) => setAutomationCampaignSearch(event.target.value)} autoFocus />
+                    <input type="search" value={automationAddSearch} placeholder="Tìm theo tên hoặc ID chiến dịch" aria-label="Tìm chiến dịch để thêm" onChange={(event) => setAutomationAddSearch(event.target.value)} autoFocus />
                   </label>
                   <div className="automationAddSummary">
                     <span>{availableAutomationCampaigns.length} chiến dịch khả dụng</span>
@@ -1766,7 +1779,7 @@ export function OperationsPanel({
               <label><span>Trạng thái gần nhất</span><input value={automationRunStatus(latestAutomationRun?.status)} disabled /></label>
               <label><span>Kết quả gần nhất</span><input value={latestAutomationRun ? `${latestAutomationRun.selectedCount} đã chọn / ${latestAutomationRun.appliedCount} đã áp dụng` : 'Chưa chạy'} disabled /></label>
             </div>
-            <div className="settingsActions"><span>{automationScopeDirty ? 'Hãy lưu phạm vi trước khi chạy để tránh dùng lựa chọn cũ.' : automationStatusText}</span><button className="primaryButton" type="button" disabled={automationScopeDirty || automationRunning || automationRunInProgress || loading || !canRunPeriodicAi || !hasAutomationTarget} onClick={() => void runAutomationNow()}><Play size={15} />{automationActionText}</button><button className="secondaryButton dangerButton" type="button" disabled={loading || automationRunning || !settingsDraft.automationEnabled || !canRunPeriodicAi} onClick={() => void stopAutomation()}><X size={15} />Tắt lịch</button></div>
+            <div className="settingsActions"><span>{automationScopeDirty ? 'Hãy lưu phạm vi trước khi chạy để tránh dùng lựa chọn cũ.' : automationStatusText}</span><button className="primaryButton" type="button" disabled={automationScopeDirty || automationRunning || automationRunInProgress || loading || !canRunPeriodicAi || !hasAutomationTarget} onClick={() => void runAutomationNow()}><Play size={15} />{automationActionText}</button><button className="secondaryButton dangerButton" type="button" disabled={loading || (!settingsDraft.automationEnabled && !automationRunning && !automationRunInProgress) || !canRunPeriodicAi} onClick={() => void stopAutomation()}><X size={15} />{automationRunning || automationRunInProgress ? 'Dừng lượt chạy' : 'Tắt lịch'}</button></div>
           </section>
           </>
           ) : null}

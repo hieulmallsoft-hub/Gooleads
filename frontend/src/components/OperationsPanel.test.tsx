@@ -198,6 +198,7 @@ describe('OperationsPanel đổi mật khẩu', () => {
     await user.click(screen.getByRole('button', { name: 'Thêm chiến dịch' }));
     const campaignSearch = screen.getByRole('searchbox', { name: 'Tìm chiến dịch để thêm' });
     await user.type(campaignSearch, 'không tồn tại');
+    expect(screen.getByRole('searchbox', { name: 'Tìm kiếm chiến dịch Automation' })).toHaveValue('');
     expect(screen.getByText('Không tìm thấy chiến dịch khả dụng.')).toBeInTheDocument();
     await user.clear(campaignSearch);
     await user.click(screen.getByRole('button', { name: 'Chọn nhóm' }));

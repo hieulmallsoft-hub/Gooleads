@@ -1978,6 +1978,7 @@ export default function App() {
   return (
     <div className="adsApp">
       <AdsTopbar
+        menuOpen={navOpen}
         customerId={customerId}
         customerLabel={customerOptions.find((option) => option.value === customerId)?.label ?? ''}
         searchText={searchText}

@@ -44,7 +44,7 @@ export function AdsSidebar({
         aria-label="Đóng menu"
         onClick={onClose}
       />
-      <aside className={`adsNav ${open ? 'open' : ''}`} aria-label="Điều hướng Google Ads">
+      <aside id="main-navigation" className={`adsNav ${open ? 'open' : ''}`} aria-label="Điều hướng Google Ads" aria-hidden={!open}>
         <div className="navHeader">
           <span>Không gian làm việc</span>
           <button className="iconButton navClose" type="button" aria-label="Đóng menu" onClick={onClose}>
