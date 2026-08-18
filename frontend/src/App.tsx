@@ -1,7 +1,6 @@
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  MousePointerClick,
   Plus,
   RefreshCw,
 } from 'lucide-react';
@@ -12,7 +11,6 @@ import { LoginPage } from './components/auth/LoginPage';
 import { AdsSidebar } from './components/layout/AdsSidebar';
 import { AdsTopbar } from './components/layout/AdsTopbar';
 import type { AppNotification } from './components/layout/NotificationBell';
-import { AssetWorkflow } from './components/workflow/AssetWorkflow';
 import { DataContext } from './components/workflow/DataContext';
 import { DateRangeFilter } from './components/filters/DateRangeFilter';
 import { PerformanceSummary } from './features/performance/PerformanceSummary';
@@ -121,6 +119,16 @@ function readStoredViewState(): StoredViewState {
 
 function normalizeStoredNumericId(value: unknown) {
   return normalizeNumericId(String(value ?? ''));
+}
+
+function formatCustomerLabel(displayName: unknown, customerId: string) {
+  const name = String(displayName ?? '').trim();
+  if (!name) return customerId;
+
+  const compactName = name.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const compactId = customerId.toLowerCase();
+  if (compactName === compactId || compactName === `googleads${compactId}`) return name;
+  return `${name} (${customerId})`;
 }
 
 function normalizeStoredViewMode(value: unknown): ViewMode {
@@ -481,9 +489,7 @@ export default function App() {
             if (!normalizedId) return null;
             return {
               value: normalizedId,
-              label: account.displayName
-                ? `${account.displayName} (${normalizedId})`
-                : normalizedId,
+              label: formatCustomerLabel(account.displayName, normalizedId),
             };
           })
           .filter((option): option is CustomerOption => option !== null);
@@ -1952,9 +1958,6 @@ export default function App() {
       : viewMode === 'adGroups'
         ? 'Tìm nhóm quảng cáo, chiến dịch hoặc ID'
         : 'Tìm chiến dịch hoặc ID';
-  const approvedChangeCount =
-    approvedCreativeSuggestionIds.length + selectedLowTextSuggestions.length;
-
   if (authLoading) {
     return (
       <main className="loginScreen">
@@ -2067,18 +2070,12 @@ export default function App() {
                   ? 'Nhóm quảng cáo'
                   : 'Chiến dịch'}
             </h1>
-            <p>
-              {viewMode === 'assets'
-                ? 'Kiểm tra nội dung văn bản hiệu quả thấp và phê duyệt chính xác nội dung cần thay đổi.'
-                : viewMode === 'adGroups'
-                  ? 'Chọn nhóm quảng cáo để mở tài nguyên và chạy đánh giá AI.'
-                  : 'Review campaigns by views and open ad groups for asset-level work.'}
-            </p>
           </div>
 
           <div className="controls">
-            <label className="field">
-              <span>Tài khoản Google Ads</span>
+            {customerOptions.length > 1 ? (
+              <label className="field compactAccountField">
+                <span>Tài khoản</span>
               <select
                 aria-label="ID khách hàng"
                 value={customerId}
@@ -2092,7 +2089,13 @@ export default function App() {
                   </option>
                 ))}
               </select>
-            </label>
+              </label>
+            ) : (
+              <div className="currentAccountLabel">
+                <span>Tài khoản</span>
+                <strong>{customerOptions[0]?.label ?? customerId}</strong>
+              </div>
+            )}
             {viewMode === 'assets' ? (
               <>
                 <label className="field customerAdd campaignSelectField">
@@ -2167,19 +2170,6 @@ export default function App() {
                     ))}
                   </select>
                 </label>
-                <button
-                  className="secondaryButton"
-                  type="button"
-                  onClick={() => {
-                    setOperationsSection(null);
-                    setSelectedCampaign(null);
-                    setViewMode('adGroups');
-                    void loadAdGroups();
-                  }}
-                >
-                  <MousePointerClick size={15} />
-                  Chọn
-                </button>
               </>
             ) : null}
             <button
@@ -2192,7 +2182,7 @@ export default function App() {
               {manualSyncLoading
                 ? 'Đang đồng bộ...'
                 : canEditSelectedCampaign
-                  ? 'Đồng bộ Google Ads'
+                  ? 'Đồng bộ'
                   : 'Làm mới màn hình'}
             </button>
           </div>
@@ -2202,18 +2192,14 @@ export default function App() {
           <div className="filterGroup">
             <DateRangeFilter value={timeRange} onChange={setTimeRange} />
             {viewMode === 'assets' ? (
-              <div className="segment labelSegment" aria-label="Lọc theo nhãn hiệu quả tài nguyên">
-                {ASSET_LABEL_FILTERS.map((filter) => (
-                  <button
-                    key={filter.value}
-                    type="button"
-                    className={assetLabelFilter === filter.value ? 'active' : ''}
-                    onClick={() => setAssetLabelFilter(filter.value)}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
-              </div>
+              <label className="compactFilterField">
+                <span>Nhãn Google Ads</span>
+                <select value={assetLabelFilter} onChange={(event) => setAssetLabelFilter(event.target.value as AssetLabelFilter)}>
+                  {ASSET_LABEL_FILTERS.map((filter) => (
+                    <option key={filter.value} value={filter.value}>{filter.label}</option>
+                  ))}
+                </select>
+              </label>
             ) : null}
           </div>
 
@@ -2227,31 +2213,7 @@ export default function App() {
             </div>
           ) : null}
 
-          <div className="filterGroup alignRight">
-            <span className="filterChip">
-              {viewMode === 'assets'
-                ? 'Trạng thái tài nguyên: Tất cả trừ đã xóa'
-                : viewMode === 'adGroups'
-                  ? 'Trạng thái nhóm quảng cáo: Đang bật'
-                  : 'Trạng thái chiến dịch: Đang bật'}
-            </span>
-            {viewMode === 'campaigns' ? (
-              <span className="filterChip activeViewChip">
-                Chế độ xem: {campaignGroupFilter?.name ?? 'Tất cả chiến dịch'}
-              </span>
-            ) : null}
-            <span className="filterCount">{activeListLength} dòng</span>
-          </div>
         </section>
-
-        {viewMode === 'assets' ? (
-          <AssetWorkflow
-            hasAdGroup={Boolean(adGroupId)}
-            hasAssets={Boolean(assetData?.assets.length)}
-            hasSuggestions={Boolean(aiRecommendations.length || lowTextSuggestions.length)}
-            approvedCount={approvedChangeCount}
-          />
-        ) : null}
 
         {activeError ? (
           <div className="error">

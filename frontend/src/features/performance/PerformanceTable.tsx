@@ -100,6 +100,24 @@ const googleStatusLabel: Record<string, string> = {
   UNKNOWN: 'Không xác định',
 };
 
+const performanceLabelText: Record<string, string> = {
+  LOW: 'Hiệu quả thấp',
+  GOOD: 'Hiệu quả tốt',
+  BEST: 'Tốt nhất',
+  LEARNING: 'Đang học',
+  PENDING: 'Đang chờ',
+  UNKNOWN: 'Chưa xác định',
+  UNSPECIFIED: 'Chưa xác định',
+};
+
+const assetActionText: Record<string, string> = {
+  Replace: 'Nên thay nội dung',
+  'Rewrite or test variant': 'Nên thử nội dung mới',
+  'Keep testing': 'Tiếp tục theo dõi',
+  Keep: 'Giữ nguyên',
+  'Keep and scale': 'Giữ và mở rộng',
+};
+
 const adGroupColumns: { key: AdGroupSortKey; label: string }[] = [
   { key: 'name', label: 'Nhóm quảng cáo' },
   { key: 'campaignName', label: 'Chiến dịch' },
@@ -126,8 +144,8 @@ const assetColumns: { key: AssetSortKey; label: string }[] = [
 
 const assetStaticColumns: { key: AssetStaticColumnKey; label: string }[] = [
   { key: 'ctr', label: 'CTR' },
-  { key: 'label', label: 'Nhãn' },
-  { key: 'action', label: 'Hành động' },
+  { key: 'label', label: 'Nhãn Google Ads' },
+  { key: 'action', label: 'Khuyến nghị' },
 ];
 
 const defaultAssetColumnKeys: AssetVisibleColumnKey[] = [
@@ -137,7 +155,6 @@ const defaultAssetColumnKeys: AssetVisibleColumnKey[] = [
   'cost',
   'roas',
   'label',
-  'action',
 ];
 
 function SortHeader<T extends string>({
@@ -294,10 +311,16 @@ export function PerformanceTable(props: PerformanceTableProps) {
         return formatPercent(asset.ctr);
       case 'label': {
         const label = (asset.performanceLabel || 'UNKNOWN').toUpperCase();
-        return <span className={`performanceLabel ${label === 'LOW' ? 'low' : ''}`}>{label}</span>;
+        return (
+          <span className={`performanceLabel ${label.toLowerCase()}`} title={`Nhãn do Google Ads cung cấp: ${label}`}>
+            {performanceLabelText[label] ?? label}
+          </span>
+        );
       }
       case 'action':
-        return asset.action || '-';
+        return asset.action
+          ? <span className="assetRecommendation">{assetActionText[asset.action] ?? asset.action}</span>
+          : '-';
       default:
         return '-';
     }

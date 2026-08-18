@@ -193,14 +193,14 @@ describe('OperationsPanel đổi mật khẩu', () => {
       />,
     );
 
-    await screen.findByRole('heading', { name: 'Phạm vi Automation đã chọn' });
+    await screen.findByRole('heading', { name: '1. Phạm vi chạy' });
     expect(screen.queryByRole('heading', { name: 'Đổi mật khẩu' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Thêm chiến dịch' }));
     const campaignSearch = screen.getByRole('searchbox', { name: 'Tìm chiến dịch để thêm' });
     await user.type(campaignSearch, 'không tồn tại');
     expect(screen.getByText('Không tìm thấy chiến dịch khả dụng.')).toBeInTheDocument();
     await user.clear(campaignSearch);
-    await user.click(screen.getByRole('button', { name: 'Xem và chọn nhóm' }));
+    await user.click(screen.getByRole('button', { name: 'Chọn nhóm' }));
     expect((await screen.findAllByText('10,00%')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('200,00%')).length).toBeGreaterThan(0);
     expect(screen.getByRole('radio', { name: /Chạy toàn bộ chiến dịch/ })).not.toBeChecked();

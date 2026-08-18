@@ -1,3 +1,4 @@
+import { MousePointerClick, TrendingUp, Target, DollarSign } from 'lucide-react';
 import type {
   AdGroupResponse,
   AssetResponse,
@@ -29,6 +30,7 @@ type MetricConfig = {
   value: string;
   className: string;
   help: string;
+  icon: React.ReactNode;
 };
 
 function formatCompact(value: number): string {
@@ -123,6 +125,7 @@ export function PerformanceSummary({
     : totalCost * (sourceData?.avgRoas ?? 0);
   const averageRoas = totalCost > 0 ? totalConversionValue / totalCost : 0;
   const costPerConversion = totalConversions > 0 ? totalCost / totalConversions : 0;
+
   const metricCards: MetricConfig[] = [
     {
       key: 'clicks',
@@ -130,6 +133,7 @@ export function PerformanceSummary({
       value: loading ? '...' : formatCompact(totalClicks),
       className: 'tab-clicks',
       help: 'Tổng số lần người dùng nhấp vào quảng cáo.',
+      icon: <MousePointerClick size={52} strokeWidth={1.5} />,
     },
     {
       key: 'roas',
@@ -137,13 +141,15 @@ export function PerformanceSummary({
       value: loading ? '...' : formatRoasPercent(averageRoas),
       className: 'tab-roas',
       help: 'Giá trị chuyển đổi thu về chia cho chi phí quảng cáo. Ví dụ 52% nghĩa là chi 1 đơn vị tiền thu về 0,52 đơn vị giá trị chuyển đổi.',
+      icon: <TrendingUp size={52} strokeWidth={1.5} />,
     },
     {
       key: 'costPerConversion',
-      label: 'Chi phí mỗi chuyển đổi',
+      label: 'Chi phí / chuyển đổi',
       value: loading ? '...' : formatMoney(costPerConversion, currencyCode),
       className: 'tab-cpa',
       help: 'Chi phí quảng cáo trung bình để tạo ra một lượt chuyển đổi.',
+      icon: <Target size={52} strokeWidth={1.5} />,
     },
     {
       key: 'cost',
@@ -151,6 +157,7 @@ export function PerformanceSummary({
       value: loading ? '...' : formatMoney(totalCost, currencyCode),
       className: 'tab-cost',
       help: `Tổng số tiền quảng cáo đã chi trong khoảng thời gian đã chọn (${currencyCode}).`,
+      icon: <DollarSign size={52} strokeWidth={1.5} />,
     },
   ];
   return (
@@ -167,6 +174,9 @@ export function PerformanceSummary({
               </div>
               <div className="tab-body">
                 <strong>{metric.value}</strong>
+              </div>
+              <div className="tab-metric-icon" aria-hidden="true">
+                {metric.icon}
               </div>
             </div>
         ))}
