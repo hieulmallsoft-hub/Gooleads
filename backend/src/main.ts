@@ -38,7 +38,7 @@ function createRateLimiter() {
   return (request: HttpRequest, response: HttpResponse, next: () => void) => {
     const path = request.originalUrl?.split('?')[0] ?? '';
     const rule = path.endsWith('/auth/login')
-      ? { name: 'login', limit: 5, windowMs: 15 * 60_000 }
+      ? { name: 'login', limit: 8, windowMs: 5 * 60_000 }
       : /\/ai-|\/automation\/run|\/assets\/replace|\/sync\/batch/.test(path)
         ? { name: 'mutation', limit: 20, windowMs: 60_000 }
         : null;
@@ -48,7 +48,11 @@ function createRateLimiter() {
     }
 
     const forwarded = process.env.TRUST_PROXY === 'true'
-      ? String(request.headers?.['x-forwarded-for'] ?? '').split(',')[0].trim()
+      ? String(
+          request.headers?.['x-forwarded-for']
+          ?? request.headers?.['x-real-ip']
+          ?? '',
+        ).split(',')[0].trim()
       : '';
     const client = forwarded || request.ip || request.socket?.remoteAddress || 'unknown';
     const key = `${rule.name}:${client}`;
@@ -68,9 +72,13 @@ function createRateLimiter() {
     response.setHeader('RateLimit-Remaining', String(Math.max(rule.limit - bucket.count, 0)));
     response.setHeader('RateLimit-Reset', String(Math.ceil(bucket.resetAt / 1000)));
     if (bucket.count > rule.limit) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+      const retryAfterMinutes = Math.ceil(retryAfterSeconds / 60);
+      response.setHeader('Retry-After', String(retryAfterSeconds));
       response.status(429).json({
         statusCode: 429,
-        message: 'Bạn thao tác quá nhanh. Vui lòng chờ rồi thử lại.',
+        message: `Có quá nhiều lần đăng nhập từ thiết bị này. Vui lòng thử lại sau ${retryAfterMinutes} phút.`,
+        retryAfterSeconds,
       });
       return;
     }

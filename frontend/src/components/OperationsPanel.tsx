@@ -1426,9 +1426,7 @@ export function OperationsPanel({
                           : 'Chạy ngay sẽ áp dụng trực tiếp lên Google Ads và đồng thời bật lịch.'}
                 </small>
               </div>
-              {!selectedAutomationCampaignIds.length ? (
-                <button className="primaryButton" type="button" onClick={() => { setAutomationAddOpen(true); setAutomationCampaignSearch(''); }}><Plus size={15} />Chọn chiến dịch</button>
-              ) : automationScopeDirty ? (
+              {automationScopeDirty ? (
                 <button className="primaryButton" type="button" disabled={automationScopeSaving} onClick={() => void saveAutomationScope()}><Save size={15} />{automationScopeSaving ? 'Đang lưu...' : 'Lưu thay đổi ngay'}</button>
               ) : null}
             </div>

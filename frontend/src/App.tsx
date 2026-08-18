@@ -132,9 +132,12 @@ function normalizeStoredOperationsSection(value: unknown): OperationsSection | n
   if (value === null) return null;
   if (
     value === 'overview' ||
+    value === 'recommendations' ||
     value === 'impact' ||
-    value === 'settings'
-    || value === 'guide'
+    value === 'automation' ||
+    value === 'keywords' ||
+    value === 'settings' ||
+    value === 'guide'
   ) {
     return value;
   }
@@ -259,6 +262,8 @@ export default function App() {
   );
   const activeAssetScopeRef = useRef('');
   const customerResetMountedRef = useRef(false);
+  const browserHistoryReadyRef = useRef(false);
+  const restoringBrowserHistoryRef = useRef(false);
   const [searchText, setSearchText] = useState('');
   const [data, setData] = useState<CampaignResponse | null>(null);
   const [adGroupData, setAdGroupData] = useState<AdGroupResponse | null>(null);
@@ -548,6 +553,57 @@ export default function App() {
     timeRange,
     viewMode,
   ]);
+
+  useEffect(() => {
+    const state: StoredViewState = {
+      customerId,
+      adGroupId,
+      assetTypeFilter,
+      assetLabelFilter,
+      operationsSection,
+      selectedCampaign: selectedCampaign
+        ? { id: selectedCampaign.id, name: selectedCampaign.name }
+        : null,
+      timeRange,
+      viewMode,
+    };
+
+    if (!browserHistoryReadyRef.current) {
+      window.history.replaceState({ ...window.history.state, ggadsView: state }, '');
+      browserHistoryReadyRef.current = true;
+      return;
+    }
+    if (restoringBrowserHistoryRef.current) {
+      restoringBrowserHistoryRef.current = false;
+      return;
+    }
+
+    window.history.pushState({ ...window.history.state, ggadsView: state }, '');
+  }, [adGroupId, customerId, operationsSection, selectedCampaign?.id, selectedCampaign?.name, viewMode]);
+
+  useEffect(() => {
+    function restoreView(event: PopStateEvent) {
+      const stored = event.state?.ggadsView as StoredViewState | undefined;
+      if (!stored) return;
+
+      restoringBrowserHistoryRef.current = true;
+      const restoredSection = normalizeStoredOperationsSection(stored.operationsSection);
+      setOperationsSection(restoredSection === undefined ? 'overview' : restoredSection);
+      setViewMode(normalizeStoredViewMode(stored.viewMode));
+      setSelectedCampaign(normalizeStoredCampaign(stored.selectedCampaign));
+      setAdGroupId(normalizeStoredNumericId(stored.adGroupId));
+      setAssetTypeFilter(
+        stored.assetTypeFilter === 'IMAGE' || stored.assetTypeFilter === 'VIDEO'
+          ? stored.assetTypeFilter
+          : 'ALL',
+      );
+      setAssetLabelFilter(normalizeStoredAssetLabelFilter(stored.assetLabelFilter));
+      setTimeRange(normalizeStoredTimeRange(stored.timeRange));
+    }
+
+    window.addEventListener('popstate', restoreView);
+    return () => window.removeEventListener('popstate', restoreView);
+  }, []);
 
   function updateAutoAiEnabled(enabled: boolean) {
     if (!canEditSelectedCampaign) return;
