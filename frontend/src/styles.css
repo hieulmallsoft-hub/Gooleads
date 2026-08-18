@@ -930,7 +930,7 @@ button:disabled,
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 1560px;
+  max-width: none;
   margin: 0;
   padding: 20px 24px 40px;
   background: #fff;
