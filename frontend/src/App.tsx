@@ -403,7 +403,11 @@ export default function App() {
   const selectedAdGroupLabel =
     selectedAdGroup?.name ||
     adGroupSelectOptions.find((option) => option.value === adGroupId)?.label ||
-    (adGroupId ? `Nhóm quảng cáo ${adGroupId}` : 'Chọn nhóm quảng cáo');
+    (adGroupId
+      ? `Nhóm quảng cáo ${adGroupId}`
+      : selectedAssetCampaignId
+        ? 'Tất cả nhóm quảng cáo'
+        : 'Chọn nhóm quảng cáo');
   const canEditSelectedCampaign =
     authUser?.role === 'ADMIN' ||
     Boolean(
@@ -1378,7 +1382,6 @@ export default function App() {
   const loadCampaignsEffect = useEffectEvent(loadCampaigns);
   const loadAdGroupsEffect = useEffectEvent(loadAdGroups);
   const loadAssetsEffect = useEffectEvent(loadAssets);
-  const openAdGroupAssetsEffect = useEffectEvent(openAdGroupAssets);
   const generateAiReviewEffect = useEffectEvent(generateAiReview);
   const generateAiTextSuggestionsEffect = useEffectEvent(generateAiTextSuggestions);
   const campaignFromAdGroupEffect = useEffectEvent(campaignFromAdGroup);
@@ -1455,24 +1458,6 @@ export default function App() {
       void loadAssetsEffect();
     }
   }, [authUser, customerId, timeRange, viewMode, adGroupId]);
-
-  useEffect(() => {
-    if (
-      !authUser ||
-      viewMode !== 'assets' ||
-      adGroupId.trim() ||
-      !selectedAssetCampaignId
-    ) {
-      return;
-    }
-
-    const firstAdGroup = adGroupData?.adGroups.find(
-      (adGroup) => adGroup.campaignId === selectedAssetCampaignId,
-    );
-    if (firstAdGroup) {
-      openAdGroupAssetsEffect(firstAdGroup, assetTypeFilter);
-    }
-  }, [authUser, viewMode, adGroupId, selectedAssetCampaignId, adGroupData, assetTypeFilter]);
 
   useEffect(() => {
     if (
@@ -1816,9 +1801,13 @@ export default function App() {
     return Math.max(...filteredCampaigns.map((campaign) => campaign.roas), 1);
   }, [filteredCampaigns]);
 
+  const showingCampaignAdGroups =
+    viewMode === 'assets' && Boolean(selectedCampaign) && !adGroupId.trim();
   const activeListLength =
     viewMode === 'assets'
-      ? filteredAssets.length
+      ? showingCampaignAdGroups
+        ? filteredAdGroups.length
+        : filteredAssets.length
       : viewMode === 'adGroups'
         ? filteredAdGroups.length
         : filteredCampaigns.length;
@@ -2160,17 +2149,6 @@ export default function App() {
                         (campaign) => campaign.id === nextCampaignId,
                       );
 
-                      const firstAdGroup = nextCampaignId
-                        ? adGroupData?.adGroups.find(
-                            (adGroup) => adGroup.campaignId === nextCampaignId,
-                          )
-                        : undefined;
-
-                      if (firstAdGroup) {
-                        openAdGroupAssets(firstAdGroup, assetTypeFilter);
-                        return;
-                      }
-
                       setSelectedCampaign(
                         nextCampaign
                           ? campaignFromId(nextCampaign.id, nextCampaign.name)
@@ -2222,7 +2200,7 @@ export default function App() {
                       {adGroupLoading
                         ? 'Đang tải nhóm quảng cáo...'
                         : selectedAssetCampaignId
-                          ? 'Chọn nhóm quảng cáo'
+                          ? 'Tất cả nhóm quảng cáo'
                           : 'Chọn chiến dịch hoặc nhóm quảng cáo'}
                     </option>
                     {adGroupSelectOptions.map((adGroup) => (

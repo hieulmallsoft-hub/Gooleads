@@ -268,11 +268,13 @@ export function PerformanceTable(props: PerformanceTableProps) {
     onRowsPerPageChange,
     onOpenTextAssistant,
   } = props;
+  const showingCampaignAdGroups =
+    viewMode === 'assets' && Boolean(selectedCampaign) && !assetData;
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const currencyCode = (
-    viewMode === 'assets'
+    viewMode === 'assets' && !showingCampaignAdGroups
       ? assetData?.currencyCode
-      : viewMode === 'adGroups'
+      : viewMode === 'adGroups' || showingCampaignAdGroups
         ? adGroupData?.currencyCode
         : campaignData?.currencyCode
   ) || 'USD';
@@ -332,16 +334,24 @@ export function PerformanceTable(props: PerformanceTableProps) {
         <div>
           <h2>
             {viewMode === 'assets'
-              ? 'Tài nguyên trong nhóm quảng cáo'
+              ? showingCampaignAdGroups
+                ? `Nhóm quảng cáo trong ${selectedCampaign?.name ?? 'chiến dịch'}`
+                : 'Tài nguyên trong nhóm quảng cáo'
               : viewMode === 'adGroups'
                 ? selectedCampaign ? `Nhóm quảng cáo trong ${selectedCampaign.name}` : 'Nhóm quảng cáo'
                 : 'Chiến dịch'}
           </h2>
           <p>
             {viewMode === 'assets'
-              ? assetData
+              ? showingCampaignAdGroups
+                ? adGroupData
+                  ? `Đang hiển thị ${filteredAdGroupCount}/${adGroupData.adGroups.filter((adGroup) => adGroup.campaignId === selectedCampaign?.id).length} nhóm quảng cáo`
+                  : 'Đang tải danh sách nhóm quảng cáo'
+                : assetData
                 ? `Đang hiển thị ${filteredAssetCount}/${assetData.assets.length} tài nguyên`
-                : 'Chọn nhóm quảng cáo để tải tài nguyên'
+                : selectedCampaign
+                  ? 'Đang xem tổng của tất cả nhóm quảng cáo'
+                  : 'Chọn chiến dịch để xem tổng các nhóm quảng cáo'
               : viewMode === 'adGroups'
                 ? adGroupData
                   ? `Đang hiển thị ${filteredAdGroupCount}/${adGroupData.adGroups.length} nhóm quảng cáo`
@@ -352,7 +362,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
           </p>
         </div>
         <div className="tableHeaderActions">
-          {viewMode === 'assets' ? (
+          {viewMode === 'assets' && !showingCampaignAdGroups ? (
             <div className="columnSelector">
               <button
                 className="tableActionButton columnSelectorButton"
@@ -390,7 +400,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
       </div>
 
       <div className="tableScroll">
-        {viewMode === 'assets' ? (
+        {viewMode === 'assets' && !showingCampaignAdGroups ? (
           <table>
             <thead>
               <tr>
@@ -446,8 +456,12 @@ export function PerformanceTable(props: PerformanceTableProps) {
                 <tr>
                   <td colSpan={assetTableColSpan} className="empty">
                     <EmptyTableState
-                      title="Chưa chọn nhóm quảng cáo"
-                      description="Chọn chiến dịch; hệ thống sẽ tự chọn nhóm quảng cáo đầu tiên và tải tài nguyên."
+                      title={selectedCampaign ? 'Đang xem tổng tất cả nhóm quảng cáo' : 'Chưa chọn chiến dịch'}
+                      description={
+                        selectedCampaign
+                          ? 'Các chỉ số phía trên là tổng của chiến dịch. Chọn một nhóm quảng cáo khi cần xem danh sách tài nguyên chi tiết.'
+                          : 'Chọn một chiến dịch để xem số liệu tổng, sau đó có thể chọn nhóm quảng cáo để xem tài nguyên chi tiết.'
+                      }
                     />
                   </td>
                 </tr>
@@ -464,7 +478,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
               ) : null}
             </tbody>
           </table>
-        ) : viewMode === 'adGroups' ? (
+        ) : viewMode === 'adGroups' || showingCampaignAdGroups ? (
           <table>
             <thead>
               <tr>
