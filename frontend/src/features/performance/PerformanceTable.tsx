@@ -447,7 +447,7 @@ export function PerformanceTable(props: PerformanceTableProps) {
                   <td colSpan={assetTableColSpan} className="empty">
                     <EmptyTableState
                       title="Chưa chọn nhóm quảng cáo"
-                      description="Chọn chiến dịch và nhóm quảng cáo ở phía trên, sau đó bấm Tải dữ liệu để xem tài nguyên."
+                      description="Chọn chiến dịch; hệ thống sẽ tự chọn nhóm quảng cáo đầu tiên và tải tài nguyên."
                     />
                   </td>
                 </tr>

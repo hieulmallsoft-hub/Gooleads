@@ -1378,6 +1378,7 @@ export default function App() {
   const loadCampaignsEffect = useEffectEvent(loadCampaigns);
   const loadAdGroupsEffect = useEffectEvent(loadAdGroups);
   const loadAssetsEffect = useEffectEvent(loadAssets);
+  const openAdGroupAssetsEffect = useEffectEvent(openAdGroupAssets);
   const generateAiReviewEffect = useEffectEvent(generateAiReview);
   const generateAiTextSuggestionsEffect = useEffectEvent(generateAiTextSuggestions);
   const campaignFromAdGroupEffect = useEffectEvent(campaignFromAdGroup);
@@ -1454,6 +1455,24 @@ export default function App() {
       void loadAssetsEffect();
     }
   }, [authUser, customerId, timeRange, viewMode, adGroupId]);
+
+  useEffect(() => {
+    if (
+      !authUser ||
+      viewMode !== 'assets' ||
+      adGroupId.trim() ||
+      !selectedAssetCampaignId
+    ) {
+      return;
+    }
+
+    const firstAdGroup = adGroupData?.adGroups.find(
+      (adGroup) => adGroup.campaignId === selectedAssetCampaignId,
+    );
+    if (firstAdGroup) {
+      openAdGroupAssetsEffect(firstAdGroup, assetTypeFilter);
+    }
+  }, [authUser, viewMode, adGroupId, selectedAssetCampaignId, adGroupData, assetTypeFilter]);
 
   useEffect(() => {
     if (
@@ -2140,6 +2159,17 @@ export default function App() {
                       const nextCampaign = assetCampaignOptions.find(
                         (campaign) => campaign.id === nextCampaignId,
                       );
+
+                      const firstAdGroup = nextCampaignId
+                        ? adGroupData?.adGroups.find(
+                            (adGroup) => adGroup.campaignId === nextCampaignId,
+                          )
+                        : undefined;
+
+                      if (firstAdGroup) {
+                        openAdGroupAssets(firstAdGroup, assetTypeFilter);
+                        return;
+                      }
 
                       setSelectedCampaign(
                         nextCampaign
