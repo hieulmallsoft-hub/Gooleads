@@ -348,8 +348,8 @@ export function ChangeHistoryPanel({
                 </td>
                   <td data-label="Chiến dịch">
                   <strong>{item.campaign?.name ?? 'Không xác định'}</strong>
-                  <span>{item.adGroup?.name ?? 'Không có nhóm quảng cáo'}</span>
-                  <small>ID: {item.campaign?.id ?? '—'} / {item.adGroup?.id ?? '—'}</small>
+                  <span><strong>Nhóm:</strong> {item.adGroup?.name ?? 'Không có nhóm quảng cáo'}</span>
+                  <small>ID chiến dịch: {item.campaign?.id ?? '—'} · ID nhóm: {item.adGroup?.id ?? '—'}</small>
                 </td>
                   <td data-label="Thay đổi">
                   <strong>{item.changeTypes.map((type) => changeTypeLabels[type] ?? type).join(', ')}</strong>
@@ -373,6 +373,19 @@ export function ChangeHistoryPanel({
                     {detailError ? <div className="historyError">{detailError}</div> : null}
                     {detail?.id === item.id ? (
                       <div className="historyDetails">
+                        <div className="historyDetailContext">
+                          <div>
+                            <span>Chiến dịch</span>
+                            <strong>{item.campaign?.name ?? 'Không xác định'}</strong>
+                            <small>ID {item.campaign?.id ?? '—'}</small>
+                          </div>
+                          <ArrowRight size={16} aria-hidden="true" />
+                          <div>
+                            <span>Nhóm quảng cáo đã thay đổi</span>
+                            <strong>{item.adGroup?.name ?? 'Không xác định'}</strong>
+                            <small>ID {item.adGroup?.id ?? '—'}</small>
+                          </div>
+                        </div>
                         {detail.items.length ? detail.items.map((detailItem, index) => {
                           const replacements = findTextReplacements(detailItem.before);
                           const beforePreview = findPreviewUrl(detailItem.before);
@@ -410,7 +423,7 @@ export function ChangeHistoryPanel({
                               ) : null}
                               {detailItem.oldAdResourceName || detailItem.newAdResourceName ? (
                                 <div className="historyAffectedAd">
-                                  <span>Quảng cáo chịu ảnh hưởng</span>
+                                  <span>ID quảng cáo chịu ảnh hưởng</span>
                                   <strong>{resourceLabel(detailItem.newAdResourceName ?? detailItem.oldAdResourceName)}</strong>
                                 </div>
                               ) : null}
