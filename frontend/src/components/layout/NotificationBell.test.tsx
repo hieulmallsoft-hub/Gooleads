@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NotificationBell, type AppNotification } from './NotificationBell';
 
 const appliedNotification: AppNotification = {
@@ -16,7 +16,21 @@ const appliedNotification: AppNotification = {
   changeRequestId: 'change-1',
 };
 
+afterEach(cleanup);
+
 describe('NotificationBell', () => {
+  it('chỉ xóa số chưa đọc khi người dùng chủ động đánh dấu đã đọc', async () => {
+    const user = userEvent.setup();
+    render(<NotificationBell notifications={[appliedNotification]} />);
+
+    expect(screen.getByText('1')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Thông báo' }));
+    expect(screen.getByText('1')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Đánh dấu đã đọc' }));
+    expect(screen.queryByText('1')).not.toBeInTheDocument();
+  });
+
   it('hiển thị thông báo dễ hiểu và mở đúng chi tiết', async () => {
     const user = userEvent.setup();
     const onOpenNotification = vi.fn();

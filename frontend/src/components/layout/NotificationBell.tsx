@@ -35,15 +35,13 @@ export function NotificationBell({ notifications, onOpenNotification }: Notifica
   );
 
   function toggleOpen() {
-    setOpen((current) => {
-      const next = !current;
-      if (next) {
-        setSeenIds((ids) =>
-          Array.from(new Set([...ids, ...notifications.map((notification) => notification.id)])),
-        );
-      }
-      return next;
-    });
+    setOpen((current) => !current);
+  }
+
+  function markAllAsRead() {
+    setSeenIds((ids) =>
+      Array.from(new Set([...ids, ...notifications.map((notification) => notification.id)])),
+    );
   }
 
   return (
@@ -56,7 +54,9 @@ export function NotificationBell({ notifications, onOpenNotification }: Notifica
         onClick={toggleOpen}
       >
         <Bell size={18} />
-        {unreadCount > 0 ? <span className="notificationBadge">{unreadCount}</span> : null}
+        {unreadCount > 0 ? (
+          <span className="notificationBadge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+        ) : null}
       </button>
 
       {open ? (
@@ -66,9 +66,16 @@ export function NotificationBell({ notifications, onOpenNotification }: Notifica
               <strong>Thông báo hoạt động</strong>
               <span>{notifications.length} thông báo gần đây</span>
             </div>
-            <button className="iconButton" type="button" aria-label="Đóng thông báo" onClick={() => setOpen(false)}>
-              <X size={16} />
-            </button>
+            <div className="notificationHeaderActions">
+              {unreadCount > 0 ? (
+                <button className="notificationMarkRead" type="button" onClick={markAllAsRead}>
+                  Đánh dấu đã đọc
+                </button>
+              ) : null}
+              <button className="iconButton" type="button" aria-label="Đóng thông báo" onClick={() => setOpen(false)}>
+                <X size={16} />
+              </button>
+            </div>
           </div>
 
           {notifications.length > 0 ? (
@@ -79,11 +86,12 @@ export function NotificationBell({ notifications, onOpenNotification }: Notifica
                 return (
                   <button
                     type="button"
-                    className={`notificationItem ${notification.severity}${notification.actionLabel && onOpenNotification ? ' clickable' : ''}`}
+                    className={`notificationItem ${notification.severity}${!seenIds.includes(notification.id) ? ' unread' : ''}${notification.actionLabel && onOpenNotification ? ' clickable' : ''}`}
                     key={notification.id}
                     disabled={!notification.actionLabel || !onOpenNotification}
                     onClick={() => {
                       if (!notification.actionLabel || !onOpenNotification) return;
+                      setSeenIds((ids) => Array.from(new Set([...ids, notification.id])));
                       setOpen(false);
                       onOpenNotification(notification);
                     }}

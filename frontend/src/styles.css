@@ -691,6 +691,28 @@ button, input, select { font: inherit; }
   background: #f1f3f4;
 }
 
+.notificationHeaderActions {
+  display: flex !important;
+  grid-auto-flow: initial;
+  align-items: center;
+  gap: 6px !important;
+}
+
+.notificationMarkRead {
+  border: 0;
+  background: transparent;
+  color: #1967d2;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notificationMarkRead:hover {
+  background: #e8f0fe;
+}
+
 .notificationList {
   display: grid;
   gap: 0;
@@ -710,6 +732,11 @@ button, input, select { font: inherit; }
   background: #fff;
   text-align: left;
   font: inherit;
+}
+
+.notificationItem.unread {
+  background: #f6f9ff;
+  box-shadow: inset 3px 0 0 #1a73e8;
 }
 
 .notificationItem:disabled {
