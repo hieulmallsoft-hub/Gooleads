@@ -269,6 +269,7 @@ export default function App() {
     () => initialStoredAdGroupId || initialAdGroupOptions[0]?.value || '',
   );
   const activeAssetScopeRef = useRef('');
+  const automaticAssetSyncScopesRef = useRef(new Set<string>());
   const customerResetMountedRef = useRef(false);
   const browserHistoryReadyRef = useRef(false);
   const restoringBrowserHistoryRef = useRef(false);
@@ -846,11 +847,42 @@ export default function App() {
         adGroupId: normalizedAdGroupId,
         time: timeRange,
       });
-      const response = await apiFetch(`/google-ads/assets?${params}`);
-      const body = await parseJsonSafe(response);
+      let response = await apiFetch(`/google-ads/assets?${params}`);
+      let body = await parseJsonSafe(response);
 
       if (!response.ok) {
         throw new Error(extractApiError(body, 'Không thể tải dữ liệu tài nguyên'));
+      }
+
+      const initialSnapshot = body as AssetResponse;
+      const hasStoredSnapshot = Boolean(initialSnapshot.lastSyncedAt) || initialSnapshot.assets.length > 0;
+
+      // The screen always reads PostgreSQL first. Only bootstrap Google Ads once when
+      // this ad group has never had a stored snapshot, so users do not need to press
+      // "Đồng bộ" merely to make the first data set appear.
+      if (!hasStoredSnapshot && !automaticAssetSyncScopesRef.current.has(requestScope)) {
+        automaticAssetSyncScopesRef.current.add(requestScope);
+        const syncResponse = await apiFetch('/google-ads/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerId,
+            adGroupId: normalizedAdGroupId,
+            time: timeRange,
+          }),
+        });
+        const syncBody = await parseJsonSafe(syncResponse);
+
+        if (syncResponse.ok) {
+          response = await apiFetch(`/google-ads/assets?${params}`);
+          body = await parseJsonSafe(response);
+          if (!response.ok) {
+            throw new Error(extractApiError(body, 'Không thể tải snapshot tài nguyên vừa đồng bộ'));
+          }
+        } else {
+          const syncMessage = extractApiError(syncBody, 'Không thể tự động đồng bộ dữ liệu lần đầu');
+          setAssetError(`${syncMessage}. Bạn vẫn có thể thử lại bằng nút Đồng bộ.`);
+        }
       }
 
       if (activeAssetScopeRef.current !== requestScope) return;
