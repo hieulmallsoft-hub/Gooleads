@@ -348,9 +348,13 @@ export class GoogleAdsSyncService {
     const uniqueAds = this.uniqueBy(assetRows, (item) => `${item.adGroupId}:${item.adId}`)
       .map((item) => ({ ...item, adId: item.adId || this.parseAdId(item.adResourceName) }))
       .filter((item) => item.adId);
-    const adGroupIds = adGroups.map((item) => item.id);
-    const existingAds = adGroupIds.length
-      ? await adRepository.findBy({ adGroupId: In(adGroupIds) })
+    // Limit ad/link reconciliation to the ad groups included in this snapshot.
+    // An ad-group sync must never disable asset links belonging to other groups.
+    const scopedAdGroupIds = adGroupRows
+      .map((item) => adGroupMap.get(item.id)?.id)
+      .filter((id): id is string => Boolean(id));
+    const existingAds = scopedAdGroupIds.length
+      ? await adRepository.findBy({ adGroupId: In(scopedAdGroupIds) })
       : [];
     const existingAdMap = new Map(
       existingAds.map((item) => [`${item.adGroupId}:${item.googleAdId}`, item]),
@@ -371,8 +375,8 @@ export class GoogleAdsSyncService {
       }),
       ['adGroupId', 'googleAdId'],
     );
-    const ads = adGroupIds.length
-      ? await adRepository.findBy({ adGroupId: In(adGroupIds) })
+    const ads = scopedAdGroupIds.length
+      ? await adRepository.findBy({ adGroupId: In(scopedAdGroupIds) })
       : [];
     const adMap = new Map(ads.map((item) => [`${item.adGroupId}:${item.googleAdId}`, item]));
 

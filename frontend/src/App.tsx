@@ -855,7 +855,7 @@ export default function App() {
       }
 
       const initialSnapshot = body as AssetResponse;
-      const hasStoredSnapshot = Boolean(initialSnapshot.lastSyncedAt) || initialSnapshot.assets.length > 0;
+      const hasStoredSnapshot = initialSnapshot.assets.length > 0;
 
       // The screen always reads PostgreSQL first. Only bootstrap Google Ads once when
       // this ad group has never had a stored snapshot, so users do not need to press
