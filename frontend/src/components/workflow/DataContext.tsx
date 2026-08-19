@@ -1,4 +1,4 @@
-import { ChevronRight, FileText, Image, Video, X } from 'lucide-react';
+import { ChevronRight, FileText, FolderKanban, Image, Layers, Video, X } from 'lucide-react';
 import type { Campaign, ViewMode } from '../../types/googleAds';
 
 type AssetTypeFilter = 'ALL' | 'IMAGE' | 'VIDEO';
@@ -34,24 +34,31 @@ export function DataContext({
 
   return (
     <div className="dataContext" aria-label="Ngữ cảnh dữ liệu hiện tại">
-      <button className="contextCrumb" type="button" onClick={onOpenCampaigns}>
-        Chiến dịch
-      </button>
-      {viewMode !== 'campaigns' ? <ChevronRight size={14} /> : null}
-      {viewMode !== 'campaigns' ? (
-        <button className="contextCrumb contextCampaign" type="button" onClick={onOpenAdGroups}>
-          <span>Chiến dịch</span>
-          {selectedCampaign?.name || 'Tất cả nhóm quảng cáo'}
+      <div className="contextCrumbList">
+        <button className={`contextCrumb ${viewMode === 'campaigns' ? 'isCurrent' : ''}`} type="button" onClick={onOpenCampaigns}>
+          <FolderKanban size={13} className="crumbIcon" />
+          <span>Tất cả chiến dịch</span>
         </button>
-      ) : null}
-      {viewMode === 'assets' ? <ChevronRight size={14} /> : null}
-      {viewMode === 'assets' ? (
-        <strong className="contextAsset" title={adGroupId ? adGroupLabel : 'Chọn nhóm quảng cáo'}>
-          <AssetContextIcon size={14} />
-          <span>{assetContext.label}</span>
-          {adGroupId ? adGroupLabel : 'Chọn nhóm quảng cáo'}
-        </strong>
-      ) : null}
+
+        {viewMode !== 'campaigns' ? <ChevronRight size={13} className="crumbDivider" /> : null}
+
+        {viewMode !== 'campaigns' ? (
+          <button className={`contextCrumb contextCampaign ${viewMode === 'adGroups' && !adGroupId ? 'isCurrent' : ''}`} type="button" onClick={onOpenAdGroups}>
+            <Layers size={13} className="crumbIcon" />
+            <span>Chiến dịch: <strong>{selectedCampaign?.name || 'Tất cả nhóm'}</strong></span>
+          </button>
+        ) : null}
+
+        {viewMode === 'assets' ? <ChevronRight size={13} className="crumbDivider" /> : null}
+
+        {viewMode === 'assets' ? (
+          <div className="contextAssetBadge" title={adGroupId ? adGroupLabel : 'Chọn nhóm quảng cáo'}>
+            <AssetContextIcon size={13} className="crumbIcon" />
+            <span>Nhóm: <strong>{adGroupId ? adGroupLabel : 'Chưa chọn nhóm'}</strong></span>
+          </div>
+        ) : null}
+      </div>
+
       {selectedCampaign && viewMode === 'adGroups' ? (
         <button
           className="clearContext"
@@ -59,8 +66,8 @@ export function DataContext({
           onClick={onClearCampaign}
           title="Xem tất cả nhóm quảng cáo"
         >
-          <X size={13} />
-          Bỏ chọn chiến dịch
+          <X size={12} />
+          <span>Bỏ lọc chiến dịch</span>
         </button>
       ) : null}
     </div>

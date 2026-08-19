@@ -1,4 +1,4 @@
-import { LogOut, Menu, Search, Settings } from 'lucide-react';
+import { LogOut, Menu, Search, Settings, ShieldCheck } from 'lucide-react';
 import allsoftLogo from '../../assets/allsoft-logo-cropped.png';
 import { NotificationBell, type AppNotification } from './NotificationBell';
 import type { AuthUser } from '../../types/googleAds';
@@ -36,58 +36,74 @@ export function AdsTopbar({
     <header className="adsTopbar">
       <div className="topbarBrand">
         <button
-          className="iconButton"
+          className="iconButton brandMenuBtn"
           type="button"
           aria-label="Mở menu"
           onClick={onMenuToggle}
         >
-          <Menu size={20} />
+          <Menu size={18} />
         </button>
-        <img src={allsoftLogo} alt="ALLSOFT" />
-        <span>Google Ads</span>
+        <div className="brandLogoWrap">
+          <img src={allsoftLogo} alt="ALLSOFT" />
+          <div className="brandBadge">
+            <span>Google Ads Suite</span>
+          </div>
+        </div>
       </div>
 
       {showSearch ? (
         <label className="topSearch">
-          <Search size={16} />
+          <Search size={15} className="topSearchIcon" />
           <input
             aria-label={searchPlaceholder}
             value={searchText}
             onChange={(event) => onSearchChange(event.target.value)}
             placeholder={searchPlaceholder}
           />
+          <kbd className="topSearchKbd">Tìm kiếm</kbd>
         </label>
       ) : (
         <span />
       )}
 
       <div className="topbarMeta">
-        <span className="topbarAccount" title={customerLabel || customerId}>
-          <small>Tài khoản đang xem</small>
+        <div className="topbarAccount" title={customerLabel || customerId}>
+          <div className="accountStatusRow">
+            <span className="livePulseDot" />
+            <small>Tài khoản Google Ads</small>
+          </div>
           <strong>{customerLabel || customerId || 'Chưa chọn tài khoản'}</strong>
-        </span>
+        </div>
+
         {currentUser ? (
-          <span className={`roleBadge role-${currentUser.role.toLowerCase()}`}>
-            {currentUser.displayName} · {currentUser.role}
-          </span>
+          <div className={`roleBadge role-${currentUser.role.toLowerCase()}`} title={`Quyền: ${currentUser.role}`}>
+            <ShieldCheck size={13} className="roleIcon" />
+            <span>{currentUser.displayName}</span>
+            <small>({currentUser.role})</small>
+          </div>
         ) : null}
-        <NotificationBell notifications={notifications} onOpenNotification={onOpenNotification} />
-        <button
-          className="iconButton"
-          type="button"
-          aria-label="Cài đặt"
-          onClick={onOpenSettings}
-        >
-          <Settings size={18} />
-        </button>
-        <button
-          className="iconButton"
-          type="button"
-          aria-label="Đăng xuất"
-          onClick={onLogout}
-        >
-          <LogOut size={18} />
-        </button>
+
+        <div className="topbarActions">
+          <NotificationBell notifications={notifications} onOpenNotification={onOpenNotification} />
+          <button
+            className="iconButton topbarActionBtn"
+            type="button"
+            aria-label="Cài đặt"
+            onClick={onOpenSettings}
+            title="Cài đặt hệ thống"
+          >
+            <Settings size={17} />
+          </button>
+          <button
+            className="iconButton topbarActionBtn logoutBtn"
+            type="button"
+            aria-label="Đăng xuất"
+            onClick={onLogout}
+            title="Đăng xuất"
+          >
+            <LogOut size={17} />
+          </button>
+        </div>
       </div>
     </header>
   );

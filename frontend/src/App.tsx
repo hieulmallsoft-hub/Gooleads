@@ -12,6 +12,7 @@ import { AdsSidebar } from './components/layout/AdsSidebar';
 import { AdsTopbar } from './components/layout/AdsTopbar';
 import type { AppNotification } from './components/layout/NotificationBell';
 import { DataContext } from './components/workflow/DataContext';
+import { QuickWorkflowBanner } from './components/workflow/QuickWorkflowBanner';
 import { DateRangeFilter } from './components/filters/DateRangeFilter';
 import { PerformanceSummary } from './features/performance/PerformanceSummary';
 import { PerformanceTable } from './features/performance/PerformanceTable';
@@ -2058,12 +2059,36 @@ export default function App() {
           }}
           onOpenAdGroups={() => {
             setOperationsSection(null);
+
             setSelectedCampaign(null);
             setViewMode('adGroups');
           }}
         />
 
         <main className="shell">
+          <QuickWorkflowBanner
+            viewMode={viewMode}
+            operationsSection={operationsSection}
+            onOpenCampaigns={() => {
+              setOperationsSection(null);
+              setSelectedCampaign(null);
+              setViewMode('campaigns');
+            }}
+            onOpenLowAssets={() => {
+              setOperationsSection(null);
+              setViewMode('assets');
+              setAssetLabelFilter('LOW');
+            }}
+            onOpenAiReview={() => {
+              setOperationsSection('automation');
+            }}
+            onOpenImpact={() => {
+              setOperationsSection('impact');
+            }}
+            onOpenGuide={() => {
+              setOperationsSection('guide');
+            }}
+          />
         {operationsSection ? (
           operationsSection === 'impact' ? (
             <ChangeImpactPanel

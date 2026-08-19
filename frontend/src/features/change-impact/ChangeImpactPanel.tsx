@@ -113,13 +113,23 @@ function MetricComparison({
   const change = collecting ? null : delta(before, after, lowerIsBetter);
   return (
     <div className="impactMetric">
-      <span>{label}</span>
-      <div><small>Trước</small><strong>{format(before)}</strong></div>
-      <ArrowRight size={14} />
-      <div><small>Sau</small><strong>{collecting ? 'Đang chờ' : format(after)}</strong></div>
-      <em className={change ? (change.positive ? 'positive' : 'negative') : ''}>
-        {collecting ? 'Chưa đủ dữ liệu' : change?.label ?? '—'}
-      </em>
+      <span className="metricLabel">{label}</span>
+      {collecting ? (
+        <div className="metricPendingState">
+          <Clock3 size={14} className="pendingIcon" />
+          <span className="pendingText">Chưa đủ dữ liệu</span>
+        </div>
+      ) : (
+        <div className="metricData">
+          <div className="metricMain">
+            <strong className="metricNew">{format(after)}</strong>
+            <em className={change ? (change.positive ? 'positive' : 'negative') : 'neutral'}>
+              {change?.label ?? '—'}
+            </em>
+          </div>
+        </div>
+      )}
+      <span className="metricOldLabel">Trước đó: <span>{format(before)}</span></span>
     </div>
   );
 }
@@ -420,16 +430,19 @@ function PerformanceAfterChanges({ customerId }: { customerId: string }) {
           return (
             <article className="impactCard" key={item.id}>
               <header>
-                <div>
-                  <span className="impactCampaign">{item.campaign.name}</span>
-                  <strong>{item.adGroup.name}</strong>
-                  <small>
-                    {originLabel[item.origin]} · Áp dụng ngày{' '}
-                    {new Intl.DateTimeFormat('vi-VN', { dateStyle: 'medium' }).format(new Date(item.appliedAt))}
-                  </small>
-                  <span className="impactChangeDetail">
-                    Đã thay {item.replacementCount} tài nguyên: {item.changeTypes.map((type) => changeTypeLabel[type] ?? type).join(', ')}
-                  </span>
+                <div className="impactCardInfo">
+                  <div className="impactCardTitle">
+                    <span className="impactCampaign">{item.campaign.name}</span>
+                    <span className="titleDivider">/</span>
+                    <strong>{item.adGroup.name}</strong>
+                  </div>
+                  <div className="impactCardMeta">
+                    <span className="impactChangeBadge">
+                      Đã thay {item.replacementCount} {item.changeTypes.map((type) => changeTypeLabel[type] ?? type).join(', ')}
+                    </span>
+                    <span className="metaDivider">•</span>
+                    <small>{originLabel[item.origin]}</small>
+                  </div>
                 </div>
                 <span className={`impactVerdict ${item.verdict.toLowerCase()}`}>
                   <VerdictIcon size={15} /> {meta.label}

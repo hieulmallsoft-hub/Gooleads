@@ -7,6 +7,8 @@ import {
   BookOpen,
   MousePointerClick,
   Settings,
+  Sparkles,
+  Zap,
   X,
 } from 'lucide-react';
 import type { OperationsSection } from '../OperationsPanel';
@@ -38,82 +40,94 @@ export function AdsSidebar({
 
   return (
     <>
-      <button
-        className={`navBackdrop ${open ? 'visible' : ''}`}
-        type="button"
-        aria-label="Đóng menu"
-        onClick={onClose}
-      />
+      {open ? (
+        <button
+          className="navBackdrop visible"
+          type="button"
+          aria-label="Đóng menu"
+          onClick={onClose}
+        />
+      ) : null}
       <aside className={`adsNav ${open ? 'open' : ''}`} aria-label="Điều hướng Google Ads">
         <div className="navHeader">
-          <span>Không gian làm việc</span>
+          <div className="navHeaderTitle">
+            <Zap size={14} className="navHeaderIcon" />
+            <span>Bàn Làm Việc</span>
+          </div>
           <button className="iconButton navClose" type="button" aria-label="Đóng menu" onClick={onClose}>
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
+
         <nav>
+          <div className="navSectionLabel">Trực Quan & AI</div>
           <button
             type="button"
             className={operationsSection === 'overview' ? 'active' : ''}
             onClick={navAction(() => onOpenOperations('overview'))}
           >
-            <Eye size={16} />
-            Tổng quan
+            <div className="navIconBox navIcon-overview"><Eye size={15} /></div>
+            <span>Tổng quan tài khoản</span>
           </button>
           <button
             type="button"
             className={operationsSection === 'impact' ? 'active' : ''}
             onClick={navAction(() => onOpenOperations('impact'))}
           >
-            <ChartNoAxesCombined size={16} />
-            Theo dõi thay đổi
+            <div className="navIconBox navIcon-impact"><ChartNoAxesCombined size={15} /></div>
+            <span>Theo dõi tác động ROI</span>
+            <span className="navPillBadge">New</span>
           </button>
           <button
             type="button"
             className={operationsSection === 'automation' ? 'active' : ''}
             onClick={navAction(() => onOpenOperations('automation'))}
           >
-            <Bot size={16} />
-            Automation
+            <div className="navIconBox navIcon-auto"><Bot size={15} /></div>
+            <span>Tự động hóa AI</span>
+            <Sparkles size={12} className="navSparkle" />
           </button>
-          <div className="navSectionLabel">Google Ads</div>
+
+          <div className="navSectionLabel">Quản Lý Quảng Cáo</div>
           <button
             type="button"
             className={!operationsSection && viewMode === 'campaigns' ? 'active' : ''}
             onClick={navAction(onOpenCampaigns)}
           >
-            <BarChart3 size={16} />
-            Chiến dịch
+            <div className="navIconBox navIcon-campaigns"><BarChart3 size={15} /></div>
+            <span>Chiến dịch</span>
           </button>
           <button
             type="button"
             className={!operationsSection && viewMode === 'adGroups' ? 'active' : ''}
             onClick={navAction(onOpenAdGroups)}
           >
-            <MousePointerClick size={16} />
-            Nhóm quảng cáo
+            <div className="navIconBox navIcon-adgroups"><MousePointerClick size={15} /></div>
+            <span>Nhóm quảng cáo</span>
           </button>
-          <div className="navSectionLabel">Cấu hình</div>
+
+          <div className="navSectionLabel">Hệ Thống</div>
           <button
             type="button"
             className={operationsSection === 'settings' ? 'active' : ''}
             onClick={navAction(() => onOpenOperations('settings'))}
           >
-            <Settings size={16} />
-            Cài đặt
+            <div className="navIconBox navIcon-settings"><Settings size={15} /></div>
+            <span>Cài đặt & Chính sách</span>
           </button>
           <button
             type="button"
             className={operationsSection === 'guide' ? 'active' : ''}
             onClick={navAction(() => onOpenOperations('guide'))}
           >
-            <BookOpen size={16} />
-            Hướng dẫn sử dụng
+            <div className="navIconBox navIcon-guide"><BookOpen size={15} /></div>
+            <span>Sổ tay hướng dẫn</span>
           </button>
         </nav>
+
         <div className="navFootnote">
-          <FileText size={14} />
-          Thay đổi cần được phê duyệt
+          <div className="securityShieldDot" />
+          <span>Chế độ an toàn: Phê duyệt trước khi áp dụng</span>
         </div>
       </aside>
     </>
