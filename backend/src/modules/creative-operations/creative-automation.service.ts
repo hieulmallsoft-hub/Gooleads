@@ -319,6 +319,18 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       timeRange,
       { languageCode: target.languageCode, topic: target.topic },
     );
+    for (const omitted of generated.omittedCandidates ?? []) {
+      await this.saveRunItem(
+        run.id,
+        'SKIPPED',
+        this.formatTargetReason(
+          target,
+          `Chưa thể thay ${omitted.fieldType === 'HEADLINE' ? 'tiêu đề' : 'mô tả'} "${omitted.text}": ${omitted.reason}`,
+        ),
+        undefined,
+        target,
+      );
+    }
     const saved = await this.aiPersistenceService.saveTextSuggestions(
       target.customerId,
       target.adGroupId,
@@ -353,6 +365,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         'SELECTED',
         this.formatTargetReason(target, `${replacement.oldText} -> ${replacement.newText}`),
         replacement.suggestionId,
+        target,
       );
     }
 

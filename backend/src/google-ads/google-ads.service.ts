@@ -1458,9 +1458,9 @@ export class GoogleAdsService {
         Number(
           process.env.AI_TEXT_SUGGESTION_LIMIT ??
             process.env.OPENAI_TEXT_SUGGESTION_LIMIT ??
-            12,
+            100,
         ),
-        20,
+        200,
       ),
     );
     const assetPerformance = await this.getAssetPerformance(customerId, adGroupId, timeRange);
@@ -1515,7 +1515,7 @@ export class GoogleAdsService {
             model: aiProvider.model,
             prompt,
             schema,
-            maxOutputTokens: 3600,
+            maxOutputTokens: Math.min(16_000, Math.max(3_600, candidates.length * 320)),
           })
         : await this.requestOpenAiJson({
             model: aiProvider.model,
@@ -1532,7 +1532,7 @@ export class GoogleAdsService {
             ],
             schemaName: 'google_ads_ai_text_suggestions',
             schema,
-            maxOutputTokens: 3600,
+            maxOutputTokens: Math.min(16_000, Math.max(3_600, candidates.length * 320)),
           });
 
     if (!outputText) {
@@ -1551,6 +1551,15 @@ export class GoogleAdsService {
         result.suggestions ?? [],
         candidates,
       );
+      const acceptedKeys = new Set(suggestions.map((suggestion) => suggestion.key));
+      const omittedCandidates = candidates
+        .filter((candidate) => !acceptedKeys.has(candidate.key))
+        .map((candidate) => ({
+          key: candidate.key,
+          fieldType: candidate.fieldType,
+          text: candidate.text,
+          reason: 'AI không trả về nội dung hợp lệ, đúng ngôn ngữ, không trùng lặp và đúng giới hạn ký tự',
+        }));
 
       if (suggestions.length === 0) {
         throw new Error('No valid suggestion keys returned');
@@ -1562,6 +1571,8 @@ export class GoogleAdsService {
           approach: String(result.summary?.approach ?? `${aiProvider.label} generated replacement copy`),
         },
         suggestions,
+        omittedCandidates,
+        candidateCount: candidates.length,
         model: aiProvider.model,
         source: aiProvider.source,
         adGroupId,

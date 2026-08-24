@@ -805,6 +805,13 @@ export class CreativeOperationsService {
           take: 5,
         })
       : [];
+    const recentAutomationRunItems = recentAutomationRuns.length
+      ? await this.dataSource.getRepository(AutomationRunItemEntity).find({
+          where: { automationRunId: In(recentAutomationRuns.map((run) => run.id)) },
+          order: { createdAt: 'DESC' },
+          take: 1000,
+        })
+      : [];
     const automationScope = await this.getAutomationScope(account, policy.id);
     return {
       account: {
@@ -817,7 +824,10 @@ export class CreativeOperationsService {
       },
       policy,
       schedule,
-      recentAutomationRuns,
+      recentAutomationRuns: recentAutomationRuns.map((run) => ({
+        ...run,
+        items: recentAutomationRunItems.filter((item) => item.automationRunId === run.id),
+      })),
       automationScope,
       providers: {
         googleAdsConfigured: Boolean(

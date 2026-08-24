@@ -167,6 +167,18 @@ type SettingsData = {
     startedAt: string;
     completedAt: string | null;
     errorMessage: string | null;
+    items: Array<{
+      id: string;
+      action: string;
+      reason: string | null;
+      targetSnapshot: {
+        campaignId?: string;
+        campaignName?: string;
+        adGroupId?: string;
+        adGroupName?: string;
+      } | null;
+      createdAt: string;
+    }>;
   }>;
   providers: {
     googleAdsConfigured: boolean;
@@ -312,6 +324,16 @@ function automationRunStatus(value?: string | null) {
   return value || 'Chưa có';
 }
 
+function automationRunActionLabel(value: string) {
+  return {
+    APPLIED: 'Đã áp dụng',
+    FAILED: 'Lỗi',
+    SKIPPED: 'Bỏ qua',
+    PAUSED: 'Đã dừng',
+    SUGGESTED: 'Đã đề xuất',
+  }[value] ?? value;
+}
+
 const AUTOMATION_STALE_RUNNING_MINUTES = 30;
 
 function isStaleAutomationRun(
@@ -359,6 +381,7 @@ export function OperationsPanel({
     automationEnabled: false,
   });
   const [automationRunning, setAutomationRunning] = useState(false);
+  const [automationResultOpen, setAutomationResultOpen] = useState(false);
   const automationStopRequestedRef = useRef(false);
   const [automationScopeSaving, setAutomationScopeSaving] = useState(false);
   const [selectedAutomationCampaignIds, setSelectedAutomationCampaignIds] =
@@ -1139,6 +1162,9 @@ export function OperationsPanel({
     return 'Tài khoản';
   }
   const latestAutomationRun = settings?.recentAutomationRuns[0] ?? null;
+  const latestAutomationSkippedCount = latestAutomationRun?.items.filter(
+    (item) => item.action === 'SKIPPED',
+  ).length ?? 0;
   const automationRunStale = isStaleAutomationRun(latestAutomationRun);
   const automationRunInProgress =
     latestAutomationRun?.status === 'RUNNING' && !automationRunStale;
@@ -1172,14 +1198,60 @@ export function OperationsPanel({
         .map((campaign) => campaign.id),
     );
   }, [automationCampaigns, settings?.automationScope?.allCampaignIds, settings?.automationScope?.selectedAdGroupIds]);
+  const latestAutomationRunCampaignIds = useMemo(
+    () => [...new Set(
+      (latestAutomationRun?.items ?? [])
+        .map((item) => item.targetSnapshot?.campaignId)
+        .filter((id): id is string => Boolean(id)),
+    )],
+    [latestAutomationRun?.items],
+  );
+  const automationCampaignRunSummaryById = useMemo(() => {
+    const summaries = new Map<string, {
+      status: string;
+      runAt: string;
+      appliedCount: number;
+      failedCount: number;
+      skippedCount: number;
+    }>();
+    for (const run of settings?.recentAutomationRuns ?? []) {
+      const campaignIds = [...new Set(
+        run.items
+          .map((item) => item.targetSnapshot?.campaignId)
+          .filter((id): id is string => Boolean(id)),
+      )];
+      for (const campaignId of campaignIds) {
+        if (summaries.has(campaignId)) continue;
+        const items = run.items.filter((item) => item.targetSnapshot?.campaignId === campaignId);
+        summaries.set(campaignId, {
+          status: run.status,
+          runAt: run.completedAt ?? run.startedAt,
+          appliedCount: items.reduce(
+            (sum, item) => sum + Number(item.reason?.match(/Applied\s+(\d+)/i)?.[1] ?? 0),
+            0,
+          ),
+          failedCount: items.filter((item) => item.action === 'FAILED').length,
+          skippedCount: items.filter((item) => item.action === 'SKIPPED').length,
+        });
+      }
+    }
+    return summaries;
+  }, [settings?.recentAutomationRuns]);
   const filteredAutomationCampaigns = useMemo(() => {
-    const visibleCampaigns = automationCampaigns.filter((campaign) => savedAutomationCampaignIdSet.has(campaign.id));
+    const previousCampaignIds = new Set(latestAutomationRunCampaignIds);
+    const visibleCampaigns = automationCampaigns
+      .filter((campaign) => savedAutomationCampaignIdSet.has(campaign.id))
+      .sort((left, right) => {
+        const leftIsNew = previousCampaignIds.has(left.id) ? 0 : 1;
+        const rightIsNew = previousCampaignIds.has(right.id) ? 0 : 1;
+        return rightIsNew - leftIsNew || left.name.localeCompare(right.name, 'vi');
+      });
     const query = normalizeAutomationSearch(automationCampaignSearch);
     if (!query) return visibleCampaigns;
     return visibleCampaigns.filter((campaign) =>
       normalizeAutomationSearch(`${campaign.name} ${campaign.id}`).includes(query),
     );
-  }, [automationCampaignSearch, automationCampaigns, savedAutomationCampaignIdSet]);
+  }, [automationCampaignSearch, automationCampaigns, latestAutomationRunCampaignIds, savedAutomationCampaignIdSet]);
   const availableAutomationCampaigns = useMemo(() => {
     const query = normalizeAutomationSearch(automationAddSearch);
     return automationCampaigns.filter((campaign) =>
@@ -1201,6 +1273,10 @@ export function OperationsPanel({
     !sameIdSet(selectedAutomationCampaignIds, savedAutomationCampaignIds) ||
     !sameIdSet(selectedAutomationAdGroupIds, savedAutomationAdGroupIds) ||
     !sameIdSet(allAutomationCampaignIds, savedAllAutomationCampaignIds);
+  const automationScopeChangedSinceLastRun = Boolean(
+    latestAutomationRun &&
+    (automationScopeDirty || !sameIdSet([...savedAutomationCampaignIdSet], latestAutomationRunCampaignIds)),
+  );
   const hasAutomationTarget =
     allAutomationCampaignIds.length > 0 || selectedAutomationAdGroupIds.length > 0;
 
@@ -1449,8 +1525,53 @@ export function OperationsPanel({
             <div className="automationOverviewCards">
               <div><span>Lịch Automation</span><strong className={settingsDraft.automationEnabled ? 'connected' : 'disconnected'}>{settingsDraft.automationEnabled ? 'Đã bật lịch' : 'Đã tắt lịch'}</strong></div>
               <div><span>Lịch chạy tiếp theo</span><strong>{formatNextRunDate(settings.schedule?.nextRunAt)}</strong></div>
-              <div><span>Kết quả gần nhất</span><strong>{latestAutomationRun ? `${latestAutomationRun.appliedCount} áp dụng · ${latestAutomationRun.failedCount} lỗi` : 'Chưa có lượt chạy'}</strong></div>
+              <div className={latestAutomationRun ? 'automationResultSummary' : ''}>
+                <span>{automationScopeChangedSinceLastRun ? 'Phạm vi mới chưa chạy' : 'Kết quả lần chạy gần nhất'}</span>
+                <strong>{latestAutomationRun ? (automationScopeChangedSinceLastRun ? 'Chưa có kết quả cho chiến dịch mới' : `${latestAutomationRun.appliedCount} áp dụng · ${latestAutomationSkippedCount} chưa thay · ${latestAutomationRun.failedCount} lỗi`) : 'Chưa có lượt chạy'}</strong>
+                {automationScopeChangedSinceLastRun && latestAutomationRun ? <small>Lần trước: {latestAutomationRun.appliedCount} áp dụng · {latestAutomationSkippedCount} chưa thay · {latestAutomationRun.failedCount} lỗi</small> : null}
+                {latestAutomationRun ? (
+                  <button type="button" onClick={() => setAutomationResultOpen((open) => !open)}>
+                    {automationResultOpen ? 'Ẩn chi tiết' : automationScopeChangedSinceLastRun ? 'Xem kết quả lần chạy trước' : 'Xem chi tiết lần chạy'}
+                  </button>
+                ) : null}
+              </div>
             </div>
+            {automationResultOpen && latestAutomationRun ? (
+              <div className="automationRunDetails">
+                <div className="automationRunDetailsHeader">
+                  <div>
+                    <strong>Chi tiết lần chạy gần nhất</strong>
+                    <span>{formatDate(latestAutomationRun.completedAt ?? latestAutomationRun.startedAt)}</span>
+                  </div>
+                  <span>{automationRunStatus(latestAutomationRun.status)}</span>
+                </div>
+                {latestAutomationRun.items.length ? (
+                  <div className="automationRunItemList">
+                    {[...latestAutomationRun.items]
+                      .sort((left, right) => Number(right.action === 'FAILED') - Number(left.action === 'FAILED'))
+                      .map((item) => {
+                      const failed = item.action === 'FAILED';
+                      return (
+                        <div className={`automationRunItem ${failed ? 'failed' : ''}`} key={item.id}>
+                          <AlertCircle size={16} />
+                          <div>
+                            <strong>{item.targetSnapshot?.adGroupName || item.targetSnapshot?.campaignName || 'Phạm vi Automation'}</strong>
+                            <span>
+                              {item.targetSnapshot?.campaignName ? `Chiến dịch: ${item.targetSnapshot.campaignName}` : ''}
+                              {item.targetSnapshot?.adGroupId ? ` · ID nhóm: ${item.targetSnapshot.adGroupId}` : ''}
+                            </span>
+                            <p>{item.reason || (failed ? 'Không thể hoàn tất xử lý nhóm quảng cáo này.' : 'Đã xử lý xong.')}</p>
+                          </div>
+                          <span className={`automationRunAction ${item.action.toLowerCase()}`}>{automationRunActionLabel(item.action)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="automationRunEmpty">Lần chạy này chưa lưu chi tiết xử lý.</div>
+                )}
+              </div>
+            ) : null}
             {(!hasAutomationTarget || automationScopeDirty) ? <div className={`automationNextStep ${automationScopeDirty ? 'warning' : ''}`}>
               <div>
                 <span>Bước tiếp theo</span>
@@ -1519,9 +1640,18 @@ export function OperationsPanel({
                   const selectedChildren = knownAdGroupIds.filter((id) =>
                     selectedAutomationAdGroupIds.includes(id),
                   ).length;
+                  const runSummary = automationCampaignRunSummaryById.get(campaign.id);
+                  const runSummaryTone = !runSummary
+                    ? 'pending'
+                    : runSummary.status === 'RUNNING'
+                      ? 'running'
+                      : runSummary.failedCount > 0 || runSummary.status === 'FAILED' || runSummary.status === 'PARTIAL'
+                        ? 'failed'
+                        : 'completed';
                   return (
-                    <div className="automationScopeCampaign automationScopeCampaignRow" key={campaign.id}>
-                      <div className="automationScopeCampaignMain">
+                    <article className="automationScopeCampaign automationCampaignCard" key={campaign.id}>
+                      <header className="automationCampaignCardHeader">
+                        <div className="automationScopeCampaignMain">
                         <label aria-label={`Cho phép Automation trong chiến dịch ${campaign.name}`}>
                           <input
                             type="checkbox"
@@ -1534,27 +1664,45 @@ export function OperationsPanel({
                           <span>
                             <strong>{campaign.name}</strong>
                             <small>
-                              ID {campaign.id} · {automationEntityStatus(campaign.status)} ·{' '}
-                              {campaignRunsAll
-                                ? `Toàn bộ ${campaign.adGroupCount} nhóm đang hoạt động`
-                                : `${selectedChildren}/${campaign.adGroupCount} nhóm đã chọn`}
+                              ID {campaign.id} · {automationEntityStatus(campaign.status)}
                             </small>
                           </span>
                         </label>
+                        </div>
+                        <button
+                          className="secondaryButton"
+                          type="button"
+                          disabled={automationCampaignLoadingId === campaign.id}
+                          onClick={() => void loadAutomationCampaign(campaign.id)}
+                        >
+                          {automationCampaignLoadingId === campaign.id ? 'Đang tải...' : 'Xem và chọn nhóm'}
+                        </button>
+                      </header>
+                      <div className="automationCampaignInfoGrid">
+                        <div>
+                          <span>Phạm vi xử lý</span>
+                          <strong>{campaignRunsAll ? `Toàn bộ ${campaign.adGroupCount} nhóm` : `${selectedChildren}/${campaign.adGroupCount} nhóm đã chọn`}</strong>
+                        </div>
+                        <div>
+                          <span>Trạng thái gần nhất</span>
+                          <strong className={`automationCampaignRunStatus ${runSummaryTone}`}>
+                            {runSummary ? automationRunStatus(runSummary.status) : 'Chưa chạy'}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Lần chạy gần nhất</span>
+                          <strong>{runSummary ? formatDate(runSummary.runAt) : 'Chưa có'}</strong>
+                        </div>
+                        <div>
+                          <span>Kết quả lần gần nhất</span>
+                          <strong>{runSummary ? `${runSummary.appliedCount} áp dụng · ${runSummary.skippedCount} chưa thay · ${runSummary.failedCount} lỗi` : 'Chưa có kết quả'}</strong>
+                        </div>
+                        <div className="automationCampaignNextRun">
+                          <span>Lịch tiếp theo</span>
+                          <strong>{settingsDraft.automationEnabled ? formatNextRunDate(settings.schedule?.nextRunAt) : 'Lịch đang tắt'}</strong>
+                        </div>
                       </div>
-                      <button
-                        className="secondaryButton"
-                        type="button"
-                        disabled={automationCampaignLoadingId === campaign.id}
-                        onClick={() => {
-                          void loadAutomationCampaign(campaign.id);
-                        }}
-                      >
-                        {automationCampaignLoadingId === campaign.id
-                          ? 'Đang tải...'
-                          : 'Chọn nhóm quảng cáo'}
-                      </button>
-                    </div>
+                    </article>
                   );
                 })}
                 {!filteredAutomationCampaigns.length ? (
