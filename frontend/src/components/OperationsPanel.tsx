@@ -1162,7 +1162,7 @@ export function OperationsPanel({
     return 'Tài khoản';
   }
   const latestAutomationRun = settings?.recentAutomationRuns[0] ?? null;
-  const latestAutomationSkippedCount = latestAutomationRun?.items.filter(
+  const latestAutomationSkippedCount = (latestAutomationRun?.items ?? []).filter(
     (item) => item.action === 'SKIPPED',
   ).length ?? 0;
   const automationRunStale = isStaleAutomationRun(latestAutomationRun);
@@ -1216,13 +1216,13 @@ export function OperationsPanel({
     }>();
     for (const run of settings?.recentAutomationRuns ?? []) {
       const campaignIds = [...new Set(
-        run.items
+        (run.items ?? [])
           .map((item) => item.targetSnapshot?.campaignId)
           .filter((id): id is string => Boolean(id)),
       )];
       for (const campaignId of campaignIds) {
         if (summaries.has(campaignId)) continue;
-        const items = run.items.filter((item) => item.targetSnapshot?.campaignId === campaignId);
+        const items = (run.items ?? []).filter((item) => item.targetSnapshot?.campaignId === campaignId);
         summaries.set(campaignId, {
           status: run.status,
           runAt: run.completedAt ?? run.startedAt,
@@ -1545,9 +1545,9 @@ export function OperationsPanel({
                   </div>
                   <span>{automationRunStatus(latestAutomationRun.status)}</span>
                 </div>
-                {latestAutomationRun.items.length ? (
+                {(latestAutomationRun.items ?? []).length ? (
                   <div className="automationRunItemList">
-                    {[...latestAutomationRun.items]
+                    {[...(latestAutomationRun.items ?? [])]
                       .sort((left, right) => Number(right.action === 'FAILED') - Number(left.action === 'FAILED'))
                       .map((item) => {
                       const failed = item.action === 'FAILED';
