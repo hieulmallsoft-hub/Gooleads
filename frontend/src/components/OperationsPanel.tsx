@@ -1301,6 +1301,17 @@ export function OperationsPanel({
     !sameIdSet(selectedAutomationAdGroupIds, savedAutomationAdGroupIds) ||
     !sameIdSet(allAutomationCampaignIds, savedAllAutomationCampaignIds) ||
     automationIntervalsDirty;
+  const nextAutomationCampaignRunAt = (settings?.automationScope?.campaigns ?? [])
+    .map((campaign) => campaign.nextRunAt)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0] ?? null;
+  const automationNextRunLabel = !settingsDraft.automationEnabled
+    ? 'Lịch đang tắt'
+    : automationScopeDirty
+      ? 'Lưu thay đổi để cập nhật lịch'
+      : nextAutomationCampaignRunAt
+        ? formatNextRunDate(nextAutomationCampaignRunAt)
+        : 'Chưa có chiến dịch được lên lịch';
   const automationScopeChangedSinceLastRun = Boolean(
     latestAutomationRun &&
     (automationScopeDirty || !sameIdSet([...savedAutomationCampaignIdSet], latestAutomationRunCampaignIds)),
@@ -1552,7 +1563,7 @@ export function OperationsPanel({
             <section className="operationsSection">
             <div className="automationOverviewCards">
               <div><span>Lịch Automation</span><strong className={settingsDraft.automationEnabled ? 'connected' : 'disconnected'}>{settingsDraft.automationEnabled ? 'Đã bật lịch' : 'Đã tắt lịch'}</strong></div>
-              <div><span>Lịch chạy tiếp theo</span><strong>{formatNextRunDate(settings.schedule?.nextRunAt)}</strong></div>
+              <div><span>Lịch chiến dịch gần nhất</span><strong>{automationNextRunLabel}</strong></div>
               <div className={latestAutomationRun ? 'automationResultSummary' : ''}>
                 <span>{automationScopeChangedSinceLastRun ? 'Phạm vi mới chưa chạy' : 'Kết quả lần chạy gần nhất'}</span>
                 <strong>{latestAutomationRun ? (automationScopeChangedSinceLastRun ? 'Chưa có kết quả cho chiến dịch mới' : `${latestAutomationRun.appliedCount} áp dụng · ${latestAutomationSkippedCount} chưa thay · ${latestAutomationRun.failedCount} lỗi`) : 'Chưa có lượt chạy'}</strong>
@@ -1744,7 +1755,13 @@ export function OperationsPanel({
                         </div>
                         <div className="automationCampaignNextRun">
                           <span>Lịch tiếp theo</span>
-                          <strong>{settingsDraft.automationEnabled ? formatNextRunDate(campaign.nextRunAt) : 'Lịch đang tắt'}</strong>
+                          <strong>
+                            {!settingsDraft.automationEnabled
+                              ? 'Lịch đang tắt'
+                              : automationScopeDirty
+                                ? 'Lưu thay đổi để lên lịch'
+                                : formatNextRunDate(campaign.nextRunAt)}
+                          </strong>
                         </div>
                       </div>
                     </article>
