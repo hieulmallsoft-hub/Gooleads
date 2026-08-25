@@ -4677,6 +4677,34 @@ tbody tr:hover td:first-child {
 
 .settingsActions > span { color: var(--text-3); font-size: 12px; }
 
+.automationGlobalControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.automationGlobalControls > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.automationGlobalControls > div:first-child > span {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.automationGlobalControlActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 .automationScopeTree {
   display: grid;
   gap: 10px;
@@ -6510,6 +6538,12 @@ tbody tr:hover {
 }
 
 @media (max-width: 720px) {
+  .automationGlobalControls,
+  .automationGlobalControlActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .historyDetailContext { grid-template-columns: 1fr; }
   .historyDetailContext > svg { transform: rotate(90deg); }
   .snapshotFreshness {

@@ -1189,19 +1189,6 @@ export function OperationsPanel({
   const automationRunStale = isStaleAutomationRun(latestAutomationRun);
   const automationRunInProgress =
     latestAutomationRun?.status === 'RUNNING' && !automationRunStale;
-  const automationActionText = automationRunning || automationRunInProgress
-    ? 'Đang chạy...'
-    : automationRunStale
-      ? 'Chạy lại và bật lịch'
-      : settingsDraft.automationEnabled
-        ? 'Chạy ngay'
-        : 'Chạy ngay và bật lịch';
-  const automationStatusText = latestAutomationRun?.errorMessage
-    ?? (automationRunStale
-      ? 'Lượt chạy trước có thể đã bị gián đoạn. Bạn có thể bấm Chạy lại.'
-      : settingsDraft.automationEnabled
-        ? `Lịch AI đã bật, chu kỳ ${settingsDraft.reviewIntervalDays} ngày. Hệ thống chỉ xử lý khi đến lịch hoặc khi bạn bấm Chạy ngay.`
-        : 'AI định kỳ đang tắt. Bấm Chạy ngay để bắt đầu và duy trì theo lịch.');
   const automationCampaigns = useMemo(
     () => settings?.automationScope?.campaigns ?? [],
     [settings?.automationScope?.campaigns],
@@ -1291,10 +1278,15 @@ export function OperationsPanel({
   const savedAutomationAdGroupIds = settings?.automationScope?.selectedAdGroupIds ?? [];
   const savedAllAutomationCampaignIds = settings?.automationScope?.allCampaignIds ?? [];
   const savedAutomationCampaignIntervals = Object.fromEntries(
-    (settings?.automationScope?.campaigns ?? []).map((campaign) => [campaign.id, campaign.intervalDays || 14]),
+    (settings?.automationScope?.campaigns ?? []).map((campaign) => [
+      campaign.id,
+      campaign.intervalDays || settings?.policy.reviewIntervalDays || 14,
+    ]),
   );
   const automationIntervalsDirty = selectedAutomationCampaignIds.some(
-    (campaignId) => (automationCampaignIntervals[campaignId] || 14) !== (savedAutomationCampaignIntervals[campaignId] || 14),
+    (campaignId) =>
+      (automationCampaignIntervals[campaignId] || settings?.policy.reviewIntervalDays || 14) !==
+      (savedAutomationCampaignIntervals[campaignId] || settings?.policy.reviewIntervalDays || 14),
   );
   const automationScopeDirty =
     !sameIdSet(selectedAutomationCampaignIds, savedAutomationCampaignIds) ||
@@ -1311,7 +1303,9 @@ export function OperationsPanel({
       ? 'Lưu thay đổi để cập nhật lịch'
       : nextAutomationCampaignRunAt
         ? formatNextRunDate(nextAutomationCampaignRunAt)
-        : 'Chưa có chiến dịch được lên lịch';
+        : selectedAutomationCampaignIds.length
+          ? 'Chưa có lịch riêng — cần cập nhật backend'
+          : 'Chưa có chiến dịch được lên lịch';
   const automationScopeChangedSinceLastRun = Boolean(
     latestAutomationRun &&
     (automationScopeDirty || !sameIdSet([...savedAutomationCampaignIdSet], latestAutomationRunCampaignIds)),
@@ -1760,7 +1754,9 @@ export function OperationsPanel({
                               ? 'Lịch đang tắt'
                               : automationScopeDirty
                                 ? 'Lưu thay đổi để lên lịch'
-                                : formatNextRunDate(campaign.nextRunAt)}
+                                : campaign.nextRunAt
+                                  ? formatNextRunDate(campaign.nextRunAt)
+                                  : 'Chưa có lịch riêng — cần cập nhật backend'}
                           </strong>
                         </div>
                       </div>
@@ -2005,17 +2001,21 @@ export function OperationsPanel({
               ) : null}
             </div>
           </section>
-          <section className="operationsSection">
-            <div className="sectionTitle"><div><h2 aria-label="2. Chế độ xử lý"><span className="stepNumber" aria-hidden="true">2</span>Chế độ xử lý</h2><p>Chạy ngay để xử lý phạm vi đã lưu. Mỗi chiến dịch sẽ tiếp tục theo chu kỳ riêng đã đặt.</p></div><span>{settingsDraft.automationEnabled ? 'Đang tự động áp dụng lên Google Ads' : 'Lịch đang tắt'}</span></div>
-            <div className="settingsGrid">
-              <label><span>AI định kỳ</span><input value={settingsDraft.automationEnabled ? 'Đang bật - theo lịch' : 'Đã tắt'} disabled /></label>
-              <label><span>Chế độ áp dụng</span><input value={settingsDraft.automationEnabled ? 'TỰ ĐỘNG - áp dụng trực tiếp lên Google Ads' : 'Đã tắt'} disabled /></label>
-              <label><span>Lần chạy gần nhất</span><input value={formatDate(settings.schedule?.lastRunAt)} disabled /></label>
-              <label><span>Lịch chạy tiếp theo</span><input value={formatNextRunDate(settings.schedule?.nextRunAt)} disabled /></label>
-              <label><span>Trạng thái gần nhất</span><input value={automationRunStatus(latestAutomationRun?.status)} disabled /></label>
-              <label><span>Kết quả gần nhất</span><input value={latestAutomationRun ? `${latestAutomationRun.selectedCount} đã chọn / ${latestAutomationRun.appliedCount} đã áp dụng` : 'Chưa chạy'} disabled /></label>
+          <section className="automationGlobalControls" aria-label="Điều khiển chung Automation">
+            <div>
+              <strong>Điều khiển chung</strong>
+              <span>
+                {automationScopeDirty
+                  ? 'Hãy lưu phạm vi trước khi chạy.'
+                  : settingsDraft.automationEnabled
+                    ? `Lịch đang bật · chiến dịch gần nhất: ${automationNextRunLabel}`
+                    : 'Lịch đang tắt. Chu kỳ và kết quả được hiển thị riêng trên từng chiến dịch.'}
+              </span>
             </div>
-            <div className="settingsActions"><span>{automationScopeDirty ? 'Hãy lưu phạm vi trước khi chạy để tránh dùng lựa chọn cũ.' : automationStatusText}</span><button className="primaryButton" type="button" disabled={automationScopeDirty || automationRunning || automationRunInProgress || loading || !canRunPeriodicAi || !hasAutomationTarget} onClick={() => void runAutomationNow()}><Play size={15} />{automationActionText}</button><button className="secondaryButton dangerButton" type="button" disabled={loading || (!settingsDraft.automationEnabled && !automationRunning && !automationRunInProgress) || !canRunPeriodicAi} onClick={() => void stopAutomation()}><X size={15} />{automationRunning || automationRunInProgress ? 'Dừng lượt chạy' : 'Tắt lịch'}</button></div>
+            <div className="automationGlobalControlActions">
+              <button className="primaryButton" type="button" disabled={automationScopeDirty || automationRunning || automationRunInProgress || loading || !canRunPeriodicAi || !hasAutomationTarget} onClick={() => void runAutomationNow()}><Play size={15} />{automationRunning || automationRunInProgress ? 'Đang chạy...' : 'Chạy ngay tất cả'}</button>
+              <button className="secondaryButton dangerButton" type="button" disabled={loading || (!settingsDraft.automationEnabled && !automationRunning && !automationRunInProgress) || !canRunPeriodicAi} onClick={() => void stopAutomation()}><X size={15} />{automationRunning || automationRunInProgress ? 'Dừng lượt chạy' : 'Tắt toàn bộ lịch'}</button>
+            </div>
           </section>
           </>
           ) : null}
