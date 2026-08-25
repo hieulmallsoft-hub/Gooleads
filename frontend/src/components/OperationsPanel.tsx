@@ -438,7 +438,6 @@ export function OperationsPanel({
   });
   const [passwordSaving, setPasswordSaving] = useState(false);
   const canManageUsers = currentUser.role === 'ADMIN';
-  const canManagePolicy = currentUser.permissions.includes('rules.manage');
   const canRunPeriodicAi = currentUser.permissions.includes('automation.manage');
   const canManageAutomationScope = currentUser.permissions.includes('automation.manage');
   const selectedAccessUser =
@@ -719,40 +718,6 @@ export function OperationsPanel({
       setTerms((current) => current.filter((term) => term.id !== item.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể xóa quy tắc từ khóa');
-    }
-  }
-
-  async function saveSettings() {
-    setLoading(true);
-    setError('');
-    setNotice('');
-    try {
-      const params = new URLSearchParams({ customerId });
-      const response = await request(`/creative-operations/settings?${params}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          languageStrategy: settingsDraft.languageStrategy,
-          targetLanguage:
-            settingsDraft.languageStrategy === 'FIXED'
-              ? settingsDraft.targetLanguage
-              : null,
-          targetLabels: ['LOW'],
-          minimumImpressions: settingsDraft.minimumImpressions,
-          minimumClicks: settingsDraft.minimumClicks,
-          reviewIntervalDays: settingsDraft.reviewIntervalDays,
-          cooldownDays: settingsDraft.cooldownDays,
-          maxChangesPerRun: settingsDraft.maxChangesPerRun,
-        }),
-      });
-      const body = await parseJsonSafe(response);
-      if (!response.ok) throw new Error(errorMessage(body, 'Không thể lưu cài đặt'));
-      setNotice('Đã lưu chính sách đánh giá AI.');
-      await loadSettings();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không thể lưu cài đặt');
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -1164,7 +1129,7 @@ export function OperationsPanel({
     impact: 'So sánh hiệu quả trước và sau khi thay đổi nội dung quảng cáo.',
     automation: 'Chọn chiến dịch, nhóm quảng cáo và điều khiển AI định kỳ.',
     keywords: 'Từ khóa sản phẩm, thương hiệu, từ khóa phủ định và nội dung bị cấm.',
-    settings: 'Trạng thái kết nối Google Ads và chính sách đánh giá nội dung.',
+    settings: 'Quản lý tài khoản, quyền truy cập và trạng thái kết nối dịch vụ.',
     guide: 'Hướng dẫn sử dụng ứng dụng GG Ads.',
   }[section];
   const groupedTerms = useMemo(
@@ -2034,20 +1999,6 @@ export function OperationsPanel({
             </div>
           </section>
           </>
-          ) : null}
-          {section === 'settings' ? (
-            <section className="operationsSection">
-            <div className="sectionTitle"><div><h2>Chính sách đánh giá AI</h2><p>{settings.policy.name}</p></div><span>{settingsDraft.automationEnabled ? 'AI định kỳ TỰ ĐỘNG' : 'Đề xuất AI tự động'}</span></div>
-            <div className="settingsGrid">
-              <label><span>Chiến lược ngôn ngữ</span><select value={settingsDraft.languageStrategy} onChange={(event) => setSettingsDraft((current) => ({ ...current, languageStrategy: event.target.value }))}><option value="DETECT_FROM_ASSET">Tự phát hiện theo từng tài nguyên</option><option value="FIXED">Dùng một ngôn ngữ cố định</option></select></label>
-              <label><span>Ngôn ngữ mục tiêu</span><select disabled={settingsDraft.languageStrategy !== 'FIXED'} value={settingsDraft.targetLanguage} onChange={(event) => setSettingsDraft((current) => ({ ...current, targetLanguage: event.target.value }))}><option value="">Chọn ngôn ngữ</option>{LANGUAGE_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-              <label><span>Lượt hiển thị tối thiểu</span><input type="number" min="0" value={settingsDraft.minimumImpressions} onChange={(event) => setSettingsDraft((current) => ({ ...current, minimumImpressions: Number(event.target.value) }))} /></label>
-              <label><span>Lượt nhấp tối thiểu</span><input type="number" min="0" value={settingsDraft.minimumClicks} onChange={(event) => setSettingsDraft((current) => ({ ...current, minimumClicks: Number(event.target.value) }))} /></label>
-              <label><span>Thời gian chờ sau thay đổi (ngày)</span><input type="number" min="0" value={settingsDraft.cooldownDays} onChange={(event) => setSettingsDraft((current) => ({ ...current, cooldownDays: Number(event.target.value) }))} /></label>
-              <label><span>Nhãn tài nguyên</span><input value="LOW" disabled /></label>
-            </div>
-            <div className="settingsActions"><span>Tiêu đề {settings.policy.headlineMaxLength} ký tự · Mô tả {settings.policy.descriptionMaxLength} ký tự</span><button className="primaryButton" type="button" disabled={loading || !canManagePolicy} onClick={() => void saveSettings()}><Save size={15} />Lưu chính sách</button></div>
-            </section>
           ) : null}
         </>
       ) : null}
