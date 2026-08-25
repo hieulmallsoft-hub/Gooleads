@@ -384,6 +384,7 @@ export function OperationsPanel({
     automationEnabled: false,
   });
   const [automationRunning, setAutomationRunning] = useState(false);
+  const [automationRunningCampaignId, setAutomationRunningCampaignId] = useState('');
   const [automationResultOpen, setAutomationResultOpen] = useState(false);
   const automationStopRequestedRef = useRef(false);
   const [automationScopeSaving, setAutomationScopeSaving] = useState(false);
@@ -986,17 +987,20 @@ export function OperationsPanel({
     }
   }
 
-  async function runAutomationNow() {
+  async function runAutomationNow(campaignId?: string, campaignName?: string) {
     if (!canRunPeriodicAi) return;
+    if (campaignId && !window.confirm(`Chạy Automation ngay cho chiến dịch “${campaignName || campaignId}”? Các thay đổi hợp lệ có thể được áp dụng trực tiếp lên Google Ads.`)) return;
 
     const wasAutomationEnabled = settingsDraft.automationEnabled;
     automationStopRequestedRef.current = false;
     setAutomationRunning(true);
+    setAutomationRunningCampaignId(campaignId ?? 'ALL');
     setSettingsDraft((current) => ({ ...current, automationEnabled: true }));
     setError('');
     setNotice('');
     try {
       const params = new URLSearchParams({ customerId });
+      if (campaignId) params.set('campaignId', campaignId);
       const response = await request(`/creative-operations/automation/run?${params}`, {
         method: 'POST',
       });
@@ -1014,8 +1018,8 @@ export function OperationsPanel({
       if (!automationStopRequestedRef.current) {
         setNotice(
           appliedCount > 0
-            ? `AI định kỳ đã bắt đầu: chọn ${selectedCount} đề xuất và áp dụng ${appliedCount} thay đổi. Hệ thống sẽ tiếp tục chạy theo lịch cho đến khi bạn bấm Tắt.`
-            : `AI định kỳ đã bắt đầu nhưng chưa áp dụng nội dung nào trong lần này. Hệ thống vẫn tiếp tục chạy theo lịch cho đến khi bạn bấm Tắt.${reasonText}`,
+            ? `${campaignName ? `Chiến dịch ${campaignName}` : 'Automation'} đã chạy: chọn ${selectedCount} đề xuất và áp dụng ${appliedCount} thay đổi. Hệ thống sẽ tiếp tục chạy theo lịch.`
+            : `${campaignName ? `Chiến dịch ${campaignName}` : 'Automation'} đã chạy nhưng chưa áp dụng nội dung nào trong lần này.${reasonText}`,
         );
       }
       await loadSettings();
@@ -1027,6 +1031,7 @@ export function OperationsPanel({
       setError(err instanceof Error ? err.message : 'Không thể chạy tự động hóa');
     } finally {
       setAutomationRunning(false);
+      setAutomationRunningCampaignId('');
     }
   }
 
@@ -1702,14 +1707,25 @@ export function OperationsPanel({
                           </span>
                         </label>
                         </div>
-                        <button
-                          className="secondaryButton"
-                          type="button"
-                          disabled={automationCampaignLoadingId === campaign.id}
-                          onClick={() => void loadAutomationCampaign(campaign.id)}
-                        >
-                          {automationCampaignLoadingId === campaign.id ? 'Đang tải...' : 'Xem và chọn nhóm'}
-                        </button>
+                        <div className="automationCampaignCardActions">
+                          <button
+                            className="secondaryButton"
+                            type="button"
+                            disabled={automationCampaignLoadingId === campaign.id}
+                            onClick={() => void loadAutomationCampaign(campaign.id)}
+                          >
+                            {automationCampaignLoadingId === campaign.id ? 'Đang tải...' : 'Xem và chọn nhóm'}
+                          </button>
+                          <button
+                            className="primaryButton"
+                            type="button"
+                            disabled={automationScopeDirty || automationRunning || automationRunInProgress || !canRunPeriodicAi || !campaignSelected || (!campaignRunsAll && selectedChildren === 0)}
+                            onClick={() => void runAutomationNow(campaign.id, campaign.name)}
+                          >
+                            <Play size={14} />
+                            {automationRunningCampaignId === campaign.id ? 'Đang chạy...' : 'Chạy ngay'}
+                          </button>
+                        </div>
                       </header>
                       <div className="automationCampaignInfoGrid">
                         <div>

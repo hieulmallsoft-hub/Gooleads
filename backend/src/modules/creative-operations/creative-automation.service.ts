@@ -51,6 +51,7 @@ type AutomationRunOptions = {
   force?: boolean;
   now?: Date;
   accountIds?: string[];
+  campaignIds?: string[];
   maxChangesOverride?: number;
   approvalModeOverride?: 'AUTO' | 'MANUAL';
 };
@@ -203,6 +204,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         options.accountIds,
         now,
         Boolean(options.force),
+        options.campaignIds,
       );
       if (!targets.length) {
         await this.saveRunItem(run.id, 'SKIPPED', 'No enabled ad groups found for this policy');
@@ -521,6 +523,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     targetAccountIds?: string[],
     now = new Date(),
     force = false,
+    targetCampaignGoogleIds?: string[],
   ) {
     const scopes = await this.dataSource
       .getRepository(CreativePolicyScopeEntity)
@@ -564,6 +567,9 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     const allowedAccountIds = targetAccountIds?.length
       ? new Set(targetAccountIds)
       : null;
+    const allowedCampaignIds = targetCampaignGoogleIds?.length
+      ? new Set(targetCampaignGoogleIds)
+      : null;
     const accounts = campaigns.length
       ? await this.dataSource.getRepository(GoogleAdsAccountEntity).findBy({
           id: In([...new Set(campaigns.map((campaign) => campaign.accountId))]),
@@ -587,6 +593,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       if (targets.size >= adGroupLimit) break;
       const campaign = campaignMap.get(adGroup.campaignId);
       if (!campaign || campaign.status !== 'ENABLED') continue;
+      if (allowedCampaignIds && !allowedCampaignIds.has(campaign.googleCampaignId)) continue;
       const campaignScope = campaignScopeMap.get(campaign.id);
       if (!force && campaignScope?.nextRunAt && campaignScope.nextRunAt > now) continue;
       const account = accountMap.get(campaign.accountId);

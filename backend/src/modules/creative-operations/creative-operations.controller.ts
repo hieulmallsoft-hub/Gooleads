@@ -217,10 +217,12 @@ export class CreativeOperationsController {
   @RequirePermissions('automation.manage')
   runAutomationNow(
     @Query('customerId') inputCustomerId: string | undefined,
+    @Query('campaignId') campaignId: string | undefined,
     @Req() request: { user: AuthenticatedUser },
   ) {
     return this.service.runAutomationNow(
       this.customerIdForUser(inputCustomerId, request.user),
+      campaignId,
     );
   }
 }

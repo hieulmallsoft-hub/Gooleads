@@ -1029,9 +1029,22 @@ export class CreativeOperationsService {
     return this.getSettings(customerId);
   }
 
-  async runAutomationNow(customerId: string) {
+  async runAutomationNow(customerId: string, campaignIdValue?: string) {
     const account = await this.getAccount(customerId);
     const policy = await this.getPolicy(account.workspaceId);
+    const campaignId = String(campaignIdValue ?? '').replace(/\D/g, '');
+    if (campaignIdValue && !campaignId) {
+      throw new BadRequestException('ID chiến dịch không hợp lệ');
+    }
+    if (campaignId) {
+      const campaign = await this.dataSource.getRepository(CampaignEntity).findOneBy({
+        accountId: account.id,
+        googleCampaignId: campaignId,
+      });
+      if (!campaign || campaign.status !== 'ENABLED') {
+        throw new BadRequestException('Chiến dịch không tồn tại hoặc hiện không hoạt động');
+      }
+    }
     policy.approvalMode = 'AUTO';
     await this.dataSource.getRepository(CreativePolicyEntity).save(policy);
     await this.assertAutomationHasSelectedAdGroups(policy.id, account.id);
@@ -1045,6 +1058,7 @@ export class CreativeOperationsService {
       force: true,
       now: new Date(),
       accountIds: [account.id],
+      campaignIds: campaignId ? [campaignId] : undefined,
       maxChangesOverride,
       approvalModeOverride: 'AUTO',
     });
