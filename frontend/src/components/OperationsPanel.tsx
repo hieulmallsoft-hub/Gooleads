@@ -193,6 +193,9 @@ type SettingsData = {
       mode: 'ALL' | 'SELECTED';
       adGroupCount: number;
       selectedAdGroupIds: string[];
+      intervalDays: number;
+      lastRunAt: string | null;
+      nextRunAt: string | null;
     }>;
     selectedAdGroupIds: string[];
     adGroupConfigs: Array<{ adGroupId: string; languageCode: string; topic: string }>;
@@ -397,6 +400,7 @@ export function OperationsPanel({
     useState<AutomationCampaignDetail | null>(null);
   const [automationMetricsSyncing, setAutomationMetricsSyncing] = useState(false);
   const [automationAdGroupConfigs, setAutomationAdGroupConfigs] = useState<Record<string, { languageCode: string; topic: string }>>({});
+  const [automationCampaignIntervals, setAutomationCampaignIntervals] = useState<Record<string, number>>({});
   const [automationCampaignLoadingId, setAutomationCampaignLoadingId] =
     useState('');
 
@@ -493,6 +497,9 @@ export function OperationsPanel({
     );
     setAutomationAdGroupConfigs(Object.fromEntries(
       (data.automationScope?.adGroupConfigs ?? []).map((config) => [config.adGroupId, { languageCode: config.languageCode, topic: config.topic }]),
+    ));
+    setAutomationCampaignIntervals(Object.fromEntries(
+      scopeCampaigns.map((campaign) => [campaign.id, campaign.intervalDays || data.policy.reviewIntervalDays || 14]),
     ));
     setSettingsDraft({
       languageStrategy: data.policy.languageStrategy,
@@ -812,6 +819,12 @@ export function OperationsPanel({
   }
 
   function toggleAutomationCampaign(campaignId: string, selected: boolean) {
+    if (selected) {
+      setAutomationCampaignIntervals((current) => ({
+        ...current,
+        [campaignId]: current[campaignId] || settingsDraft.reviewIntervalDays || 14,
+      }));
+    }
     setSelectedAutomationCampaignIds((current) =>
       selected
         ? [...new Set([...current, campaignId])]
@@ -863,6 +876,10 @@ export function OperationsPanel({
   }
 
   async function loadAutomationCampaign(campaignId: string) {
+    setAutomationCampaignIntervals((current) => ({
+      ...current,
+      [campaignId]: current[campaignId] || settingsDraft.reviewIntervalDays || 14,
+    }));
     setAutomationCampaignLoadingId(campaignId);
     setError('');
     try {
@@ -946,6 +963,10 @@ export function OperationsPanel({
           allCampaignIds: allAutomationCampaignIds,
           adGroupIds: selectedAutomationAdGroupIds,
           adGroupConfigs: Object.entries(automationAdGroupConfigs).map(([adGroupId, config]) => ({ adGroupId, ...config })),
+          campaignSchedules: selectedAutomationCampaignIds.map((campaignId) => ({
+            campaignId,
+            intervalDays: automationCampaignIntervals[campaignId] || settingsDraft.reviewIntervalDays || 14,
+          })),
         }),
       });
       const body = await parseJsonSafe(response);
@@ -1269,10 +1290,17 @@ export function OperationsPanel({
   const savedAutomationCampaignIds = [...savedAutomationCampaignIdSet];
   const savedAutomationAdGroupIds = settings?.automationScope?.selectedAdGroupIds ?? [];
   const savedAllAutomationCampaignIds = settings?.automationScope?.allCampaignIds ?? [];
+  const savedAutomationCampaignIntervals = Object.fromEntries(
+    (settings?.automationScope?.campaigns ?? []).map((campaign) => [campaign.id, campaign.intervalDays || 14]),
+  );
+  const automationIntervalsDirty = selectedAutomationCampaignIds.some(
+    (campaignId) => (automationCampaignIntervals[campaignId] || 14) !== (savedAutomationCampaignIntervals[campaignId] || 14),
+  );
   const automationScopeDirty =
     !sameIdSet(selectedAutomationCampaignIds, savedAutomationCampaignIds) ||
     !sameIdSet(selectedAutomationAdGroupIds, savedAutomationAdGroupIds) ||
-    !sameIdSet(allAutomationCampaignIds, savedAllAutomationCampaignIds);
+    !sameIdSet(allAutomationCampaignIds, savedAllAutomationCampaignIds) ||
+    automationIntervalsDirty;
   const automationScopeChangedSinceLastRun = Boolean(
     latestAutomationRun &&
     (automationScopeDirty || !sameIdSet([...savedAutomationCampaignIdSet], latestAutomationRunCampaignIds)),
@@ -1684,6 +1712,23 @@ export function OperationsPanel({
                           <strong>{campaignRunsAll ? `Toàn bộ ${campaign.adGroupCount} nhóm` : `${selectedChildren}/${campaign.adGroupCount} nhóm đã chọn`}</strong>
                         </div>
                         <div>
+                          <span>Chu kỳ riêng</span>
+                          <label className="automationCampaignInterval">
+                            <input
+                              type="number"
+                              min="1"
+                              max="365"
+                              value={automationCampaignIntervals[campaign.id] || campaign.intervalDays || 14}
+                              disabled={!canManageAutomationScope}
+                              onChange={(event) => setAutomationCampaignIntervals((current) => ({
+                                ...current,
+                                [campaign.id]: Math.min(365, Math.max(1, Number(event.target.value) || 1)),
+                              }))}
+                            />
+                            <span>ngày/lần</span>
+                          </label>
+                        </div>
+                        <div>
                           <span>Trạng thái gần nhất</span>
                           <strong className={`automationCampaignRunStatus ${runSummaryTone}`}>
                             {runSummary ? automationRunStatus(runSummary.status) : 'Chưa chạy'}
@@ -1699,7 +1744,7 @@ export function OperationsPanel({
                         </div>
                         <div className="automationCampaignNextRun">
                           <span>Lịch tiếp theo</span>
-                          <strong>{settingsDraft.automationEnabled ? formatNextRunDate(settings.schedule?.nextRunAt) : 'Lịch đang tắt'}</strong>
+                          <strong>{settingsDraft.automationEnabled ? formatNextRunDate(campaign.nextRunAt) : 'Lịch đang tắt'}</strong>
                         </div>
                       </div>
                     </article>
@@ -1816,6 +1861,26 @@ export function OperationsPanel({
                     </div>
                     <button className="secondaryButton" type="button" disabled={automationMetricsSyncing} onClick={() => void syncAutomationCampaignMetrics()}><RefreshCw size={15} className={automationMetricsSyncing ? 'spin' : ''} />{automationMetricsSyncing ? 'Đang đồng bộ...' : 'Đồng bộ số liệu 14 ngày'}</button>
                 </div>
+                <div className="automationCampaignScheduleEditor">
+                  <div>
+                    <strong>Chu kỳ chạy của chiến dịch này</strong>
+                    <span>Mỗi chiến dịch có lịch riêng. Sau khi chạy, hệ thống tính lần tiếp theo theo số ngày này.</span>
+                  </div>
+                  <label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={automationCampaignIntervals[automationCampaignDetail.campaign.id] || 14}
+                      disabled={!canManageAutomationScope}
+                      onChange={(event) => setAutomationCampaignIntervals((current) => ({
+                        ...current,
+                        [automationCampaignDetail.campaign.id]: Math.min(365, Math.max(1, Number(event.target.value) || 1)),
+                      }))}
+                    />
+                    <span>ngày/lần</span>
+                  </label>
+                </div>
                 <div className="automationCampaignMode" role="radiogroup" aria-label="Phạm vi chạy của chiến dịch">
                   <label aria-label="Chạy toàn bộ chiến dịch">
                     <input
@@ -1924,22 +1989,7 @@ export function OperationsPanel({
             </div>
           </section>
           <section className="operationsSection">
-            <div className="sectionTitle">
-              <div>
-                <h2 aria-label="2. Lịch chạy"><span className="stepNumber" aria-hidden="true">2</span>Lịch chạy</h2>
-                <p>Automation chỉ xử lý tiêu đề và mô tả mang nhãn LOW trong phạm vi đã lưu.</p>
-              </div>
-            </div>
-            <div className="settingsGrid">
-              <label><span>Chu kỳ chạy (ngày)</span><input type="number" min="1" max="365" value={settingsDraft.reviewIntervalDays} onChange={(event) => setSettingsDraft((current) => ({ ...current, reviewIntervalDays: Number(event.target.value) }))} /></label>
-            </div>
-            <div className="settingsActions">
-              <span>Chu kỳ này áp dụng cho cả Chạy ngay và các lượt chạy theo lịch.</span>
-              <button className="primaryButton" type="button" disabled={loading || !canRunPeriodicAi} onClick={() => void saveAutomationLimits()}><Save size={15} />Lưu lịch</button>
-            </div>
-          </section>
-          <section className="operationsSection">
-            <div className="sectionTitle"><div><h2 aria-label="3. Chế độ xử lý"><span className="stepNumber" aria-hidden="true">3</span>Chế độ xử lý</h2><p>Chạy ngay để xử lý phạm vi đã lưu. Tắt lịch chỉ dừng các lượt chạy trong tương lai.</p></div><span>{settingsDraft.automationEnabled ? 'Đang tự động áp dụng lên Google Ads' : 'Lịch đang tắt'}</span></div>
+            <div className="sectionTitle"><div><h2 aria-label="2. Chế độ xử lý"><span className="stepNumber" aria-hidden="true">2</span>Chế độ xử lý</h2><p>Chạy ngay để xử lý phạm vi đã lưu. Mỗi chiến dịch sẽ tiếp tục theo chu kỳ riêng đã đặt.</p></div><span>{settingsDraft.automationEnabled ? 'Đang tự động áp dụng lên Google Ads' : 'Lịch đang tắt'}</span></div>
             <div className="settingsGrid">
               <label><span>AI định kỳ</span><input value={settingsDraft.automationEnabled ? 'Đang bật - theo lịch' : 'Đã tắt'} disabled /></label>
               <label><span>Chế độ áp dụng</span><input value={settingsDraft.automationEnabled ? 'TỰ ĐỘNG - áp dụng trực tiếp lên Google Ads' : 'Đã tắt'} disabled /></label>

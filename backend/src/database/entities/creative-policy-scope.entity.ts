@@ -13,5 +13,11 @@ export class CreativePolicyScopeEntity {
   languageCode!: string | null;
   @Column({ name: 'ad_group_topic', type: 'varchar', length: 500, nullable: true })
   adGroupTopic!: string | null;
+  @Column({ name: 'interval_days', type: 'smallint', nullable: true })
+  intervalDays!: number | null;
+  @Column({ name: 'last_run_at', type: 'timestamptz', nullable: true })
+  lastRunAt!: Date | null;
+  @Column({ name: 'next_run_at', type: 'timestamptz', nullable: true })
+  nextRunAt!: Date | null;
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' }) createdAt!: Date;
 }

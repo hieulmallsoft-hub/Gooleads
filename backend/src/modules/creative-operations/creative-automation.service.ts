@@ -197,7 +197,13 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         schedule.timezone,
         now,
       );
-      const targets = await this.getAutomationTargets(policy, timeRange, options.accountIds);
+      const targets = await this.getAutomationTargets(
+        policy,
+        timeRange,
+        options.accountIds,
+        now,
+        Boolean(options.force),
+      );
       if (!targets.length) {
         await this.saveRunItem(run.id, 'SKIPPED', 'No enabled ad groups found for this policy');
       }
@@ -239,7 +245,13 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       }
 
       const status = paused ? 'PAUSED' : this.resolveRunStatus(run);
-      return await this.completeRun(run, schedule, now, status);
+      return await this.completeRun(
+        run,
+        schedule,
+        now,
+        status,
+        [...new Set(targets.map((target) => target.campaignId))],
+      );
     } catch (error) {
       run.status = 'FAILED';
       run.errorMessage = error instanceof Error ? error.message : String(error);
@@ -507,6 +519,8 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     policy: CreativePolicyEntity,
     _timeRange: string,
     targetAccountIds?: string[],
+    now = new Date(),
+    force = false,
   ) {
     const scopes = await this.dataSource
       .getRepository(CreativePolicyScopeEntity)
@@ -557,6 +571,11 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         })
       : [];
     const campaignMap = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+    const campaignScopeMap = new Map(
+      scopes
+        .filter((scope) => scope.campaignId)
+        .map((scope) => [scope.campaignId as string, scope]),
+    );
     const accountMap = new Map(accounts.map((account) => [account.id, account]));
     const targets = new Map<string, AutomationTarget>();
     const configuredLimit = Number(process.env.AUTOMATION_AD_GROUP_LIMIT);
@@ -568,6 +587,8 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       if (targets.size >= adGroupLimit) break;
       const campaign = campaignMap.get(adGroup.campaignId);
       if (!campaign || campaign.status !== 'ENABLED') continue;
+      const campaignScope = campaignScopeMap.get(campaign.id);
+      if (!force && campaignScope?.nextRunAt && campaignScope.nextRunAt > now) continue;
       const account = accountMap.get(campaign.accountId);
       if (!account || (allowedAccountIds && !allowedAccountIds.has(account.id))) continue;
       if (adGroup.status !== 'ENABLED') continue;
@@ -592,12 +613,13 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     schedule: AutomationScheduleEntity,
     now: Date,
     status: string,
+    campaignGoogleIds: string[] = [],
   ) {
     run.status = status;
     run.lastHeartbeatAt = new Date();
     run.completedAt = new Date();
     await this.dataSource.getRepository(AutomationRunEntity).save(run);
-    await this.advanceSchedule(schedule, now);
+    await this.advanceSchedule(schedule, now, campaignGoogleIds);
     return run;
   }
 
@@ -614,11 +636,50 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     return 'COMPLETED';
   }
 
-  private async advanceSchedule(schedule: AutomationScheduleEntity, now: Date) {
+  private async advanceSchedule(
+    schedule: AutomationScheduleEntity,
+    now: Date,
+    campaignGoogleIds: string[] = [],
+  ) {
     schedule.lastRunAt = now;
-    schedule.nextRunAt = schedule.enabled
-      ? this.addDays(now, Math.max(schedule.intervalDays, 1))
-      : null;
+    const scopeRepository = this.dataSource.getRepository(CreativePolicyScopeEntity);
+    const scopes = await scopeRepository.findBy({ policyId: schedule.policyId });
+    if (campaignGoogleIds.length) {
+      const campaigns = await this.dataSource.getRepository(CampaignEntity).findBy({
+        googleCampaignId: In(campaignGoogleIds),
+      });
+      const campaignIds = new Set(campaigns.map((campaign) => campaign.id));
+      const processedScopes = scopes.filter(
+        (scope) => scope.campaignId && campaignIds.has(scope.campaignId),
+      );
+      for (const scope of processedScopes) {
+        scope.lastRunAt = now;
+        scope.nextRunAt = schedule.enabled
+          ? this.addDays(now, Math.max(scope.intervalDays ?? schedule.intervalDays, 1))
+          : null;
+      }
+      if (processedScopes.length) await scopeRepository.save(processedScopes);
+    } else {
+      const dueScopes = scopes.filter(
+        (scope) => scope.campaignId && (!scope.nextRunAt || scope.nextRunAt <= now),
+      );
+      for (const scope of dueScopes) {
+        scope.lastRunAt = now;
+        scope.nextRunAt = schedule.enabled
+          ? this.addDays(now, Math.max(scope.intervalDays ?? schedule.intervalDays, 1))
+          : null;
+      }
+      if (dueScopes.length) await scopeRepository.save(dueScopes);
+    }
+    const refreshedScopes = await scopeRepository.findBy({ policyId: schedule.policyId });
+    const futureTimes = refreshedScopes
+      .filter((scope) => scope.campaignId && scope.nextRunAt)
+      .map((scope) => scope.nextRunAt!.getTime());
+    schedule.nextRunAt = schedule.enabled && futureTimes.length
+      ? new Date(Math.min(...futureTimes))
+      : schedule.enabled
+        ? this.addDays(now, Math.max(schedule.intervalDays, 1))
+        : null;
     await this.dataSource.getRepository(AutomationScheduleEntity).save(schedule);
   }
 

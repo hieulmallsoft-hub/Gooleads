@@ -4722,11 +4722,19 @@ tbody tr:hover td:first-child {
 
 .automationCampaignCard { overflow: hidden; padding: 0; }
 .automationCampaignCardHeader { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 16px; background: #fff; }
-.automationCampaignInfoGrid { display: grid; grid-template-columns: 1.05fr .8fr 1fr 1.35fr 1fr; border-top: 1px solid #e7ebf0; background: #f8fafc; }
+.automationCampaignInfoGrid { display: grid; grid-template-columns: 1fr .8fr .85fr 1fr 1.35fr 1fr; border-top: 1px solid #e7ebf0; background: #f8fafc; }
 .automationCampaignInfoGrid > div { display: grid; align-content: center; gap: 5px; min-width: 0; min-height: 68px; padding: 11px 14px; border-right: 1px solid #e7ebf0; }
 .automationCampaignInfoGrid > div:last-child { border-right: 0; }
 .automationCampaignInfoGrid span { color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .025em; }
 .automationCampaignInfoGrid strong { color: #172033; font-size: 12px; line-height: 1.35; }
+.automationCampaignInterval { display: flex; align-items: center; gap: 7px; }
+.automationCampaignInterval input { width: 58px; min-height: 30px; padding: 4px 7px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #172033; font: inherit; font-weight: 700; }
+.automationCampaignInterval span { text-transform: none; letter-spacing: 0; }
+.automationCampaignScheduleEditor { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 12px 0; padding: 14px 16px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; }
+.automationCampaignScheduleEditor > div { display: grid; gap: 4px; }
+.automationCampaignScheduleEditor > div > span { color: #64748b; font-size: 12px; }
+.automationCampaignScheduleEditor label { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; font-weight: 700; }
+.automationCampaignScheduleEditor input { width: 86px; min-height: 38px; padding: 7px 10px; border: 1px solid #93c5fd; border-radius: 7px; background: #fff; color: #172033; font: inherit; font-weight: 800; }
 .automationCampaignRunStatus { border-radius: 999px; padding: 3px 8px; font-size: 10px; font-weight: 800; }
 .automationCampaignRunStatus.completed { background: #e6f4ea; color: #137333; }
 .automationCampaignRunStatus.failed { background: #fce8e6; color: #c5221f; }
@@ -6162,6 +6170,7 @@ tbody tr:hover {
   .automationCampaignCardHeader > button { width: 100%; }
   .automationCampaignInfoGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .automationCampaignInfoGrid > div { border-bottom: 1px solid #e7ebf0; }
+  .automationCampaignScheduleEditor { align-items: stretch; flex-direction: column; }
   .automationNextStep { align-items: stretch; flex-direction: column; }
   .automationNextStep .primaryButton { width: 100%; }
   .automationHeaderActions { align-items: flex-end; flex-direction: column; }

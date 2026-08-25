@@ -1070,6 +1070,10 @@ export class CreativeOperationsService {
     const allCampaignIds = this.normalizeGoogleIdList(input.allCampaignIds);
     const adGroupIds = this.normalizeGoogleIdList(input.adGroupIds);
     const adGroupConfigs = this.normalizeAutomationAdGroupConfigs(input.adGroupConfigs);
+    const campaignSchedules = this.normalizeAutomationCampaignSchedules(input.campaignSchedules);
+    const scheduleByCampaignId = new Map(
+      campaignSchedules.map((schedule) => [schedule.campaignId, schedule]),
+    );
     if (allCampaignIds.some((id) => !campaignIds.includes(id))) {
       throw new BadRequestException(
         'Chiến dịch chạy toàn bộ phải nằm trong danh sách chiến dịch đã chọn',
@@ -1090,6 +1094,11 @@ export class CreativeOperationsService {
     if (selectedCampaigns.some((campaign) => campaign?.status === 'REMOVED')) {
       throw new BadRequestException(
         'Không thể thêm chiến dịch đã xóa vào Automation',
+      );
+    }
+    if (campaignIds.some((id) => !scheduleByCampaignId.has(id))) {
+      throw new BadRequestException(
+        'Mỗi chiến dịch chạy Automation phải có chu kỳ từ 1 đến 365 ngày',
       );
     }
 
@@ -1139,18 +1148,33 @@ export class CreativeOperationsService {
           Boolean(scope.campaignId && accountCampaignIds.has(scope.campaignId)) ||
           Boolean(scope.adGroupId && accountAdGroupIds.has(scope.adGroupId)),
       );
+      const currentCampaignScopeById = new Map(
+        currentScopes
+          .filter((scope) => scope.campaignId)
+          .map((scope) => [scope.campaignId as string, scope]),
+      );
       if (accountScopes.length) await repository.remove(accountScopes);
 
       const rows = [
         ...selectedCampaigns
           .filter((campaign): campaign is CampaignEntity => Boolean(campaign))
-          .map((campaign) => ({
-            policyId: policy.id,
-            accountId: null,
-            campaignId: campaign.id,
-            adGroupId: null,
-            includeAllAdGroups: allCampaignIds.includes(campaign.googleCampaignId),
-          })),
+          .map((campaign) => {
+            const intervalDays = scheduleByCampaignId.get(campaign.googleCampaignId)!.intervalDays;
+            const currentScope = currentCampaignScopeById.get(campaign.id);
+            const intervalChanged = currentScope?.intervalDays !== intervalDays;
+            return {
+              policyId: policy.id,
+              accountId: null,
+              campaignId: campaign.id,
+              adGroupId: null,
+              includeAllAdGroups: allCampaignIds.includes(campaign.googleCampaignId),
+              intervalDays,
+              lastRunAt: currentScope?.lastRunAt ?? null,
+              nextRunAt: intervalChanged
+                ? this.addDays(currentScope?.lastRunAt ?? new Date(), intervalDays)
+                : currentScope?.nextRunAt ?? this.addDays(new Date(), intervalDays),
+            };
+          }),
         ...targetAdGroups
           .map((adGroup) => ({
             policyId: policy.id,
@@ -1164,6 +1188,24 @@ export class CreativeOperationsService {
       ];
       if (rows.length) await repository.save(rows);
     });
+
+    const globalSchedule = await this.dataSource
+      .getRepository(AutomationScheduleEntity)
+      .findOneBy({ policyId: policy.id });
+    if (globalSchedule?.enabled) {
+      const campaignScopes = await this.dataSource
+        .getRepository(CreativePolicyScopeEntity)
+        .findBy({ policyId: policy.id });
+      const nextRunTimes = campaignScopes
+        .filter((scope) => scope.campaignId && scope.nextRunAt)
+        .map((scope) => scope.nextRunAt!.getTime());
+      await this.automationService.ensureSchedule(policy, {
+        enabled: true,
+        intervalDays: policy.reviewIntervalDays,
+        timezone: account.timeZone,
+        nextRunAt: nextRunTimes.length ? new Date(Math.min(...nextRunTimes)) : null,
+      });
+    }
 
     return this.getAutomationScope(account, policy.id);
   }
@@ -1370,6 +1412,10 @@ export class CreativeOperationsService {
               selectedAdGroupIds.has(adGroup.id),
           )
           .map((adGroup) => adGroup.googleAdGroupId),
+        intervalDays: activeScopes.find((scope) => scope.campaignId === campaign.id)?.intervalDays
+          ?? 14,
+        lastRunAt: activeScopes.find((scope) => scope.campaignId === campaign.id)?.lastRunAt ?? null,
+        nextRunAt: activeScopes.find((scope) => scope.campaignId === campaign.id)?.nextRunAt ?? null,
       })),
       selectedAdGroupIds: adGroups
         .filter((adGroup) => selectedAdGroupIds.has(adGroup.id))
@@ -1443,6 +1489,21 @@ export class CreativeOperationsService {
       const languageCode = String(record.languageCode ?? '').trim().toLowerCase().slice(0, 16);
       const topic = String(record.topic ?? '').trim().slice(0, 500);
       return adGroupId && languageCode && topic ? [{ adGroupId, languageCode, topic }] : [];
+    });
+  }
+
+  private normalizeAutomationCampaignSchedules(value: unknown) {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+      if (!item || typeof item !== 'object') return [];
+      const input = item as Record<string, unknown>;
+      const campaignId = String(input.campaignId ?? '').replace(/\D/g, '');
+      const rawInterval = Number(input.intervalDays);
+      if (!campaignId || !Number.isFinite(rawInterval)) return [];
+      return [{
+        campaignId,
+        intervalDays: Math.round(this.clampNumber(rawInterval, 14, 1, 365)),
+      }];
     });
   }
 
@@ -1577,5 +1638,9 @@ export class CreativeOperationsService {
   private clampNumber(value: unknown, fallback: number, min: number, max: number) {
     const number = Number(value);
     return Number.isFinite(number) ? Math.min(Math.max(number, min), max) : fallback;
+  }
+
+  private addDays(value: Date, days: number) {
+    return new Date(value.getTime() + Math.max(days, 1) * 86_400_000);
   }
 }

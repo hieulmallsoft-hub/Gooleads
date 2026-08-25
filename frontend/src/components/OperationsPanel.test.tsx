@@ -225,6 +225,7 @@ describe('OperationsPanel đổi mật khẩu', () => {
           allCampaignIds: [],
           adGroupIds: ['1001'],
           adGroupConfigs: [{ adGroupId: '1001', languageCode: 'vi', topic: 'Ứng dụng điều khiển điều hòa' }],
+          campaignSchedules: [{ campaignId: '2001', intervalDays: 14 }],
         }),
       }),
     );
