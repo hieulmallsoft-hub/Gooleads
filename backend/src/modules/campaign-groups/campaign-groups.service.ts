@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,12 +12,14 @@ import { CreateCampaignGroupDto } from './dto/create-campaign-group.dto';
 import { UpdateCampaignGroupDto } from './dto/update-campaign-group.dto';
 import { UpdateCampaignGroupMembersDto } from './dto/update-campaign-group-members.dto';
 import type { AuthenticatedUser } from '../auth/auth.guard';
+import { CampaignAccessService } from '../auth/campaign-access.service';
 
 @Injectable()
 export class CampaignGroupsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly accountRegistry: GoogleAdsAccountRegistryService,
+    private readonly campaignAccess: CampaignAccessService,
   ) {}
 
   async findAll(customerId: string, user: AuthenticatedUser) {
@@ -147,9 +148,7 @@ export class CampaignGroupsService {
   }
 
   private assertCustomerAccess(user: AuthenticatedUser, customerId: string) {
-    if (!user.accountAccess.some((access) => access.customerId === customerId)) {
-      throw new ForbiddenException(`Bạn không có quyền truy cập tài khoản Google Ads ${customerId}`);
-    }
+    this.campaignAccess.assertCanViewCustomer(user, customerId);
   }
 
   private normalizeCustomerId(value: string | undefined) {
