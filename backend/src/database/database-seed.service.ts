@@ -5,6 +5,7 @@ import { CreativePolicyEntity } from './entities/creative-policy.entity';
 import { GoogleAdsAccountEntity } from './entities/google-ads-account.entity';
 import { AppUserEntity } from './entities/app-user.entity';
 import { WorkspaceMemberEntity } from './entities/workspace-member.entity';
+import { UserGoogleAdsAccountAccessEntity } from './entities/user-google-ads-account-access.entity';
 import { WorkspaceEntity } from '../modules/workspaces/entities/workspace.entity';
 import { getPasswordPolicyError, hashPassword } from '../modules/auth/password';
 
@@ -39,6 +40,7 @@ export class DatabaseSeedService implements OnApplicationBootstrap {
       const accountRepository = manager.getRepository(GoogleAdsAccountEntity);
       const userRepository = manager.getRepository(AppUserEntity);
       const memberRepository = manager.getRepository(WorkspaceMemberEntity);
+      const accessRepository = manager.getRepository(UserGoogleAdsAccountAccessEntity);
       const policyRepository = manager.getRepository(CreativePolicyEntity);
       const scopeRepository = manager.getRepository(CreativePolicyScopeEntity);
 
@@ -121,6 +123,31 @@ export class DatabaseSeedService implements OnApplicationBootstrap {
       } else if (adminMember.role !== 'ADMIN') {
         adminMember.role = 'ADMIN';
         await memberRepository.save(adminMember);
+      }
+
+      const adminCustomerId = (
+        process.env.ADMIN_GOOGLE_ADS_CUSTOMER_ID ?? '9920642691'
+      ).replace(/\D/g, '');
+      if (/^\d{10}$/.test(adminCustomerId)) {
+        await accessRepository
+          .createQueryBuilder()
+          .delete()
+          .where('user_id = :userId', { userId: admin.id })
+          .andWhere('customer_id != :customerId', { customerId: adminCustomerId })
+          .execute();
+        const existingAdminAccess = await accessRepository.findOneBy({
+          userId: admin.id,
+          customerId: adminCustomerId,
+        });
+        if (!existingAdminAccess) {
+          await accessRepository.save(
+            accessRepository.create({
+              userId: admin.id,
+              customerId: adminCustomerId,
+              grantedBy: admin.id,
+            }),
+          );
+        }
       }
 
       let policy = await policyRepository.findOneBy({

@@ -399,6 +399,43 @@ export class GoogleAdsService {
     return `segments.date DURING ${timeRange}`;
   }
 
+  private metricRetryRanges(timeRange: string) {
+    const customRange = timeRange.match(/^(\d{4}-\d{2}-\d{2}),(\d{4}-\d{2}-\d{2})$/);
+    let startText: string;
+    let endText: string;
+    if (customRange) {
+      [, startText, endText] = customRange;
+    } else if (timeRange === 'THIS_MONTH') {
+      const now = new Date();
+      startText = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+        .toISOString().slice(0, 10);
+      endText = now.toISOString().slice(0, 10);
+    } else {
+      return [];
+    }
+
+    const ranges: string[] = [];
+    const cursor = new Date(`${startText}T00:00:00Z`);
+    const end = new Date(`${endText}T00:00:00Z`);
+    while (cursor <= end) {
+      const chunkStart = cursor.toISOString().slice(0, 10);
+      const chunkEndDate = new Date(cursor);
+      chunkEndDate.setUTCDate(chunkEndDate.getUTCDate() + 6);
+      if (chunkEndDate > end) chunkEndDate.setTime(end.getTime());
+      const chunkEnd = chunkEndDate.toISOString().slice(0, 10);
+      ranges.push(`${chunkStart},${chunkEnd}`);
+      cursor.setUTCDate(cursor.getUTCDate() + 7);
+    }
+    return ranges;
+  }
+
+  private queryForRetryRange(query: string, originalRange: string, retryRange: string) {
+    return query.replace(
+      this.dateSegmentCondition(originalRange),
+      this.dateSegmentCondition(retryRange),
+    );
+  }
+
   async getCampaignPerformance(customerId: string, timeRange: string) {
     const statusQuery = `
       SELECT
@@ -893,7 +930,7 @@ export class GoogleAdsService {
       WHERE ${adGroupFilter} ad_group_ad_asset_view.enabled = TRUE
     `;
 
-    const [campaignStatusResponse, campaignResponse, adGroupStatusResponse, adGroupResponse, assetStatusResponse, assetResponse] = await Promise.all([
+    let [campaignStatusResponse, campaignResponse, adGroupStatusResponse, adGroupResponse, assetStatusResponse, assetResponse] = await Promise.all([
       this.searchAll(customerId, campaignStatusQuery),
       this.searchAll(customerId, campaignQuery),
       this.searchAll(customerId, adGroupStatusQuery),
@@ -901,6 +938,30 @@ export class GoogleAdsService {
       this.searchAll(customerId, assetStatusQuery),
       this.searchAll(customerId, assetQuery),
     ]);
+
+    const metricRowCount = () =>
+      (campaignResponse.results?.length ?? 0) +
+      (adGroupResponse.results?.length ?? 0) +
+      (assetResponse.results?.length ?? 0);
+    const retryRanges = this.metricRetryRanges(timeRange);
+    if (metricRowCount() === 0 && retryRanges.length > 1) {
+      const campaignResults: any[] = [];
+      const adGroupResults: any[] = [];
+      const assetResults: any[] = [];
+      for (const retryRange of retryRanges) {
+        const [campaignChunk, adGroupChunk, assetChunk] = await Promise.all([
+          this.searchAll(customerId, this.queryForRetryRange(campaignQuery, timeRange, retryRange)),
+          this.searchAll(customerId, this.queryForRetryRange(adGroupQuery, timeRange, retryRange)),
+          this.searchAll(customerId, this.queryForRetryRange(assetQuery, timeRange, retryRange)),
+        ]);
+        campaignResults.push(...(campaignChunk.results ?? []));
+        adGroupResults.push(...(adGroupChunk.results ?? []));
+        assetResults.push(...(assetChunk.results ?? []));
+      }
+      campaignResponse = { results: campaignResults };
+      adGroupResponse = { results: adGroupResults };
+      assetResponse = { results: assetResults };
+    }
 
     const selectedCampaignIds = new Set(
       [...(adGroupStatusResponse.results ?? []), ...(adGroupResponse.results ?? [])]

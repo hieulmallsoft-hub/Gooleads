@@ -42,6 +42,7 @@ type CreateUserInput = {
   password?: string;
   role?: string;
   status?: string;
+  customerId?: string;
 };
 
 type UpdateUserInput = Partial<CreateUserInput>;
@@ -205,16 +206,20 @@ export class AuthService {
     };
   }
 
-  async createUser(input: CreateUserInput) {
+  async createUser(input: CreateUserInput, actingUserId?: string) {
     const email = this.normalizeEmail(input.email);
     const displayName = String(input.displayName ?? '').trim();
     const password = String(input.password ?? '');
     const role = normalizeRole(input.role);
+    const customerId = String(input.customerId ?? '').replace(/\D/g, '');
 
     if (!email || !displayName || !password) {
       throw new BadRequestException('Email, display name, and password are required');
     }
     this.assertStrongPassword(password);
+    if (role !== 'ADMIN' && !/^\d{10}$/.test(customerId)) {
+      throw new BadRequestException('customerId must be a 10 digit Google Ads customer ID');
+    }
 
     const workspace = await this.getDefaultWorkspace();
     const userRepository = this.dataSource.getRepository(AppUserEntity);
@@ -238,6 +243,14 @@ export class AuthService {
       userId: user.id,
       role,
     });
+
+    if (role !== 'ADMIN') {
+      await this.dataSource.getRepository(UserGoogleAdsAccountAccessEntity).save({
+        userId: user.id,
+        customerId,
+        grantedBy: actingUserId ?? null,
+      });
+    }
 
     return { user: await this.serializeUser(user, { workspaceId: workspace.id, role }) };
   }

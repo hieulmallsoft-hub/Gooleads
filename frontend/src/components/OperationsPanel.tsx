@@ -421,14 +421,13 @@ export function OperationsPanel({
     return () => window.removeEventListener('keydown', closeTopLayer);
   }, [automationAddOpen, automationCampaignDetail]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
-  const [selectedAccessUserId, setSelectedAccessUserId] = useState('');
-  const [accountAccessAllowed, setAccountAccessAllowed] = useState(false);
   const [accessSavingId, setAccessSavingId] = useState('');
   const [accessFormError, setAccessFormError] = useState('');
   const [newAccessUser, setNewAccessUser] = useState({
     email: '',
     displayName: '',
     password: '',
+    customerId: '',
     role: 'VIEWER',
   });
   const [passwordDraft, setPasswordDraft] = useState({
@@ -440,8 +439,6 @@ export function OperationsPanel({
   const canManageUsers = currentUser.role === 'ADMIN';
   const canRunPeriodicAi = currentUser.permissions.includes('automation.manage');
   const canManageAutomationScope = currentUser.permissions.includes('automation.manage');
-  const selectedAccessUser =
-    accessUsers.find((user) => user.id === selectedAccessUserId) ?? null;
 
   async function loadOverview() {
     const response = await request(
@@ -605,24 +602,6 @@ export function OperationsPanel({
 
     return () => window.clearInterval(timer);
   }, [section, customerId]);
-
-  useEffect(() => {
-    if (!selectedAccessUserId && accessUsers.length) {
-      const firstEditable = accessUsers.find((user) => user.role !== 'ADMIN') ?? accessUsers[0];
-      setSelectedAccessUserId(firstEditable.id);
-    }
-  }, [accessUsers, selectedAccessUserId]);
-
-  useEffect(() => {
-    if (!selectedAccessUser) {
-      setAccountAccessAllowed(false);
-      return;
-    }
-
-    setAccountAccessAllowed(
-      selectedAccessUser.accountAccess.some((access) => access.customerId === customerId),
-    );
-  }, [customerId, selectedAccessUser]);
 
   async function decide(item: Recommendation, action: 'APPROVE' | 'REJECT' | 'UNAPPROVE') {
     setDecisionId(item.id);
@@ -1006,6 +985,10 @@ export function OperationsPanel({
       setAccessFormError('Vui lòng nhập đầy đủ email, tên hiển thị và mật khẩu.');
       return;
     }
+    if (newAccessUser.role !== 'ADMIN' && !/^\d{10}$/.test(newAccessUser.customerId.replace(/\D/g, ''))) {
+      setAccessFormError('Mã khách hàng Google Ads phải gồm đúng 10 chữ số.');
+      return;
+    }
     if (
       newAccessUser.password.length < 10 ||
       !/[a-z]/.test(newAccessUser.password) ||
@@ -1031,8 +1014,8 @@ export function OperationsPanel({
       });
       const body = await parseJsonSafe(response);
       if (!response.ok) throw new Error(errorMessage(body, 'Không thể tạo người dùng'));
-      setNewAccessUser({ email: '', displayName: '', password: '', role: 'VIEWER' });
-      setNotice('Đã tạo người dùng.');
+      setNewAccessUser({ email: '', displayName: '', password: '', customerId: '', role: 'VIEWER' });
+      setNotice('Đã tạo người dùng và cấp quyền Google Ads.');
       await loadAccessUsers();
     } catch (err) {
       setAccessFormError(
@@ -1076,39 +1059,10 @@ export function OperationsPanel({
       const response = await request(`/admin/users/${user.id}`, { method: 'DELETE' });
       const body = await parseJsonSafe(response);
       if (!response.ok) throw new Error(errorMessage(body, 'Không thể xóa người dùng'));
-      if (selectedAccessUserId === user.id) setSelectedAccessUserId('');
       setNotice(`Đã xóa người dùng ${user.displayName}.`);
       await loadAccessUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể xóa người dùng');
-    } finally {
-      setAccessSavingId('');
-    }
-  }
-
-  async function saveAccountAccess() {
-    if (!canManageUsers || !selectedAccessUser) return;
-    setAccessSavingId(`accounts:${selectedAccessUser.id}`);
-    setError('');
-    setNotice('');
-    try {
-      const response = await request(
-        `/admin/users/${selectedAccessUser.id}/account-access`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            customerId,
-            allowed: accountAccessAllowed,
-          }),
-        },
-      );
-      const body = await parseJsonSafe(response);
-      if (!response.ok) throw new Error(errorMessage(body, 'Không thể lưu quyền truy cập tài khoản'));
-      setAccessUsers((body.users ?? []) as AccessUser[]);
-      setNotice('Đã lưu quyền truy cập tài khoản Google Ads.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Không thể lưu quyền truy cập tài khoản');
     } finally {
       setAccessSavingId('');
     }
@@ -1454,6 +1408,7 @@ export function OperationsPanel({
                 <label><span>Email</span><input value={newAccessUser.email} onChange={(event) => setNewAccessUser((current) => ({ ...current, email: event.target.value }))} placeholder="name@company.com" /></label>
                 <label><span>Tên hiển thị</span><input value={newAccessUser.displayName} onChange={(event) => setNewAccessUser((current) => ({ ...current, displayName: event.target.value }))} placeholder="Họ và tên" /></label>
                 <label><span>Mật khẩu</span><input type="password" value={newAccessUser.password} onChange={(event) => setNewAccessUser((current) => ({ ...current, password: event.target.value }))} placeholder="Mật khẩu tạm thời" /></label>
+                <label><span>Mã khách hàng Google Ads</span><input inputMode="numeric" value={newAccessUser.customerId} onChange={(event) => setNewAccessUser((current) => ({ ...current, customerId: event.target.value }))} placeholder="123-456-7890" /></label>
                 <label><span>Vai trò</span><select value={newAccessUser.role} onChange={(event) => setNewAccessUser((current) => ({ ...current, role: event.target.value }))}><option value="VIEWER">Người xem</option><option value="EDITOR">Biên tập viên</option><option value="ADMIN">Quản trị viên</option></select></label>
               </div>
               {accessFormError ? (
@@ -1472,48 +1427,12 @@ export function OperationsPanel({
                     <td><strong>{user.displayName}</strong><br /><span>{user.email}</span></td>
                     <td><select value={user.role} disabled={accessSavingId === user.id || user.id === currentUser.id} onChange={(event) => void updateAccessUser(user, { role: event.target.value as AccessUser['role'] })}><option value="VIEWER">Người xem</option><option value="EDITOR">Người chỉnh sửa</option><option value="ADMIN">Quản trị viên</option></select></td>
                     <td><select value={user.status} disabled={accessSavingId === user.id || user.id === currentUser.id} onChange={(event) => void updateAccessUser(user, { status: event.target.value })}><option value="ACTIVE">Đang hoạt động</option><option value="DISABLED">Đã vô hiệu hóa</option></select></td>
-                    <td>{formatDate(user.lastLoginAt)}<br /><button className="tableActionButton" type="button" onClick={() => setSelectedAccessUserId(user.id)}>Tài khoản: {user.role === 'ADMIN' ? 'Tất cả' : user.accountAccess.length}</button></td>
+                    <td>{formatDate(user.lastLoginAt)}<br /><span>Tài khoản: {user.accountAccess.length}</span></td>
                     <td><button className="tableActionButton dangerButton" type="button" disabled={accessSavingId === user.id || user.id === currentUser.id} onClick={() => void deleteAccessUser(user)} aria-label={`Xóa người dùng ${user.displayName}`}><Trash2 size={14} />Xóa</button></td>
                   </tr>
                 ))}
                 {!accessUsers.length ? <tr><td colSpan={5} className="empty">Chưa tải người dùng.</td></tr> : null}
               </tbody></table></div>
-              {selectedAccessUser ? (
-                <div className="campaignAccessEditor">
-                  <div className="campaignAccessHeader">
-                    <div>
-                        <strong>Quyền truy cập Google Ads của {selectedAccessUser.displayName}</strong>
-                        <span>
-                          {selectedAccessUser.role === 'ADMIN'
-                          ? 'Quản trị viên có thể truy cập mọi tài khoản Google Ads.'
-                          : accountAccessAllowed
-                            ? `Đã cấp quyền cho khách hàng ${customerId} và tất cả chiến dịch.`
-                            : `Chưa có quyền truy cập khách hàng ${customerId}.`}
-                        </span>
-                    </div>
-                    {selectedAccessUser.role !== 'ADMIN' ? (
-                      <div>
-                        <button type="button" className="primaryButton" disabled={accessSavingId === `accounts:${selectedAccessUser.id}`} onClick={() => void saveAccountAccess()}><Save size={15} />Lưu quyền truy cập</button>
-                      </div>
-                    ) : null}
-                  </div>
-                  {selectedAccessUser.role === 'ADMIN' ? null : (
-                    <div className="campaignAccessList">
-                      <label><span className="srOnly">Quyền truy cập khách hàng {customerId}</span>
-                        <input
-                          type="checkbox"
-                          checked={accountAccessAllowed}
-                          onChange={(event) => setAccountAccessAllowed(event.target.checked)}
-                        />
-                        <span>
-                          <strong>Khách hàng {customerId}</strong>
-                          <small>Bao gồm tất cả chiến dịch hiện tại và tương lai trong tài khoản Google Ads này.</small>
-                        </span>
-                      </label>
-                    </div>
-                  )}
-                </div>
-              ) : null}
             </section>
           ) : null}
           {section === 'settings' ? (

@@ -42,8 +42,8 @@ export class GoogleAdsSnapshotService {
       id: String(row.id),
       name: String(row.name ?? ''),
       status: String(row.status ?? 'UNKNOWN'),
-      metricStart: row.metricStart ? String(row.metricStart).slice(0, 10) : null,
-      metricEnd: row.metricEnd ? String(row.metricEnd).slice(0, 10) : null,
+      metricStart: this.metricDate(row.metricStart),
+      metricEnd: this.metricDate(row.metricEnd),
       ...this.metric(row),
       dailyMetrics: [],
     }));
@@ -84,8 +84,8 @@ export class GoogleAdsSnapshotService {
       campaignName: String(row.campaignName ?? ''),
       campaignStatus: String(row.campaignStatus ?? 'UNKNOWN'),
       status: String(row.status ?? 'UNKNOWN'),
-      metricStart: row.metricStart ? String(row.metricStart).slice(0, 10) : null,
-      metricEnd: row.metricEnd ? String(row.metricEnd).slice(0, 10) : null,
+      metricStart: this.metricDate(row.metricStart),
+      metricEnd: this.metricDate(row.metricEnd),
       ...this.metric(row),
       dailyMetrics: [],
     }));
@@ -138,8 +138,8 @@ export class GoogleAdsSnapshotService {
         performanceLabel: String(row.performanceLabel ?? 'UNKNOWN'), text: String(row.text ?? ''),
         imageUrl: String(row.imageUrl ?? ''), imageWidth: Number(row.imageWidth ?? 0),
         imageHeight: Number(row.imageHeight ?? 0), videoId: String(row.videoId ?? ''),
-        metricStart: row.metricStart ? String(row.metricStart).slice(0, 10) : null,
-        metricEnd: row.metricEnd ? String(row.metricEnd).slice(0, 10) : null,
+        metricStart: this.metricDate(row.metricStart),
+        metricEnd: this.metricDate(row.metricEnd),
         ...metrics, cpa: metrics.costPerConversion, ...this.evaluate(metrics, String(row.performanceLabel ?? '')),
       };
     });
@@ -193,6 +193,21 @@ export class GoogleAdsSnapshotService {
       roas: cost > 0 ? conversionValue / cost : 0,
       costPerConversion: conversions > 0 ? cost / conversions : 0,
     };
+  }
+
+  private metricDate(value: unknown) {
+    if (!value) return null;
+    if (value instanceof Date) {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    const text = String(value);
+    const isoDate = text.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+    if (isoDate) return isoDate;
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
   }
 
   private evaluate(metric: Metric, label: string) {

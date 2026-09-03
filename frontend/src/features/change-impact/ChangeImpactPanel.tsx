@@ -86,6 +86,18 @@ function money(value: number, currencyCode: string | null) {
   }
 }
 
+function appliedTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Không rõ thời gian';
+  return new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
 function delta(before: number, after: number, lowerIsBetter = false) {
   if (before === 0) return after === 0 ? null : { label: 'New', positive: !lowerIsBetter };
   const value = (after - before) / Math.abs(before);
@@ -442,6 +454,8 @@ function PerformanceAfterChanges({ customerId }: { customerId: string }) {
                     </span>
                     <span className="metaDivider">•</span>
                     <small>{originLabel[item.origin]}</small>
+                    <span className="metaDivider">•</span>
+                    <small>Áp dụng lúc {appliedTime(item.appliedAt)}</small>
                   </div>
                 </div>
                 <span className={`impactVerdict ${item.verdict.toLowerCase()}`}>

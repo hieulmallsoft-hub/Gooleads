@@ -15,8 +15,14 @@ export class AdminUsersController {
   }
 
   @Post()
-  createUser(@Body() body: unknown) {
-    return this.authService.createUser((body ?? {}) as Record<string, unknown>);
+  createUser(
+    @Body() body: unknown,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.authService.createUser(
+      (body ?? {}) as Record<string, unknown>,
+      request.user.id,
+    );
   }
 
   @Patch(':id')

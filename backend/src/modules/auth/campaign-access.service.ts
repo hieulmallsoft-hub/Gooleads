@@ -13,7 +13,12 @@ export class CampaignAccessService {
   constructor(private readonly dataSource: DataSource) {}
 
   canViewCustomer(user: AuthenticatedUser, customerId: string) {
-    if (user.role === 'ADMIN') return true;
+    if (user.role === 'ADMIN') {
+      const adminCustomerId = (
+        process.env.ADMIN_GOOGLE_ADS_CUSTOMER_ID ?? '9920642691'
+      ).replace(/\D/g, '');
+      return customerId === adminCustomerId;
+    }
     return user.accountAccess.some((access) => access.customerId === customerId);
   }
 
@@ -36,16 +41,14 @@ export class CampaignAccessService {
     customerId: string,
     googleAdGroupId: string,
   ) {
-    if (user.role === 'ADMIN') return;
-    if (user.role !== 'EDITOR') {
+    if (user.role !== 'ADMIN' && user.role !== 'EDITOR') {
       throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung này');
     }
     this.assertCanViewCustomer(user, customerId);
   }
 
   async assertCanDecideSuggestion(user: AuthenticatedUser, suggestionId: string) {
-    if (user.role === 'ADMIN') return;
-    if (user.role !== 'EDITOR') {
+    if (user.role !== 'ADMIN' && user.role !== 'EDITOR') {
       throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung này');
     }
 
@@ -70,8 +73,7 @@ export class CampaignAccessService {
   }
 
   async assertCanApplyChangeRequest(user: AuthenticatedUser, changeRequestId: string) {
-    if (user.role === 'ADMIN') return;
-    if (user.role !== 'EDITOR') {
+    if (user.role !== 'ADMIN' && user.role !== 'EDITOR') {
       throw new ForbiddenException('Bạn không có quyền chỉnh sửa nội dung này');
     }
 

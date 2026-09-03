@@ -169,8 +169,12 @@ export class CreativeOperationsController {
   updateSettings(
     @Query('customerId') inputCustomerId: string | undefined,
     @Body() input: UpdateCreativeSettingsDto,
+    @Req() request: { user: AuthenticatedUser },
   ) {
-    return this.service.updateSettings(customerId(inputCustomerId), input);
+    return this.service.updateSettings(
+      this.customerIdForUser(inputCustomerId, request.user),
+      input,
+    );
   }
 
   @Patch('automation/settings')
