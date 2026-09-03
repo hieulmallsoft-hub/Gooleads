@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Check,
   ExternalLink,
+  KeyRound,
   Play,
   Plus,
   RefreshCw,
@@ -1068,6 +1069,26 @@ export function OperationsPanel({
     }
   }
 
+  async function resetAccessUserPassword(user: AccessUser) {
+    if (!canManageUsers || user.id === currentUser.id) return;
+    const password = window.prompt(
+      `Nhập mật khẩu mới cho ${user.displayName} (${user.email}). Mật khẩu tối thiểu 10 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt.`,
+    );
+    if (password === null) return;
+    if (
+      password.length < 10 ||
+      !/[a-z]/.test(password) ||
+      !/[A-Z]/.test(password) ||
+      !/\d/.test(password) ||
+      !/[^A-Za-z0-9]/.test(password)
+    ) {
+      setError('Mật khẩu phải có ít nhất 10 ký tự, gồm chữ hoa, chữ thường, số và ký tự đặc biệt.');
+      return;
+    }
+    if (!window.confirm(`Đặt lại mật khẩu cho ${user.displayName}? Tài khoản này sẽ đăng xuất khỏi các phiên hiện tại.`)) return;
+    await updateAccessUser(user, { password } as Partial<AccessUser>);
+  }
+
   const title = {
     overview: 'Tổng quan',
     recommendations: 'Đề xuất',
@@ -1428,7 +1449,7 @@ export function OperationsPanel({
                     <td><select value={user.role} disabled={accessSavingId === user.id || user.id === currentUser.id} onChange={(event) => void updateAccessUser(user, { role: event.target.value as AccessUser['role'] })}><option value="VIEWER">Người xem</option><option value="EDITOR">Người chỉnh sửa</option><option value="ADMIN">Quản trị viên</option></select></td>
                     <td><select value={user.status} disabled={accessSavingId === user.id || user.id === currentUser.id} onChange={(event) => void updateAccessUser(user, { status: event.target.value })}><option value="ACTIVE">Đang hoạt động</option><option value="DISABLED">Đã vô hiệu hóa</option></select></td>
                     <td>{formatDate(user.lastLoginAt)}<br /><span>Tài khoản: {user.accountAccess.length}</span></td>
-                    <td><button className="tableActionButton dangerButton" type="button" disabled={accessSavingId === user.id || user.id === currentUser.id} onClick={() => void deleteAccessUser(user)} aria-label={`Xóa người dùng ${user.displayName}`}><Trash2 size={14} />Xóa</button></td>
+                    <td><div className="tableActionGroup"><button className="tableActionButton" type="button" disabled={accessSavingId === user.id || user.id === currentUser.id} onClick={() => void resetAccessUserPassword(user)} aria-label={`Đặt lại mật khẩu cho ${user.displayName}`}><KeyRound size={14} />Đặt lại mật khẩu</button><button className="tableActionButton dangerButton" type="button" disabled={accessSavingId === user.id || user.id === currentUser.id} onClick={() => void deleteAccessUser(user)} aria-label={`Xóa người dùng ${user.displayName}`}><Trash2 size={14} />Xóa</button></div></td>
                   </tr>
                 ))}
                 {!accessUsers.length ? <tr><td colSpan={5} className="empty">Chưa tải người dùng.</td></tr> : null}
