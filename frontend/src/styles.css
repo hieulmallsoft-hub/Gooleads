@@ -3807,6 +3807,75 @@ button:disabled {
   margin: 12px 0 0;
 }
 
+.automationHistoryBackdrop {
+  background: rgba(15, 23, 42, .42);
+  display: flex;
+  inset: 0;
+  justify-content: flex-end;
+  position: fixed;
+  z-index: 950;
+}
+
+.automationHistoryDrawer {
+  animation: automationHistorySlideIn .22s ease-out;
+  background: #fff;
+  box-shadow: -16px 0 42px rgba(15, 23, 42, .2);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  width: min(560px, 100vw);
+}
+
+.automationHistoryHeader {
+  align-items: flex-start;
+  border-bottom: 1px solid #e3eaf5;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 22px 24px 18px;
+}
+
+.automationHistoryHeader h2 {
+  font-size: 21px;
+  margin: 4px 0;
+}
+
+.automationHistoryHeader p {
+  color: #71809a;
+  font-size: 12px;
+  margin: 0;
+}
+
+.automationHistoryDrawerBody {
+  overflow-y: auto;
+  padding: 18px 20px 28px;
+}
+
+.automationHistoryDrawerBody .automationChangeHistoryList {
+  margin-top: 0;
+}
+
+.automationHistoryEmpty {
+  align-items: center;
+  color: #71809a;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 280px;
+  text-align: center;
+}
+
+.automationHistoryEmpty p {
+  margin: 0;
+  max-width: 360px;
+}
+
+@keyframes automationHistorySlideIn {
+  from { opacity: .5; transform: translateX(36px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .assetCell {
   display: grid;
   gap: 8px;

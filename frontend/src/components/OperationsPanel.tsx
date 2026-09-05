@@ -405,6 +405,7 @@ export function OperationsPanel({
   const [automationCampaignSearch, setAutomationCampaignSearch] = useState('');
   const [automationAddSearch, setAutomationAddSearch] = useState('');
   const [automationAddOpen, setAutomationAddOpen] = useState(false);
+  const [automationHistoryCampaignId, setAutomationHistoryCampaignId] = useState('');
   const [automationCampaignDetail, setAutomationCampaignDetail] =
     useState<AutomationCampaignDetail | null>(null);
   const [automationMetricsSyncing, setAutomationMetricsSyncing] = useState(false);
@@ -414,11 +415,13 @@ export function OperationsPanel({
     useState('');
 
   useEffect(() => {
-    if (!automationAddOpen && !automationCampaignDetail) return undefined;
+    if (!automationAddOpen && !automationCampaignDetail && !automationHistoryCampaignId) return undefined;
 
     const closeTopLayer = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (automationCampaignDetail) {
+      if (automationHistoryCampaignId) {
+        setAutomationHistoryCampaignId('');
+      } else if (automationCampaignDetail) {
         setAutomationCampaignDetail(null);
       } else {
         setAutomationAddOpen(false);
@@ -427,7 +430,7 @@ export function OperationsPanel({
 
     window.addEventListener('keydown', closeTopLayer);
     return () => window.removeEventListener('keydown', closeTopLayer);
-  }, [automationAddOpen, automationCampaignDetail]);
+  }, [automationAddOpen, automationCampaignDetail, automationHistoryCampaignId]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [accessSavingId, setAccessSavingId] = useState('');
   const [accessFormError, setAccessFormError] = useState('');
@@ -1238,6 +1241,12 @@ export function OperationsPanel({
     }
     return history;
   }, [settings?.recentAutomationRuns]);
+  const automationHistoryCampaign = automationCampaigns.find(
+    (campaign) => campaign.id === automationHistoryCampaignId,
+  ) ?? null;
+  const activeAutomationChangeHistory = automationHistoryCampaign
+    ? automationChangeHistoryByCampaignId.get(automationHistoryCampaign.id) ?? []
+    : [];
   const filteredAutomationCampaigns = useMemo(() => {
     const previousCampaignIds = new Set(latestAutomationRunCampaignIds);
     const visibleCampaigns = automationCampaigns
@@ -1665,6 +1674,14 @@ export function OperationsPanel({
                           <button
                             className="secondaryButton"
                             type="button"
+                            onClick={() => setAutomationHistoryCampaignId(campaign.id)}
+                          >
+                            <History size={14} />
+                            Lịch sử {changeHistory.length ? `(${changeHistory.length})` : ''}
+                          </button>
+                          <button
+                            className="secondaryButton"
+                            type="button"
                             disabled={automationCampaignLoadingId === campaign.id}
                             onClick={() => void loadAutomationCampaign(campaign.id)}
                           >
@@ -1730,23 +1747,6 @@ export function OperationsPanel({
                           </strong>
                         </div>
                       </div>
-                      <details className="automationChangeHistory">
-                        <summary><History size={15} />Lịch sử nội dung đã thay <span>{changeHistory.length}</span></summary>
-                        {changeHistory.length ? (
-                          <div className="automationChangeHistoryList">
-                            {changeHistory.map((change) => (
-                              <article key={change.id}>
-                                <header>
-                                  <strong>{change.fieldType === 'HEADLINE' ? 'Tiêu đề' : change.fieldType === 'DESCRIPTION' ? 'Mô tả' : 'Nội dung'}</strong>
-                                  <span>{change.adGroupName} · {formatDate(change.changedAt)}</span>
-                                </header>
-                                <div><span>Cũ</span><p>{change.oldText}</p></div>
-                                <div className="changed"><span>Mới</span><p>{change.newText}</p></div>
-                              </article>
-                            ))}
-                          </div>
-                        ) : <p className="automationChangeHistoryEmpty">Chưa có tiêu đề hoặc mô tả nào được AI áp dụng trong 5 lần chạy gần nhất.</p>}
-                      </details>
                     </article>
                   );
                 })}
@@ -1759,6 +1759,42 @@ export function OperationsPanel({
                 Chưa có chiến dịch trong PostgreSQL. Hãy đồng bộ dữ liệu Google Ads trước khi cấu hình Automation.
               </div>
             )}
+            {automationHistoryCampaign ? (
+              <div
+                className="automationHistoryBackdrop"
+                role="presentation"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) setAutomationHistoryCampaignId('');
+                }}
+              >
+                <aside className="automationHistoryDrawer" role="dialog" aria-modal="true" aria-label={`Lịch sử thay đổi của ${automationHistoryCampaign.name}`}>
+                  <header className="automationHistoryHeader">
+                    <div>
+                      <span className="eyebrow">Lịch sử Automation</span>
+                      <h2>{automationHistoryCampaign.name}</h2>
+                      <p>ID {automationHistoryCampaign.id} · {activeAutomationChangeHistory.length} nội dung đã thay</p>
+                    </div>
+                    <button className="iconAction" type="button" onClick={() => setAutomationHistoryCampaignId('')} aria-label="Đóng lịch sử"><X size={18} /></button>
+                  </header>
+                  <div className="automationHistoryDrawerBody">
+                    {activeAutomationChangeHistory.length ? (
+                      <div className="automationChangeHistoryList">
+                        {activeAutomationChangeHistory.map((change) => (
+                          <article key={change.id}>
+                            <header>
+                              <strong>{change.fieldType === 'HEADLINE' ? 'Tiêu đề' : change.fieldType === 'DESCRIPTION' ? 'Mô tả' : 'Nội dung'}</strong>
+                              <span>{change.adGroupName} · {formatDate(change.changedAt)}</span>
+                            </header>
+                            <div className="before"><span>Cũ</span><p>{change.oldText}</p></div>
+                            <div className="changed"><span>Mới</span><p>{change.newText}</p></div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : <div className="automationHistoryEmpty"><History size={28} /><strong>Chưa có nội dung đã thay</strong><p>Chiến dịch này chưa có tiêu đề hoặc mô tả được AI áp dụng trong 5 lần chạy gần nhất.</p></div>}
+                  </div>
+                </aside>
+              </div>
+            ) : null}
             {automationAddOpen ? (
               <div className="automationAddBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAutomationAddOpen(false); }}>
                 <aside className="automationAddDrawer" role="dialog" aria-modal="true" aria-label="Thêm chiến dịch vào phạm vi Automation">
