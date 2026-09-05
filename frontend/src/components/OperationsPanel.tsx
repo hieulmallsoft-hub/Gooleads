@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Check,
   ExternalLink,
+  History,
   KeyRound,
   Play,
   Plus,
@@ -177,6 +178,12 @@ type SettingsData = {
         campaignName?: string;
         adGroupId?: string;
         adGroupName?: string;
+      } | null;
+      replacement: {
+        fieldType: string | null;
+        oldText: string;
+        newText: string;
+        status: string;
       } | null;
       createdAt: string;
     }>;
@@ -1190,6 +1197,47 @@ export function OperationsPanel({
     }
     return summaries;
   }, [settings?.recentAutomationRuns]);
+  const automationChangeHistoryByCampaignId = useMemo(() => {
+    const history = new Map<string, Array<{
+      id: string;
+      fieldType: string;
+      oldText: string;
+      newText: string;
+      adGroupName: string;
+      changedAt: string;
+    }>>();
+    for (const run of settings?.recentAutomationRuns ?? []) {
+      for (const item of run.items ?? []) {
+        const campaignId = item.targetSnapshot?.campaignId;
+        const replacement = item.replacement;
+        if (
+          !campaignId ||
+          item.action !== 'SELECTED' ||
+          replacement?.status !== 'APPLIED' ||
+          !replacement.oldText ||
+          !replacement.newText
+        ) continue;
+        const entries = history.get(campaignId) ?? [];
+        const duplicate = entries.some((entry) =>
+          entry.oldText === replacement.oldText &&
+          entry.newText === replacement.newText &&
+          entry.changedAt === (run.completedAt ?? run.startedAt),
+        );
+        if (!duplicate) {
+          entries.push({
+            id: item.id,
+            fieldType: replacement.fieldType ?? 'TEXT',
+            oldText: replacement.oldText,
+            newText: replacement.newText,
+            adGroupName: item.targetSnapshot?.adGroupName ?? item.targetSnapshot?.adGroupId ?? 'Nhóm quảng cáo',
+            changedAt: run.completedAt ?? run.startedAt,
+          });
+          history.set(campaignId, entries);
+        }
+      }
+    }
+    return history;
+  }, [settings?.recentAutomationRuns]);
   const filteredAutomationCampaigns = useMemo(() => {
     const previousCampaignIds = new Set(latestAutomationRunCampaignIds);
     const visibleCampaigns = automationCampaigns
@@ -1584,6 +1632,7 @@ export function OperationsPanel({
                     selectedAutomationAdGroupIds.includes(id),
                   ).length;
                   const runSummary = automationCampaignRunSummaryById.get(campaign.id);
+                  const changeHistory = automationChangeHistoryByCampaignId.get(campaign.id) ?? [];
                   const runSummaryTone = !runSummary
                     ? 'pending'
                     : runSummary.status === 'RUNNING'
@@ -1681,6 +1730,23 @@ export function OperationsPanel({
                           </strong>
                         </div>
                       </div>
+                      <details className="automationChangeHistory">
+                        <summary><History size={15} />Lịch sử nội dung đã thay <span>{changeHistory.length}</span></summary>
+                        {changeHistory.length ? (
+                          <div className="automationChangeHistoryList">
+                            {changeHistory.map((change) => (
+                              <article key={change.id}>
+                                <header>
+                                  <strong>{change.fieldType === 'HEADLINE' ? 'Tiêu đề' : change.fieldType === 'DESCRIPTION' ? 'Mô tả' : 'Nội dung'}</strong>
+                                  <span>{change.adGroupName} · {formatDate(change.changedAt)}</span>
+                                </header>
+                                <div><span>Cũ</span><p>{change.oldText}</p></div>
+                                <div className="changed"><span>Mới</span><p>{change.newText}</p></div>
+                              </article>
+                            ))}
+                          </div>
+                        ) : <p className="automationChangeHistoryEmpty">Chưa có tiêu đề hoặc mô tả nào được AI áp dụng trong 5 lần chạy gần nhất.</p>}
+                      </details>
                     </article>
                   );
                 })}

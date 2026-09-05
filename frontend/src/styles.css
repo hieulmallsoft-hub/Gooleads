@@ -3740,6 +3740,73 @@ button:disabled {
   gap: 8px;
 }
 
+.automationChangeHistory {
+  border-top: 1px solid #e3eaf5;
+  padding: 12px 16px;
+}
+
+.automationChangeHistory summary {
+  align-items: center;
+  color: #2456c7;
+  cursor: pointer;
+  display: flex;
+  font-weight: 700;
+  gap: 7px;
+  list-style: none;
+}
+
+.automationChangeHistory summary span {
+  background: #edf3ff;
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 2px 7px;
+}
+
+.automationChangeHistoryList {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.automationChangeHistoryList article {
+  background: #f8faff;
+  border: 1px solid #e2e9f5;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.automationChangeHistoryList header,
+.automationChangeHistoryList article > div {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.automationChangeHistoryList header {
+  margin-bottom: 9px;
+}
+
+.automationChangeHistoryList header span,
+.automationChangeHistoryList article > div > span {
+  color: #71809a;
+  font-size: 12px;
+}
+
+.automationChangeHistoryList p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.automationChangeHistoryList .changed p {
+  color: #087a4b;
+  font-weight: 700;
+}
+
+.automationChangeHistoryEmpty {
+  color: #71809a;
+  margin: 12px 0 0;
+}
+
 .assetCell {
   display: grid;
   gap: 8px;

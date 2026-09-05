@@ -812,6 +812,33 @@ export class CreativeOperationsService {
           take: 1000,
         })
       : [];
+    const automationSuggestionIds = [
+      ...new Set(
+        recentAutomationRunItems
+          .map((item) => item.suggestionId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const automationSuggestions = automationSuggestionIds.length
+      ? await this.dataSource.getRepository(AiSuggestionEntity).findBy({
+          id: In(automationSuggestionIds),
+        })
+      : [];
+    const automationVariants = automationSuggestionIds.length
+      ? await this.dataSource.getRepository(AiSuggestionVariantEntity).find({
+          where: { suggestionId: In(automationSuggestionIds) },
+          order: { rank: 'ASC' },
+        })
+      : [];
+    const automationSuggestionMap = new Map(
+      automationSuggestions.map((suggestion) => [suggestion.id, suggestion]),
+    );
+    const automationVariantMap = new Map<string, AiSuggestionVariantEntity>();
+    for (const variant of automationVariants) {
+      if (!automationVariantMap.has(variant.suggestionId) || variant.selected) {
+        automationVariantMap.set(variant.suggestionId, variant);
+      }
+    }
     const automationScope = await this.getAutomationScope(account, policy.id);
     return {
       account: {
@@ -826,7 +853,27 @@ export class CreativeOperationsService {
       schedule,
       recentAutomationRuns: recentAutomationRuns.map((run) => ({
         ...run,
-        items: recentAutomationRunItems.filter((item) => item.automationRunId === run.id),
+        items: recentAutomationRunItems
+          .filter((item) => item.automationRunId === run.id)
+          .map((item) => {
+            const suggestion = item.suggestionId
+              ? automationSuggestionMap.get(item.suggestionId)
+              : null;
+            const variant = item.suggestionId
+              ? automationVariantMap.get(item.suggestionId)
+              : null;
+            return {
+              ...item,
+              replacement: suggestion
+                ? {
+                    fieldType: suggestion.fieldType,
+                    oldText: String(suggestion.currentContent?.text ?? ''),
+                    newText: String(variant?.content?.text ?? ''),
+                    status: suggestion.status,
+                  }
+                : null,
+            };
+          }),
       })),
       automationScope,
       providers: {
