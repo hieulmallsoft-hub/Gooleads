@@ -9,4 +9,5 @@ export type UpdateCreativeSettingsDto = {
   cooldownDays?: number;
   maxChangesPerRun?: number;
   automationEnabled?: boolean;
+  businessPrompt?: string;
 };

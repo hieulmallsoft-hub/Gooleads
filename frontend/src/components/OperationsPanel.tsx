@@ -21,6 +21,14 @@ export type OperationsSection = 'overview' | 'recommendations' | 'impact' | 'aut
 
 type RequestFn = (path: string, options?: RequestInit) => Promise<Response>;
 
+const DEFAULT_BUSINESS_PROMPT = `Bạn là chuyên gia viết nội dung quảng cáo cho {{topic}}.
+
+Hãy viết lại {{field_type}} hiện tại: "{{old_text}}"
+- Viết tự nhiên bằng {{language}}.
+- Nhấn mạnh lợi ích rõ ràng và phù hợp với nhóm {{ad_group_name}}.
+- Không lặp lại nội dung cũ.
+- Không vượt quá {{max_length}} ký tự.`;
+
 type OverviewData = {
   account: {
     customerId: string;
@@ -141,7 +149,7 @@ type SettingsData = {
     name: string;
     languageStrategy: string;
     targetLanguage: string | null;
-    selectionCriteria: { targetLabels?: string[] };
+    selectionCriteria: { targetLabels?: string[]; businessPrompt?: string };
     headlineMaxLength: number;
     descriptionMaxLength: number;
     approvalMode: string;
@@ -390,7 +398,10 @@ export function OperationsPanel({
     cooldownDays: 14,
     maxChangesPerRun: 10,
     automationEnabled: false,
+    businessPrompt: '',
   });
+  const [automationPromptOpen, setAutomationPromptOpen] = useState(false);
+  const [automationPromptSaving, setAutomationPromptSaving] = useState(false);
   const [automationRunning, setAutomationRunning] = useState(false);
   const [automationRunningCampaignId, setAutomationRunningCampaignId] = useState('');
   const [automationResultOpen, setAutomationResultOpen] = useState(false);
@@ -415,11 +426,13 @@ export function OperationsPanel({
     useState('');
 
   useEffect(() => {
-    if (!automationAddOpen && !automationCampaignDetail && !automationHistoryCampaignId) return undefined;
+    if (!automationAddOpen && !automationCampaignDetail && !automationHistoryCampaignId && !automationPromptOpen) return undefined;
 
     const closeTopLayer = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      if (automationHistoryCampaignId) {
+      if (automationPromptOpen) {
+        setAutomationPromptOpen(false);
+      } else if (automationHistoryCampaignId) {
         setAutomationHistoryCampaignId('');
       } else if (automationCampaignDetail) {
         setAutomationCampaignDetail(null);
@@ -430,7 +443,7 @@ export function OperationsPanel({
 
     window.addEventListener('keydown', closeTopLayer);
     return () => window.removeEventListener('keydown', closeTopLayer);
-  }, [automationAddOpen, automationCampaignDetail, automationHistoryCampaignId]);
+  }, [automationAddOpen, automationCampaignDetail, automationHistoryCampaignId, automationPromptOpen]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [accessSavingId, setAccessSavingId] = useState('');
   const [accessFormError, setAccessFormError] = useState('');
@@ -519,6 +532,7 @@ export function OperationsPanel({
       cooldownDays: data.policy.cooldownDays,
       maxChangesPerRun: data.policy.maxChangesPerRun,
       automationEnabled: Boolean(data.schedule?.enabled),
+      businessPrompt: data.policy.selectionCriteria?.businessPrompt ?? '',
     });
   }
 
@@ -771,6 +785,39 @@ export function OperationsPanel({
       setError(err instanceof Error ? err.message : 'Không thể lưu cấu hình Automation');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveAutomationBusinessPrompt() {
+    if (!canRunPeriodicAi || automationPromptSaving) return;
+    if (settingsDraft.businessPrompt.length > 6000) {
+      setError('Prompt nghiệp vụ không được vượt quá 6000 ký tự.');
+      return;
+    }
+    setAutomationPromptSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const params = new URLSearchParams({ customerId });
+      const response = await request(`/creative-operations/automation/settings?${params}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          automationEnabled: settingsDraft.automationEnabled,
+          reviewIntervalDays: settingsDraft.reviewIntervalDays,
+          maxChangesPerRun: settingsDraft.maxChangesPerRun,
+          businessPrompt: settingsDraft.businessPrompt,
+        }),
+      });
+      const body = await parseJsonSafe(response);
+      if (!response.ok) throw new Error(errorMessage(body, 'Không thể lưu Prompt nghiệp vụ'));
+      setNotice('Đã lưu Prompt nghiệp vụ. Các lần Automation tiếp theo sẽ sử dụng nội dung này.');
+      setAutomationPromptOpen(false);
+      await loadSettings();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể lưu Prompt nghiệp vụ');
+    } finally {
+      setAutomationPromptSaving(false);
     }
   }
 
@@ -1536,6 +1583,15 @@ export function OperationsPanel({
                 ) : null}
               </div>
             </div>
+            <div className="automationPromptSummary">
+              <div>
+                <strong>Prompt nghiệp vụ</strong>
+                <span>{settingsDraft.businessPrompt.trim() ? 'Đã cấu hình yêu cầu riêng cho nội dung AI.' : 'Đang dùng hướng dẫn mặc định của hệ thống.'}</span>
+              </div>
+              <button className="secondaryButton" type="button" onClick={() => setAutomationPromptOpen(true)} disabled={!canRunPeriodicAi}>
+                Chỉnh Prompt AI
+              </button>
+            </div>
             {automationResultOpen && latestAutomationRun ? (
               <div className="automationRunDetails">
                 <div className="automationRunDetailsHeader">
@@ -1792,6 +1848,34 @@ export function OperationsPanel({
                       </div>
                     ) : <div className="automationHistoryEmpty"><History size={28} /><strong>Chưa có nội dung đã thay</strong><p>Chiến dịch này chưa có tiêu đề hoặc mô tả được AI áp dụng trong 5 lần chạy gần nhất.</p></div>}
                   </div>
+                </aside>
+              </div>
+            ) : null}
+            {automationPromptOpen ? (
+              <div className="automationHistoryBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAutomationPromptOpen(false); }}>
+                <aside className="automationPromptDrawer" role="dialog" aria-modal="true" aria-label="Chỉnh Prompt nghiệp vụ">
+                  <header className="automationHistoryHeader">
+                    <div><span className="eyebrow">Automation AI</span><h2>Prompt nghiệp vụ</h2><p>Tùy chỉnh mục tiêu, bố cục và giọng văn. Quy tắc an toàn của hệ thống vẫn được giữ nguyên.</p></div>
+                    <button className="iconAction" type="button" onClick={() => setAutomationPromptOpen(false)} aria-label="Đóng trình chỉnh prompt"><X size={18} /></button>
+                  </header>
+                  <div className="automationPromptBody">
+                    <label>
+                      <span>Nội dung Prompt</span>
+                      <textarea value={settingsDraft.businessPrompt} onChange={(event) => setSettingsDraft((current) => ({ ...current, businessPrompt: event.target.value }))} placeholder={DEFAULT_BUSINESS_PROMPT} maxLength={6000} autoFocus />
+                    </label>
+                    <div className="automationPromptVariables">
+                      <strong>Biến có thể sử dụng</strong>
+                      <div>{['campaign_name', 'ad_group_name', 'language', 'topic', 'field_type', 'old_text', 'max_length'].map((variable) => <button key={variable} type="button" onClick={() => setSettingsDraft((current) => ({ ...current, businessPrompt: `${current.businessPrompt}${current.businessPrompt ? ' ' : ''}{{${variable}}}` }))}>{`{{${variable}}}`}</button>)}</div>
+                    </div>
+                    <div className="automationPromptPreview">
+                      <strong>Cách hệ thống sử dụng</strong>
+                      <p>Prompt này được ghép với ngôn ngữ, chủ đề và từng nội dung LOW trước khi gửi cho AI. Prompt không thể mở rộng phạm vi hoặc bỏ qua chính sách Google Ads.</p>
+                    </div>
+                  </div>
+                  <footer className="automationPromptFooter">
+                    <button className="secondaryButton" type="button" onClick={() => setSettingsDraft((current) => ({ ...current, businessPrompt: DEFAULT_BUSINESS_PROMPT }))}>Khôi phục mẫu</button>
+                    <div><span>{settingsDraft.businessPrompt.length}/6000</span><button className="primaryButton" type="button" disabled={automationPromptSaving} onClick={() => void saveAutomationBusinessPrompt()}><Save size={15} />{automationPromptSaving ? 'Đang lưu...' : 'Lưu Prompt'}</button></div>
+                  </footer>
                 </aside>
               </div>
             ) : null}

@@ -331,7 +331,12 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       target.customerId,
       target.adGroupId,
       timeRange,
-      { languageCode: target.languageCode, topic: target.topic },
+      {
+        languageCode: target.languageCode,
+        topic: target.topic,
+        campaignName: target.campaignName,
+        adGroupName: target.adGroupName,
+      },
     );
     for (const omitted of generated.omittedCandidates ?? []) {
       await this.saveRunItem(

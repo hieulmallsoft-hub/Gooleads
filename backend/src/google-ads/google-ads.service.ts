@@ -302,6 +302,7 @@ type CreativeGuidance = {
   descriptionMaxLength: number;
   minimumImpressions: number;
   minimumClicks: number;
+  businessPrompt: string;
   terms: Record<
     string,
     Array<{
@@ -1510,7 +1511,12 @@ export class GoogleAdsService {
     customerId: string,
     adGroupId: string,
     timeRange: string,
-    automationContext?: { languageCode: string; topic: string },
+    automationContext?: {
+      languageCode: string;
+      topic: string;
+      campaignName?: string;
+      adGroupName?: string;
+    },
   ) {
     const aiProvider = this.getAiProvider('AI text suggestions');
     const suggestionLimit = Math.max(
@@ -1568,6 +1574,8 @@ export class GoogleAdsService {
       avgRoas: assetPerformance.avgRoas,
       automationLanguageCode: savedAdGroupContext?.languageCode ?? null,
       automationTopic: savedAdGroupContext?.topic ?? null,
+      campaignName: automationContext?.campaignName ?? null,
+      adGroupName: automationContext?.adGroupName ?? null,
     }, guidance, history);
     const schema = this.aiTextSuggestionSchema(candidates);
     const outputText =
@@ -2769,14 +2777,29 @@ export class GoogleAdsService {
       avgRoas: number;
       automationLanguageCode: string | null;
       automationTopic: string | null;
+      campaignName: string | null;
+      adGroupName: string | null;
     },
     guidance: CreativeGuidance | null,
     history: CreativeHistory,
   ) {
+    const businessPrompt = this.renderBusinessPrompt(
+      guidance?.businessPrompt ?? '',
+      candidates,
+      context,
+    );
     return [
       'You are a Senior Google Ads Copywriter specializing in conversion-focused mobile app advertising.',
       'Your task is to replace underperforming headlines and descriptions with specific, persuasive, policy-safe copy.',
       'Return one replacement for every supplied LOW-label candidate. The JSON schema is the final output contract; do not add commentary outside it.',
+      ...(businessPrompt
+        ? [
+            '',
+            'USER-EDITABLE BUSINESS BRIEF:',
+            'Apply this brief when it does not conflict with the mandatory safety, language, factual, policy, length, scope, and JSON rules below.',
+            businessPrompt,
+          ]
+        : []),
       '',
       'COPY QUALITY RULES:',
       '1. Write natural native copy that sounds written by an experienced local copywriter, not generic AI text.',
@@ -2839,6 +2862,34 @@ export class GoogleAdsService {
         })),
       )}`,
     ].join('\n');
+  }
+
+  private renderBusinessPrompt(
+    template: string,
+    candidates: AiTextSuggestionCandidate[],
+    context: {
+      campaignName: string | null;
+      adGroupName: string | null;
+      automationLanguageCode: string | null;
+      automationTopic: string | null;
+    },
+  ) {
+    const value = String(template ?? '').trim();
+    if (!value) return '';
+    const replaceCommon = (text: string) => text
+      .replaceAll('{{campaign_name}}', context.campaignName ?? '')
+      .replaceAll('{{ad_group_name}}', context.adGroupName ?? '')
+      .replaceAll('{{language}}', context.automationLanguageCode ?? '')
+      .replaceAll('{{topic}}', context.automationTopic ?? '');
+    if (!/\{\{(?:field_type|old_text|max_length)\}\}/.test(value)) {
+      return replaceCommon(value);
+    }
+    return candidates.map((candidate, index) => replaceCommon(value)
+      .replaceAll('{{field_type}}', candidate.fieldType)
+      .replaceAll('{{old_text}}', candidate.text)
+      .replaceAll('{{max_length}}', String(candidate.maxLength))
+      .concat(`\nCandidate key: ${candidate.key}\nCandidate number: ${index + 1}`))
+      .join('\n\n---\n\n');
   }
 
   private selectAiReviewAssets(assets: AssetPerformance[], limit: number) {
@@ -4967,6 +5018,7 @@ export class GoogleAdsService {
       descriptionMaxLength: policy.descriptionMaxLength,
       minimumImpressions: Number(policy.minimumImpressions),
       minimumClicks: Number(policy.minimumClicks),
+      businessPrompt: String(policy.selectionCriteria?.businessPrompt ?? ''),
       terms: groupedTerms,
     };
   }

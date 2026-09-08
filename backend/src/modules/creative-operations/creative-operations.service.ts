@@ -1061,6 +1061,16 @@ export class CreativeOperationsService {
         this.clampNumber(input.maxChangesPerRun, 10, 1, 100),
       );
     }
+    if (input.businessPrompt !== undefined) {
+      const businessPrompt = String(input.businessPrompt ?? '').trim();
+      if (businessPrompt.length > 6000) {
+        throw new BadRequestException('Prompt nghiệp vụ không được vượt quá 6000 ký tự');
+      }
+      policy.selectionCriteria = {
+        ...policy.selectionCriteria,
+        businessPrompt,
+      };
+    }
     policy.approvalMode = input.automationEnabled === false ? 'MANUAL' : 'AUTO';
 
     const savedPolicy = await this.dataSource.getRepository(CreativePolicyEntity).save(policy);
