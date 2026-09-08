@@ -3896,10 +3896,27 @@ button:disabled {
   background: #fff;
   box-shadow: -16px 0 42px rgba(15, 23, 42, .2);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   height: 100%;
   width: min(680px, 100vw);
 }
+
+.automationPromptTabs {
+  border-bottom: 1px solid #e3eaf5;
+  display: flex;
+  gap: 4px;
+  padding: 0 24px;
+}
+.automationPromptTabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #71809a;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 12px 14px 10px;
+}
+.automationPromptTabs button.active { border-bottom-color: #2d6cdf; color: #2456c7; }
 
 .automationPromptBody {
   display: grid;
@@ -3920,6 +3937,9 @@ button:disabled {
   resize: vertical;
 }
 .automationPromptBody textarea:focus { border-color: #2d6cdf; box-shadow: 0 0 0 3px rgba(45,108,223,.12); outline: none; }
+.automationFullPrompt textarea { background: #111827; color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; min-height: 520px; }
+.automationFullPromptNotice { background: #eff6ff; border: 1px solid #cfe0ff; border-radius: 8px; display: grid; gap: 3px; padding: 11px 13px; }
+.automationFullPromptNotice span { color: #62708a; font-size: 12px; }
 .automationPromptVariables { display: grid; gap: 9px; }
 .automationPromptVariables > div { display: flex; flex-wrap: wrap; gap: 7px; }
 .automationPromptVariables button {

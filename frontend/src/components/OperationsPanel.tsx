@@ -29,6 +29,42 @@ Hãy viết lại {{field_type}} hiện tại: "{{old_text}}"
 - Không lặp lại nội dung cũ.
 - Không vượt quá {{max_length}} ký tự.`;
 
+function buildFullPromptPreview(businessPrompt: string) {
+  return `SYSTEM PROMPT — KHÔNG THỂ CHỈNH
+
+Vai trò: Senior Google Ads Copywriter chuyên tối ưu quảng cáo ứng dụng.
+Nhiệm vụ: Viết một nội dung thay thế cho từng HEADLINE hoặc DESCRIPTION được Google Ads gắn nhãn LOW.
+
+QUY TẮC BẮT BUỘC
+- Viết tự nhiên như người bản địa, đúng ngôn ngữ cấu hình của nhóm quảng cáo.
+- Không bịa đặt giá, ưu đãi, số liệu, giải thưởng, bảo đảm hoặc tính năng.
+- Không trùng hoặc gần giống nội dung hiện có và lịch sử đề xuất.
+- Không dùng viết hoa bất thường, emoji, ký hiệu trang trí, dấu câu lặp hoặc nội dung gây hiểu nhầm.
+- HEADLINE tối đa 30 ký tự; DESCRIPTION tối đa 60 ký tự.
+- Không dùng từ khóa phủ định hoặc nội dung bị cấm.
+- Chỉ xử lý tài khoản, chiến dịch, nhóm quảng cáo và tài nguyên LOW đã được hệ thống cấp phép.
+- Phải trả đúng JSON schema của hệ thống; không viết giải thích ngoài JSON.
+
+PROMPT NGHIỆP VỤ — DO ADMIN CẤU HÌNH
+${businessPrompt.trim() || '(Chưa cấu hình — hệ thống dùng hướng dẫn mặc định)'}
+
+DỮ LIỆU ĐỘNG ĐƯỢC CHÈN KHI CHẠY
+Chiến dịch: {{campaign_name}}
+Nhóm quảng cáo: {{ad_group_name}}
+Ngôn ngữ: {{language}}
+Chủ đề: {{topic}}
+Loại nội dung: {{field_type}}
+Nội dung LOW hiện tại: {{old_text}}
+Giới hạn ký tự: {{max_length}}
+Số liệu hiệu suất: {{performance_metrics}}
+Toàn bộ nội dung hiện có để tránh trùng: {{existing_ad_copy}}
+Lịch sử đề xuất: {{suggestion_history}}
+Quy tắc từ khóa và từ cấm: {{creative_policy_terms}}
+
+OUTPUT CONTRACT — KHÔNG THỂ CHỈNH
+Trả về JSON gồm summary và suggestions. Mỗi suggestion phải khớp đúng candidate key, có nội dung thay thế hợp lệ, lý do và mức độ tin cậy.`;
+}
+
 type OverviewData = {
   account: {
     customerId: string;
@@ -401,6 +437,8 @@ export function OperationsPanel({
     businessPrompt: '',
   });
   const [automationPromptOpen, setAutomationPromptOpen] = useState(false);
+  const [automationPromptTab, setAutomationPromptTab] = useState<'business' | 'full'>('business');
+  const [automationPromptCopied, setAutomationPromptCopied] = useState(false);
   const [automationPromptSaving, setAutomationPromptSaving] = useState(false);
   const [automationRunning, setAutomationRunning] = useState(false);
   const [automationRunningCampaignId, setAutomationRunningCampaignId] = useState('');
@@ -818,6 +856,16 @@ export function OperationsPanel({
       setError(err instanceof Error ? err.message : 'Không thể lưu Prompt nghiệp vụ');
     } finally {
       setAutomationPromptSaving(false);
+    }
+  }
+
+  async function copyFullAutomationPrompt() {
+    try {
+      await navigator.clipboard.writeText(fullAutomationPromptPreview);
+      setAutomationPromptCopied(true);
+      window.setTimeout(() => setAutomationPromptCopied(false), 1800);
+    } catch {
+      setError('Trình duyệt không cho phép sao chép tự động. Bạn có thể chọn nội dung Full Prompt và sao chép thủ công.');
     }
   }
 
@@ -1294,6 +1342,10 @@ export function OperationsPanel({
   const activeAutomationChangeHistory = automationHistoryCampaign
     ? automationChangeHistoryByCampaignId.get(automationHistoryCampaign.id) ?? []
     : [];
+  const fullAutomationPromptPreview = useMemo(
+    () => buildFullPromptPreview(settingsDraft.businessPrompt),
+    [settingsDraft.businessPrompt],
+  );
   const filteredAutomationCampaigns = useMemo(() => {
     const previousCampaignIds = new Set(latestAutomationRunCampaignIds);
     const visibleCampaigns = automationCampaigns
@@ -1858,7 +1910,12 @@ export function OperationsPanel({
                     <div><span className="eyebrow">Automation AI</span><h2>Prompt nghiệp vụ</h2><p>Tùy chỉnh mục tiêu, bố cục và giọng văn. Quy tắc an toàn của hệ thống vẫn được giữ nguyên.</p></div>
                     <button className="iconAction" type="button" onClick={() => setAutomationPromptOpen(false)} aria-label="Đóng trình chỉnh prompt"><X size={18} /></button>
                   </header>
+                  <div className="automationPromptTabs" role="tablist">
+                    <button className={automationPromptTab === 'business' ? 'active' : ''} type="button" role="tab" aria-selected={automationPromptTab === 'business'} onClick={() => setAutomationPromptTab('business')}>Prompt nghiệp vụ</button>
+                    <button className={automationPromptTab === 'full' ? 'active' : ''} type="button" role="tab" aria-selected={automationPromptTab === 'full'} onClick={() => setAutomationPromptTab('full')}>Full Prompt</button>
+                  </div>
                   <div className="automationPromptBody">
+                    {automationPromptTab === 'business' ? <>
                     <label>
                       <span>Nội dung Prompt</span>
                       <textarea value={settingsDraft.businessPrompt} onChange={(event) => setSettingsDraft((current) => ({ ...current, businessPrompt: event.target.value }))} placeholder={DEFAULT_BUSINESS_PROMPT} maxLength={6000} autoFocus />
@@ -1871,10 +1928,22 @@ export function OperationsPanel({
                       <strong>Cách hệ thống sử dụng</strong>
                       <p>Prompt này được ghép với ngôn ngữ, chủ đề và từng nội dung LOW trước khi gửi cho AI. Prompt không thể mở rộng phạm vi hoặc bỏ qua chính sách Google Ads.</p>
                     </div>
+                    </> : <>
+                      <div className="automationFullPromptNotice"><strong>Bản xem trước chỉ đọc</strong><span>Các biến và dữ liệu quảng cáo thật sẽ được thay thế tại thời điểm Automation chạy.</span></div>
+                      <label className="automationFullPrompt">
+                        <span>Prompt hoàn chỉnh</span>
+                        <textarea value={fullAutomationPromptPreview} readOnly aria-label="Full Prompt chỉ đọc" />
+                      </label>
+                    </>}
                   </div>
                   <footer className="automationPromptFooter">
-                    <button className="secondaryButton" type="button" onClick={() => setSettingsDraft((current) => ({ ...current, businessPrompt: DEFAULT_BUSINESS_PROMPT }))}>Khôi phục mẫu</button>
-                    <div><span>{settingsDraft.businessPrompt.length}/6000</span><button className="primaryButton" type="button" disabled={automationPromptSaving} onClick={() => void saveAutomationBusinessPrompt()}><Save size={15} />{automationPromptSaving ? 'Đang lưu...' : 'Lưu Prompt'}</button></div>
+                    {automationPromptTab === 'business' ? <>
+                      <button className="secondaryButton" type="button" onClick={() => setSettingsDraft((current) => ({ ...current, businessPrompt: DEFAULT_BUSINESS_PROMPT }))}>Khôi phục mẫu</button>
+                      <div><span>{settingsDraft.businessPrompt.length}/6000</span><button className="primaryButton" type="button" disabled={automationPromptSaving} onClick={() => void saveAutomationBusinessPrompt()}><Save size={15} />{automationPromptSaving ? 'Đang lưu...' : 'Lưu Prompt'}</button></div>
+                    </> : <>
+                      <span>Không thể sửa quy tắc hệ thống tại đây.</span>
+                      <button className="secondaryButton" type="button" onClick={() => void copyFullAutomationPrompt()}>{automationPromptCopied ? 'Đã sao chép' : 'Sao chép Full Prompt'}</button>
+                    </>}
                   </footer>
                 </aside>
               </div>
