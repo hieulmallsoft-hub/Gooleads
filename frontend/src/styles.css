@@ -3937,7 +3937,8 @@ button:disabled {
   resize: vertical;
 }
 .automationPromptBody textarea:focus { border-color: #2d6cdf; box-shadow: 0 0 0 3px rgba(45,108,223,.12); outline: none; }
-.automationFullPrompt textarea { background: #111827; color: #dbeafe; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; min-height: 520px; }
+.automationFullPrompt textarea { background: #fff; color: #172033; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; min-height: 320px; }
+.automationFullPrompt.locked textarea { background: #111827; color: #dbeafe; min-height: 380px; }
 .automationFullPromptNotice { background: #eff6ff; border: 1px solid #cfe0ff; border-radius: 8px; display: grid; gap: 3px; padding: 11px 13px; }
 .automationFullPromptNotice span { color: #62708a; font-size: 12px; }
 .automationPromptVariables { display: grid; gap: 9px; }

@@ -1086,6 +1086,26 @@ export class CreativeOperationsService {
     return this.getSettings(customerId);
   }
 
+  async updateAutomationPrompt(customerId: string, input: UpdateCreativeSettingsDto) {
+    const account = await this.getAccount(customerId);
+    const policy = await this.getPolicy(account.workspaceId);
+    const editableSystemPrompt = String(input.editableSystemPrompt ?? '').trim();
+    const businessPrompt = String(input.businessPrompt ?? '').trim();
+    if (!editableSystemPrompt) {
+      throw new BadRequestException('Phần Prompt có thể chỉnh không được để trống');
+    }
+    if (editableSystemPrompt.length > 8000 || businessPrompt.length > 6000) {
+      throw new BadRequestException('Prompt vượt quá giới hạn ký tự cho phép');
+    }
+    policy.selectionCriteria = {
+      ...policy.selectionCriteria,
+      editableSystemPrompt,
+      businessPrompt,
+    };
+    await this.dataSource.getRepository(CreativePolicyEntity).save(policy);
+    return this.getSettings(customerId);
+  }
+
   async runAutomationNow(customerId: string, campaignIdValue?: string) {
     const account = await this.getAccount(customerId);
     const policy = await this.getPolicy(account.workspaceId);

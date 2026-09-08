@@ -303,6 +303,7 @@ type CreativeGuidance = {
   minimumImpressions: number;
   minimumClicks: number;
   businessPrompt: string;
+  editableSystemPrompt: string;
   terms: Record<
     string,
     Array<{
@@ -2783,6 +2784,16 @@ export class GoogleAdsService {
     guidance: CreativeGuidance | null,
     history: CreativeHistory,
   ) {
+    const editableSystemPrompt = guidance?.editableSystemPrompt?.trim() || [
+      'Role: Senior Google Ads Copywriter specializing in app advertising optimization.',
+      'Task: Write one replacement for each HEADLINE or DESCRIPTION labeled LOW by Google Ads.',
+      'Write naturally like a native speaker in the configured ad-group language.',
+      'Do not invent prices, offers, statistics, awards, guarantees, or features.',
+      'Do not duplicate or closely imitate existing content or suggestion history.',
+      'Do not use abnormal capitalization, emoji, decorative symbols, repeated punctuation, or misleading content.',
+      'HEADLINE max 30 characters; DESCRIPTION max 60 characters.',
+      'Do not use negative keywords or prohibited content.',
+    ].join('\n');
     const businessPrompt = this.renderBusinessPrompt(
       guidance?.businessPrompt ?? '',
       candidates,
@@ -2792,6 +2803,9 @@ export class GoogleAdsService {
       'You are a Senior Google Ads Copywriter specializing in conversion-focused mobile app advertising.',
       'Your task is to replace underperforming headlines and descriptions with specific, persuasive, policy-safe copy.',
       'Return one replacement for every supplied LOW-label candidate. The JSON schema is the final output contract; do not add commentary outside it.',
+      '',
+      'USER-EDITABLE SYSTEM INSTRUCTIONS:',
+      editableSystemPrompt,
       ...(businessPrompt
         ? [
             '',
@@ -5019,6 +5033,7 @@ export class GoogleAdsService {
       minimumImpressions: Number(policy.minimumImpressions),
       minimumClicks: Number(policy.minimumClicks),
       businessPrompt: String(policy.selectionCriteria?.businessPrompt ?? ''),
+      editableSystemPrompt: String(policy.selectionCriteria?.editableSystemPrompt ?? ''),
       terms: groupedTerms,
     };
   }

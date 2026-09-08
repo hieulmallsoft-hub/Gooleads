@@ -10,4 +10,5 @@ export type UpdateCreativeSettingsDto = {
   maxChangesPerRun?: number;
   automationEnabled?: boolean;
   businessPrompt?: string;
+  editableSystemPrompt?: string;
 };

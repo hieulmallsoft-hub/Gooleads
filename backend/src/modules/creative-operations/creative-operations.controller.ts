@@ -190,6 +190,18 @@ export class CreativeOperationsController {
     );
   }
 
+  @Patch('automation/prompt')
+  updateAutomationPrompt(
+    @Query('customerId') inputCustomerId: string | undefined,
+    @Body() input: UpdateCreativeSettingsDto,
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.service.updateAutomationPrompt(
+      this.customerIdForUser(inputCustomerId, request.user),
+      input,
+    );
+  }
+
   @Put('automation/scope')
   @RequirePermissions('automation.manage')
   updateAutomationScope(
