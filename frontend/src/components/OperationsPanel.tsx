@@ -1405,11 +1405,23 @@ export function OperationsPanel({
       (automationCampaignIntervals[campaignId] || settings?.policy.reviewIntervalDays || 14) !==
       (savedAutomationCampaignIntervals[campaignId] || settings?.policy.reviewIntervalDays || 14),
   );
+  const savedAutomationCampaignPrompts = Object.fromEntries(
+    (settings?.automationScope?.campaigns ?? []).map((campaign) => [
+      campaign.id,
+      campaign.prompt || DEFAULT_EDITABLE_SYSTEM_PROMPT,
+    ]),
+  );
+  const automationPromptsDirty = selectedAutomationCampaignIds.some(
+    (campaignId) =>
+      (automationCampaignPrompts[campaignId] || DEFAULT_EDITABLE_SYSTEM_PROMPT).trim() !==
+      (savedAutomationCampaignPrompts[campaignId] || DEFAULT_EDITABLE_SYSTEM_PROMPT).trim(),
+  );
   const automationScopeDirty =
     !sameIdSet(selectedAutomationCampaignIds, savedAutomationCampaignIds) ||
     !sameIdSet(selectedAutomationAdGroupIds, savedAutomationAdGroupIds) ||
     !sameIdSet(allAutomationCampaignIds, savedAllAutomationCampaignIds) ||
-    automationIntervalsDirty;
+    automationIntervalsDirty ||
+    automationPromptsDirty;
   const nextAutomationCampaignRunAt = (settings?.automationScope?.campaigns ?? [])
     .map((campaign) => campaign.nextRunAt)
     .filter((value): value is string => Boolean(value))
