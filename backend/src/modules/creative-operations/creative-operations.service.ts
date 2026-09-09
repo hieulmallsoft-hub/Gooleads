@@ -1260,6 +1260,7 @@ export class CreativeOperationsService {
               adGroupId: null,
               includeAllAdGroups: allCampaignIds.includes(campaign.googleCampaignId),
               intervalDays,
+              automationPrompt: scheduleByCampaignId.get(campaign.googleCampaignId)!.prompt,
               lastRunAt: currentScope?.lastRunAt ?? null,
               nextRunAt: intervalChanged
                 ? this.addDays(currentScope?.lastRunAt ?? new Date(), intervalDays)
@@ -1414,6 +1415,7 @@ export class CreativeOperationsService {
         name: campaign.name,
         status: campaign.status,
         mode: campaignScope?.includeAllAdGroups ? 'ALL' : 'SELECTED',
+        prompt: campaignScope?.automationPrompt ?? '',
         metricsAvailable: Number(campaignMetricRows[0]?.metric_days ?? 0) > 0,
         syncStatus: failedRows.length ? 'FAILED' : checkedRows.length ? 'COMPLETED' : null,
         syncCheckedAt: checkedRows.length
@@ -1505,6 +1507,7 @@ export class CreativeOperationsService {
           .map((adGroup) => adGroup.googleAdGroupId),
         intervalDays: activeScopes.find((scope) => scope.campaignId === campaign.id)?.intervalDays
           ?? 14,
+        prompt: activeScopes.find((scope) => scope.campaignId === campaign.id)?.automationPrompt ?? '',
         lastRunAt: activeScopes.find((scope) => scope.campaignId === campaign.id)?.lastRunAt ?? null,
         nextRunAt: activeScopes.find((scope) => scope.campaignId === campaign.id)?.nextRunAt ?? null,
       })),
@@ -1594,6 +1597,7 @@ export class CreativeOperationsService {
       return [{
         campaignId,
         intervalDays: Math.round(this.clampNumber(rawInterval, 14, 1, 365)),
+        prompt: String(input.prompt ?? '').trim().slice(0, 8000),
       }];
     });
   }

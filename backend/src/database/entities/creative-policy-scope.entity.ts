@@ -15,6 +15,8 @@ export class CreativePolicyScopeEntity {
   adGroupTopic!: string | null;
   @Column({ name: 'interval_days', type: 'smallint', nullable: true })
   intervalDays!: number | null;
+  @Column({ name: 'automation_prompt', type: 'text', nullable: true })
+  automationPrompt!: string | null;
   @Column({ name: 'last_run_at', type: 'timestamptz', nullable: true })
   lastRunAt!: Date | null;
   @Column({ name: 'next_run_at', type: 'timestamptz', nullable: true })

@@ -1517,6 +1517,7 @@ export class GoogleAdsService {
       topic: string;
       campaignName?: string;
       adGroupName?: string;
+      editableSystemPrompt?: string;
     },
   ) {
     const aiProvider = this.getAiProvider('AI text suggestions');
@@ -1577,6 +1578,7 @@ export class GoogleAdsService {
       automationTopic: savedAdGroupContext?.topic ?? null,
       campaignName: automationContext?.campaignName ?? null,
       adGroupName: automationContext?.adGroupName ?? null,
+      editableSystemPrompt: automationContext?.editableSystemPrompt ?? '',
     }, guidance, history);
     const schema = this.aiTextSuggestionSchema(candidates);
     const outputText =
@@ -2780,11 +2782,12 @@ export class GoogleAdsService {
       automationTopic: string | null;
       campaignName: string | null;
       adGroupName: string | null;
+      editableSystemPrompt?: string;
     },
     guidance: CreativeGuidance | null,
     history: CreativeHistory,
   ) {
-    const editableSystemPrompt = guidance?.editableSystemPrompt?.trim() || [
+    const editableSystemPrompt = context.editableSystemPrompt?.trim() || guidance?.editableSystemPrompt?.trim() || [
       'Role: Senior Google Ads Copywriter specializing in app advertising optimization.',
       'Task: Write one replacement for each HEADLINE or DESCRIPTION labeled LOW by Google Ads.',
       'Write naturally like a native speaker in the configured ad-group language.',
@@ -2884,6 +2887,7 @@ export class GoogleAdsService {
     context: {
       campaignName: string | null;
       adGroupName: string | null;
+      editableSystemPrompt?: string;
       automationLanguageCode: string | null;
       automationTopic: string | null;
     },

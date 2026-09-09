@@ -45,6 +45,7 @@ type AutomationTarget = {
   adGroupName: string;
   languageCode: string;
   topic: string;
+  automationPrompt: string;
 };
 
 type AutomationRunOptions = {
@@ -336,6 +337,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         topic: target.topic,
         campaignName: target.campaignName,
         adGroupName: target.adGroupName,
+        editableSystemPrompt: target.automationPrompt,
       },
     );
     for (const omitted of generated.omittedCandidates ?? []) {
@@ -614,6 +616,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         adGroupName: adGroup.name || `Ad group ${adGroup.googleAdGroupId}`,
         languageCode: scope.languageCode,
         topic: scope.adGroupTopic,
+        automationPrompt: campaignScope?.automationPrompt ?? '',
       });
     }
 

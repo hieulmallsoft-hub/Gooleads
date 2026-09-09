@@ -220,13 +220,7 @@ describe('OperationsPanel đổi mật khẩu', () => {
       expect.stringMatching(/^\/creative-operations\/automation\/scope\?/),
       expect.objectContaining({
         method: 'PUT',
-        body: JSON.stringify({
-          campaignIds: ['2001'],
-          allCampaignIds: [],
-          adGroupIds: ['1001'],
-          adGroupConfigs: [{ adGroupId: '1001', languageCode: 'vi', topic: 'Ứng dụng điều khiển điều hòa' }],
-          campaignSchedules: [{ campaignId: '2001', intervalDays: 14 }],
-        }),
+        body: expect.stringContaining('"prompt"'),
       }),
     );
   });

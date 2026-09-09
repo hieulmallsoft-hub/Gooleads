@@ -3958,6 +3958,21 @@ button:disabled {
 .automationPromptFooter > div { align-items: center; display: flex; gap: 12px; }
 .automationPromptFooter span { color: #71809a; font-size: 12px; }
 
+.automationCampaignPromptEditor {
+  background: #f7faff;
+  border: 1px solid #dbe6fa;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+.automationCampaignPromptEditor > div:first-child { display: grid; gap: 3px; }
+.automationCampaignPromptEditor > div:first-child span { color: #71809a; font-size: 12px; }
+.automationCampaignPromptEditor textarea { border: 1px solid #cbd6e7; border-radius: 8px; font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; min-height: 180px; padding: 11px; resize: vertical; }
+.automationCampaignPromptEditor textarea:focus { border-color: #2d6cdf; box-shadow: 0 0 0 3px rgba(45,108,223,.1); outline: none; }
+.automationCampaignPromptEditor > div:last-child { align-items: center; display: flex; justify-content: space-between; }
+.automationCampaignPromptEditor > div:last-child span { color: #71809a; font-size: 12px; }
+
 .assetCell {
   display: grid;
   gap: 8px;

@@ -162,6 +162,7 @@ type AutomationCampaignDetail = {
     name: string;
     status: string;
     mode: 'ALL' | 'SELECTED';
+    prompt: string;
     metricsAvailable: boolean;
     syncStatus: string | null;
     syncCheckedAt: string | null;
@@ -258,6 +259,7 @@ type SettingsData = {
       adGroupCount: number;
       selectedAdGroupIds: string[];
       intervalDays: number;
+      prompt: string;
       lastRunAt: string | null;
       nextRunAt: string | null;
     }>;
@@ -471,6 +473,7 @@ export function OperationsPanel({
   const [automationMetricsSyncing, setAutomationMetricsSyncing] = useState(false);
   const [automationAdGroupConfigs, setAutomationAdGroupConfigs] = useState<Record<string, { languageCode: string; topic: string }>>({});
   const [automationCampaignIntervals, setAutomationCampaignIntervals] = useState<Record<string, number>>({});
+  const [automationCampaignPrompts, setAutomationCampaignPrompts] = useState<Record<string, string>>({});
   const [automationCampaignLoadingId, setAutomationCampaignLoadingId] =
     useState('');
 
@@ -570,6 +573,9 @@ export function OperationsPanel({
     ));
     setAutomationCampaignIntervals(Object.fromEntries(
       scopeCampaigns.map((campaign) => [campaign.id, campaign.intervalDays || data.policy.reviewIntervalDays || 14]),
+    ));
+    setAutomationCampaignPrompts(Object.fromEntries(
+      scopeCampaigns.map((campaign) => [campaign.id, campaign.prompt || DEFAULT_EDITABLE_SYSTEM_PROMPT]),
     ));
     setSettingsDraft({
       languageStrategy: data.policy.languageStrategy,
@@ -1021,6 +1027,7 @@ export function OperationsPanel({
           campaignSchedules: selectedAutomationCampaignIds.map((campaignId) => ({
             campaignId,
             intervalDays: automationCampaignIntervals[campaignId] || settingsDraft.reviewIntervalDays || 14,
+            prompt: automationCampaignPrompts[campaignId] || DEFAULT_EDITABLE_SYSTEM_PROMPT,
           })),
         }),
       });
@@ -1644,15 +1651,6 @@ export function OperationsPanel({
                 ) : null}
               </div>
             </div>
-            <div className="automationPromptSummary">
-              <div>
-                <strong>Prompt nghiệp vụ</strong>
-                <span>{settingsDraft.businessPrompt.trim() ? 'Đã cấu hình yêu cầu riêng cho nội dung AI.' : 'Đang dùng hướng dẫn mặc định của hệ thống.'}</span>
-              </div>
-              <button className="secondaryButton" type="button" onClick={() => setAutomationPromptOpen(true)}>
-                Chỉnh Prompt AI
-              </button>
-            </div>
             {automationResultOpen && latestAutomationRun ? (
               <div className="automationRunDetails">
                 <div className="automationRunDetailsHeader">
@@ -2058,6 +2056,16 @@ export function OperationsPanel({
                     />
                     <span>ngày/lần</span>
                   </label>
+                </div>
+                <div className="automationCampaignPromptEditor">
+                  <div><strong>Prompt AI riêng của chiến dịch</strong><span>Prompt này chỉ áp dụng cho các nhóm quảng cáo thuộc chiến dịch hiện tại.</span></div>
+                  <textarea
+                    value={automationCampaignPrompts[automationCampaignDetail.campaign.id] || automationCampaignDetail.campaign.prompt || DEFAULT_EDITABLE_SYSTEM_PROMPT}
+                    onChange={(event) => setAutomationCampaignPrompts((current) => ({ ...current, [automationCampaignDetail.campaign.id]: event.target.value }))}
+                    maxLength={8000}
+                    disabled={!canManageAutomationScope}
+                  />
+                  <div><button className="tableActionButton" type="button" disabled={!canManageAutomationScope} onClick={() => setAutomationCampaignPrompts((current) => ({ ...current, [automationCampaignDetail.campaign.id]: DEFAULT_EDITABLE_SYSTEM_PROMPT }))}>Khôi phục mặc định</button><span>{(automationCampaignPrompts[automationCampaignDetail.campaign.id] || automationCampaignDetail.campaign.prompt || DEFAULT_EDITABLE_SYSTEM_PROMPT).length}/8000</span></div>
                 </div>
                 <div className="automationCampaignMode" role="radiogroup" aria-label="Phạm vi chạy của chiến dịch">
                   <label aria-label="Chạy toàn bộ chiến dịch">

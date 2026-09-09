@@ -120,6 +120,7 @@ test('automation only targets explicitly selected enabled ad groups', async () =
       adGroupName: 'Được phép',
       languageCode: 'vi',
       topic: 'Điều khiển điều hòa',
+      automationPrompt: '',
     },
   ]);
 });
