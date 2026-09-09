@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource, In, Not } from 'typeorm';
@@ -386,6 +387,8 @@ export type GoogleAdsSyncAsset = {
 
 @Injectable()
 export class GoogleAdsService {
+  private readonly logger = new Logger(GoogleAdsService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly googleAdsQuery: GoogleAdsQueryService,
@@ -1580,6 +1583,17 @@ export class GoogleAdsService {
       adGroupName: automationContext?.adGroupName ?? null,
       editableSystemPrompt: automationContext?.editableSystemPrompt ?? '',
     }, guidance, history);
+    if (String(process.env.AUTOMATION_PROMPT_DEBUG ?? '').toLowerCase() === 'true') {
+      this.logger.warn(
+        `\n========== AUTOMATION PROMPT DEBUG START ==========` +
+        `\nCustomer: ${customerId}` +
+        `\nCampaign: ${automationContext?.campaignName ?? '-'}` +
+        `\nAd group: ${automationContext?.adGroupName ?? adGroupId} (${adGroupId})` +
+        `\nTime range: ${timeRange}` +
+        `\n${prompt}` +
+        `\n========== AUTOMATION PROMPT DEBUG END ==========`,
+      );
+    }
     const schema = this.aiTextSuggestionSchema(candidates);
     const outputText =
       aiProvider.source === 'gemini'
