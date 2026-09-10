@@ -2804,85 +2804,101 @@ export class GoogleAdsService {
     guidance: CreativeGuidance | null,
     history: CreativeHistory,
   ) {
-    const editableSystemPrompt = context.editableSystemPrompt?.trim() || guidance?.editableSystemPrompt?.trim() || [
-      'Role: Senior Google Ads Copywriter specializing in app advertising optimization.',
-      'Task: Write one replacement for each HEADLINE or DESCRIPTION labeled LOW by Google Ads.',
-      'Write naturally like a native speaker in the configured ad-group language.',
-      'Do not invent prices, offers, statistics, awards, guarantees, or features.',
-      'Do not duplicate or closely imitate existing content or suggestion history.',
-      'Do not use abnormal capitalization, emoji, decorative symbols, repeated punctuation, or misleading content.',
-      'HEADLINE max 30 characters; DESCRIPTION max 60 characters.',
-      'Do not use negative keywords or prohibited content.',
-    ].join('\n');
-    const businessPrompt = this.renderBusinessPrompt(
+    const editableSystemPrompt = this.repairUtf8Mojibake(context.editableSystemPrompt?.trim() || guidance?.editableSystemPrompt?.trim() || [
+      'Vai trò: Senior Google Ads Copywriter chuyên tối ưu quảng cáo ứng dụng.',
+      'Nhiệm vụ: Viết một nội dung thay thế cho từng HEADLINE hoặc DESCRIPTION mang nhãn LOW.',
+      'Viết tự nhiên như người bản địa, theo ngôn ngữ thực tế của từng nhóm quảng cáo.',
+      'Không bịa đặt giá, ưu đãi, số liệu, giải thưởng, cam kết hoặc tính năng.',
+      'Không trùng hoặc gần giống nội dung hiện có và lịch sử đề xuất.',
+      'Không viết hoa bất thường, dùng emoji, ký hiệu trang trí, dấu câu lặp hoặc nội dung gây hiểu nhầm.',
+      'HEADLINE tối đa 30 ký tự; DESCRIPTION tối đa 60 ký tự.',
+      'Không dùng từ khóa phủ định hoặc nội dung bị cấm.',
+    ].join('\n'));
+    const businessPrompt = this.repairUtf8Mojibake(this.renderBusinessPrompt(
       guidance?.businessPrompt ?? '',
       candidates,
       context,
-    );
+    ));
     return [
-      'You are a Senior Google Ads Copywriter specializing in conversion-focused mobile app advertising.',
-      'Your task is to replace underperforming headlines and descriptions with specific, persuasive, policy-safe copy.',
-      'Return one replacement for every supplied LOW-label candidate. The JSON schema is the final output contract; do not add commentary outside it.',
+      'Bạn là Senior Google Ads Copywriter chuyên viết quảng cáo ứng dụng di động tập trung vào chuyển đổi.',
+      'Nhiệm vụ là thay thế các tiêu đề và mô tả hiệu quả thấp bằng nội dung cụ thể, thuyết phục và an toàn chính sách.',
+      'Trả về một nội dung thay thế cho mỗi candidate mang nhãn LOW. JSON schema là hợp đồng đầu ra; không viết giải thích ngoài JSON.',
       '',
-      'USER-EDITABLE SYSTEM INSTRUCTIONS:',
+      'HƯỚNG DẪN HỆ THỐNG DO NGƯỜI DÙNG CẤU HÌNH:',
       editableSystemPrompt,
       ...(businessPrompt
         ? [
             '',
-            'USER-EDITABLE BUSINESS BRIEF:',
-            'Apply this brief when it does not conflict with the mandatory safety, language, factual, policy, length, scope, and JSON rules below.',
+            'YÊU CẦU NGHIỆP VỤ DO NGƯỜI DÙNG CẤU HÌNH:',
+            'Áp dụng yêu cầu này khi không xung đột với các quy tắc bắt buộc bên dưới.',
             businessPrompt,
           ]
         : []),
       '',
-      'COPY QUALITY RULES:',
-      '1. Write natural native copy that sounds written by an experienced local copywriter, not generic AI text.',
-      '2. Focus on a concrete customer benefit, desired outcome, relevant pain point, meaningful differentiator, verifiable proof, real offer, or clear action.',
-      '3. Prefer specific and immediately understandable wording. Describe customer value rather than merely naming a feature.',
-      '4. Never invent prices, discounts, statistics, awards, guarantees, product capabilities, audiences, pain points, or competitive claims that are absent from the supplied policy/context/current copy.',
-      '5. Avoid empty superlatives and cliches equivalent to “leading solution”, “best quality”, “great experience”, “breakthrough”, “perfect”, or “elevate your experience” unless supplied facts objectively support them.',
-      '6. Do not paraphrase the same message repeatedly. Across the returned set, vary the persuasive angle and sentence structure while keeping each item relevant to its source asset.',
-      '7. Use keywords naturally. Never keyword-stuff, use all caps, repeat exclamation marks, create false urgency, or make unverifiable promises.',
-      '8. A headline must communicate one clear idea and make sense on its own. A description must add useful detail and, when supported by context, end with an appropriate action.',
-      '9. Do not copy the current text, rejected content, or any historical suggestion verbatim. Do not produce variants that differ only by one weak synonym.',
-      '10. Compare every proposal with ALL existing headlines and descriptions in the ad group. It must not duplicate an existing sentence, reuse the same core message, or be a near-duplicate with only minor word changes.',
-      '11. Follow Google Ads editorial rules: no gimmicky capitalization, repeated words, repeated or unnecessary punctuation, emojis, decorative symbols, phone numbers used as ad copy, misleading claims, clickbait, or attempts to bypass review.',
-      '12. Headlines may use letters, native diacritics, numbers, spaces, and only necessary language-appropriate punctuation. Descriptions may use normal sentence punctuation. Never use decorative symbols, bullets, pipes, hashtags, emoji, or repeated punctuation.',
-      '13. Text must be clear, professional, grammatically correct, understandable on its own, and relevant to the destination app. Do not use vague fragments, excessive spacing, or an unsupported call to action.',
-      '14. Before returning each item, silently verify relevance, specificity, uniqueness, factual support, policy safety, native fluency, allowed characters, and character length. Rewrite any item that fails.',
+      'QUY TẮC CHẤT LƯỢNG NỘI DUNG:',
+      '1. Viết tự nhiên như copywriter bản địa giàu kinh nghiệm, không dùng văn phong AI chung chung.',
+      '2. Tập trung vào lợi ích cụ thể, kết quả mong muốn, vấn đề liên quan, điểm khác biệt có ý nghĩa, bằng chứng kiểm chứng được, ưu đãi có thật hoặc hành động rõ ràng.',
+      '3. Ưu tiên cách diễn đạt cụ thể, dễ hiểu ngay; mô tả giá trị cho khách hàng thay vì chỉ nêu tên tính năng.',
+      '4. Không bịa đặt giá, giảm giá, thống kê, giải thưởng, cam kết, khả năng sản phẩm, đối tượng, vấn đề hoặc tuyên bố cạnh tranh không có trong dữ liệu.',
+      '5. Tránh các từ sáo rỗng như “giải pháp hàng đầu”, “chất lượng tốt nhất”, “trải nghiệm tuyệt vời”, “đột phá” hoặc “hoàn hảo” nếu không có dữ kiện khách quan hỗ trợ.',
+      '6. Không lặp lại cùng thông điệp; các đề xuất phải đa dạng góc thuyết phục và cấu trúc câu nhưng vẫn liên quan đến nội dung gốc.',
+      '7. Dùng từ khóa tự nhiên; không nhồi từ khóa, viết hoa toàn bộ, lặp dấu chấm than, tạo khẩn cấp giả hoặc hứa hẹn không thể kiểm chứng.',
+      '8. Tiêu đề phải truyền đạt một ý rõ ràng và tự có nghĩa. Mô tả phải bổ sung chi tiết hữu ích và hành động phù hợp khi có căn cứ.',
+      '9. Không sao chép nguyên văn nội dung hiện tại, nội dung bị từ chối hoặc đề xuất cũ; không tạo biến thể chỉ khác một từ đồng nghĩa yếu.',
+      '10. So sánh từng đề xuất với TOÀN BỘ tiêu đề và mô tả hiện có; không trùng câu, thông điệp cốt lõi hoặc gần trùng.',
+      '11. Tuân thủ quy tắc biên tập Google Ads: không viết hoa phô trương, lặp từ hay dấu câu, dùng emoji, ký hiệu trang trí, số điện thoại làm nội dung, tuyên bố gây hiểu nhầm, clickbait hoặc lách kiểm duyệt.',
+      '12. Chỉ dùng chữ, dấu bản địa, số, khoảng trắng và dấu câu cần thiết; không dùng ký hiệu trang trí, bullet, gạch đứng, hashtag, emoji hoặc dấu câu lặp.',
+      '13. Nội dung phải rõ ràng, chuyên nghiệp, đúng ngữ pháp, tự hiểu được và liên quan đến ứng dụng đích.',
+      '14. Trước khi trả về, tự kiểm tra tính liên quan, cụ thể, duy nhất, có căn cứ, an toàn chính sách, tự nhiên bản địa, ký tự cho phép và độ dài; viết lại nếu chưa đạt.',
       '',
-      'LANGUAGE AND MARKET RULES:',
-      `User-configured ad group language: ${context.automationLanguageCode ?? 'not configured'}. When configured, this is the REQUIRED output language for every candidate and overrides automatic detection and the language of currentText.`,
-      `User-configured ad group topic: ${context.automationTopic ?? 'not configured'}. Every suggestion must stay relevant to this topic and must not invent unsupported product facts.`,
-      `Ad group fallback language: ${context.targetLanguageName} (${context.targetLanguageCode}), confidence ${context.targetLanguageConfidence}.`,
-      '1. If a user-configured ad group language is present, write every replacement in exactly that language. Keep only supplied brand/product names unchanged.',
-      '2. A country/market is not a language. Use the candidate language for output and use market context only to localize vocabulary, tone, spelling, and conventions.',
-      '3. Only when no user-configured language exists: detect currentText independently and use targetLanguage/currentText as the fallback authority.',
-      '4. Never default to English merely because the brand, app name, or keyword is English. Do not translate into English or Spanish unless that candidate is already written in it.',
-      '5. Do not mix languages in one item except for a supplied brand name, product name, or established term that should remain unchanged.',
-      '6. Use native spelling, accents, grammar, punctuation, word order, and regional vocabulary. Do not produce a literal translation from English.',
+      'QUY TẮC NGÔN NGỮ VÀ THỊ TRƯỜNG:',
+      `Ngôn ngữ nhóm do người dùng cấu hình: ${context.automationLanguageCode || 'không cấu hình'}. Khi có giá trị, đây là ngôn ngữ đầu ra BẮT BUỘC cho mọi candidate.`,
+      `Chủ đề nhóm do người dùng cấu hình: ${context.automationTopic || 'không cấu hình'}. Mọi đề xuất phải liên quan đến chủ đề này và không bịa thêm thông tin sản phẩm.`,
+      `Ngôn ngữ dự phòng của nhóm: ${context.targetLanguageName} (${context.targetLanguageCode}), độ tin cậy ${context.targetLanguageConfidence}.`,
+      '1. Nếu có ngôn ngữ do người dùng cấu hình, viết mọi nội dung thay thế bằng chính xác ngôn ngữ đó; chỉ giữ nguyên tên thương hiệu hoặc sản phẩm được cung cấp.',
+      '2. Quốc gia hoặc thị trường không phải là ngôn ngữ. Dùng ngôn ngữ của candidate và chỉ dùng bối cảnh thị trường để bản địa hóa từ vựng, giọng văn, chính tả và quy ước.',
+      '3. Khi không có ngôn ngữ cấu hình, phải nhận diện ngôn ngữ riêng từ currentText và dùng targetLanguage/currentText làm căn cứ.',
+      '4. Không mặc định sang tiếng Anh chỉ vì thương hiệu, tên ứng dụng hoặc từ khóa bằng tiếng Anh; không dịch sang tiếng Anh hoặc Tây Ban Nha trừ khi candidate vốn dĩ dùng ngôn ngữ đó.',
+      '5. Không trộn nhiều ngôn ngữ trong một nội dung, ngoại trừ tên thương hiệu, sản phẩm hoặc thuật ngữ phổ biến cần giữ nguyên.',
+      '6. Dùng chính tả, dấu, ngữ pháp, dấu câu, trật tự từ và từ vựng bản địa tự nhiên; không dịch máy móc từ tiếng Anh.',
       '',
-      'GOOGLE ADS AND DATA RULES:',
-      'Use the stricter product limits exactly: HEADLINE max 30 characters, DESCRIPTION max 60 characters. These limits are stricter than the Google Ads platform maximum by design.',
-      'For each LOW headline return exactly one stronger replacement headline. For each LOW description return exactly one stronger replacement description.',
-      'Use active KEYWORD, BRAND_TERM, and CTA policy terms only when they fit the source language and meaning. Never use NEGATIVE_KEYWORD or PROHIBITED_CLAIM terms.',
-      'Do not reuse any exact text from suggestion history. Rejected text is banned. Approved/applied text can inspire style but must not be copied exactly.',
-      'Treat the user-configured ad group topic, current ad group copy, creative policy, and term data as the only sources of product facts, brand terms, offers, required wording, and prohibited wording.',
-      'The user-configured topic may be written in Vietnamese. Use it only as factual product context; do not copy its language. Output must still use the required ad group language.',
-      'If supplied context is insufficient, write a conservative benefit based only on current copy. Never guess the app category or borrow facts from another product.',
-      'Use performance metrics only to understand priority and weakness; never turn those metrics into an advertising claim.',
-      'For rationale, briefly state the customer-focused angle and why it is stronger than the current text. Do not claim that performance is guaranteed.',
-      'For summary, keep headline and approach under 8 words.',
+      'QUY TẮC GOOGLE ADS VÀ DỮ LIỆU:',
+      'Tuân thủ giới hạn nghiêm ngặt: HEADLINE tối đa 30 ký tự, DESCRIPTION tối đa 60 ký tự.',
+      'Với mỗi tiêu đề LOW, trả về đúng một tiêu đề thay thế tốt hơn; với mỗi mô tả LOW, trả về đúng một mô tả thay thế tốt hơn.',
+      'Chỉ dùng KEYWORD, BRAND_TERM và CTA đang hoạt động khi phù hợp ngôn ngữ và ý nghĩa; không dùng NEGATIVE_KEYWORD hoặc PROHIBITED_CLAIM.',
+      'Không dùng lại nguyên văn trong lịch sử đề xuất. Nội dung bị từ chối là bị cấm; nội dung đã duyệt/áp dụng chỉ được tham khảo phong cách.',
+      'Chỉ coi chủ đề nhóm, nội dung hiện có, chính sách creative và dữ liệu thuật ngữ là nguồn sự thật về sản phẩm, thương hiệu, ưu đãi, từ bắt buộc và từ cấm.',
+      'Chủ đề có thể được viết bằng tiếng Việt; chỉ dùng làm ngữ cảnh sự thật, không sao chép ngôn ngữ của nó. Đầu ra vẫn phải theo ngôn ngữ của nhóm.',
+      'Nếu ngữ cảnh không đủ, chỉ viết lợi ích thận trọng dựa trên nội dung hiện có; không đoán danh mục ứng dụng hoặc mượn thông tin từ sản phẩm khác.',
+      'Chỉ dùng số liệu hiệu suất để hiểu mức ưu tiên và điểm yếu; không biến số liệu thành tuyên bố quảng cáo.',
+      'Trong rationale, nêu ngắn gọn góc tiếp cận hướng khách hàng và lý do nó tốt hơn nội dung cũ; không cam kết hiệu suất.',
+      'Trong summary, giữ headline và approach dưới 8 từ.',
       '',
-      `Creative policy and term database: ${JSON.stringify(guidance)}`,
-      `Suggestion history to avoid: ${JSON.stringify(history)}`,
-      `All current ad group copy that new suggestions must not duplicate: ${JSON.stringify(existingAdCopy)}`,
-      `Context: ${JSON.stringify(context)}`,
-      `LOW-label text candidates sorted by views: ${JSON.stringify(
+      `Chính sách creative và kho thuật ngữ: ${JSON.stringify(this.repairPromptUnicodeDeep(guidance))}`,
+      `Lịch sử đề xuất cần tránh: ${JSON.stringify(this.repairPromptUnicodeDeep(history))}`,
+      `Toàn bộ nội dung hiện có không được trùng: ${JSON.stringify(this.repairPromptUnicodeDeep(existingAdCopy))}`,
+      `Ngữ cảnh lần chạy: ${JSON.stringify(this.repairPromptUnicodeDeep({
+        customerId: context.customerId,
+        adGroupId: context.adGroupId,
+        timeRange: context.timeRange,
+        targetLanguageCode: context.targetLanguageCode,
+        targetLanguageName: context.targetLanguageName,
+        targetLanguageConfidence: context.targetLanguageConfidence,
+        totalImpressions: context.totalImpressions,
+        totalClicks: context.totalClicks,
+        totalCost: context.totalCost,
+        avgCtr: context.avgCtr,
+        avgRoas: context.avgRoas,
+        automationLanguageCode: context.automationLanguageCode,
+        automationTopic: context.automationTopic,
+        campaignName: context.campaignName,
+        adGroupName: context.adGroupName,
+      }))}`,
+      `Danh sách candidate mang nhãn LOW, sắp xếp theo lượt hiển thị: ${JSON.stringify(
         candidates.map((candidate) => ({
           key: candidate.key,
           fieldType: candidate.fieldType,
-          currentText: candidate.text,
+          currentText: this.repairUtf8Mojibake(candidate.text),
           sourceLanguage: candidate.sourceLanguageName,
           sourceLanguageConfidence: candidate.sourceLanguageCode === 'en' ? 'low-if-auto' : 'detected',
           targetLanguage: candidate.targetLanguageName,
@@ -2896,6 +2912,52 @@ export class GoogleAdsService {
         })),
       )}`,
     ].join('\n');
+  }
+
+  private repairUtf8Mojibake(value: string) {
+    let current = String(value ?? '');
+    const suspiciousScore = (text: string) =>
+      (text.match(/(?:Ã|Â|Ø|Ù|Ä|Æ|â|ð)/g) ?? []).length;
+    const windows1252Bytes = new Map<number, number>([
+      [0x20ac, 0x80], [0x201a, 0x82], [0x0192, 0x83], [0x201e, 0x84],
+      [0x2026, 0x85], [0x2020, 0x86], [0x2021, 0x87], [0x02c6, 0x88],
+      [0x2030, 0x89], [0x0160, 0x8a], [0x2039, 0x8b], [0x0152, 0x8c],
+      [0x017d, 0x8e], [0x2018, 0x91], [0x2019, 0x92], [0x201c, 0x93],
+      [0x201d, 0x94], [0x2022, 0x95], [0x2013, 0x96], [0x2014, 0x97],
+      [0x02dc, 0x98], [0x2122, 0x99], [0x0161, 0x9a], [0x203a, 0x9b],
+      [0x0153, 0x9c], [0x017e, 0x9e], [0x0178, 0x9f],
+    ]);
+    for (let pass = 0; pass < 2; pass += 1) {
+      const beforeScore = suspiciousScore(current);
+      if (!beforeScore) break;
+      const bytes: number[] = [];
+      let convertible = true;
+      for (const character of current) {
+        const code = character.codePointAt(0) ?? 0;
+        const byte = code <= 0xff ? code : windows1252Bytes.get(code);
+        if (byte === undefined) {
+          convertible = false;
+          break;
+        }
+        bytes.push(byte);
+      }
+      if (!convertible) break;
+      const decoded = Buffer.from(bytes).toString('utf8');
+      if (decoded.includes('\ufffd') || suspiciousScore(decoded) >= beforeScore) break;
+      current = decoded;
+    }
+    return current;
+  }
+
+  private repairPromptUnicodeDeep(value: unknown): unknown {
+    if (typeof value === 'string') return this.repairUtf8Mojibake(value);
+    if (Array.isArray(value)) return value.map((item) => this.repairPromptUnicodeDeep(item));
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, item]) => [key, this.repairPromptUnicodeDeep(item)]),
+      );
+    }
+    return value;
   }
 
   private renderBusinessPrompt(

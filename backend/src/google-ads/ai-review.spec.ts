@@ -62,3 +62,16 @@ test('AI review keeps each asset visible language instead of forcing the group l
     true,
   );
 });
+
+test('AI prompt repairs UTF-8 text that was decoded as Windows-1252', () => {
+  const service = new GoogleAdsService({} as any, {} as any, {} as any) as any;
+
+  assert.equal(
+    service.repairUtf8Mojibake('Ø§Ù„Ø¹Ø±Ø¨ÙŠØ©'),
+    'العربية',
+  );
+  assert.equal(
+    service.repairUtf8Mojibake('Vai trÃ² chuyÃªn tá»‘i Æ°u'),
+    'Vai trò chuyên tối ưu',
+  );
+});
