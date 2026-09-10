@@ -338,6 +338,13 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         campaignName: target.campaignName,
         adGroupName: target.adGroupName,
         editableSystemPrompt: target.automationPrompt,
+        onPromptBuilt: (prompt) => this.saveRunItem(
+          run.id,
+          'PROMPT',
+          prompt,
+          undefined,
+          target,
+        ),
       },
     );
     for (const omitted of generated.omittedCandidates ?? []) {
@@ -607,14 +614,16 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       if (!account || (allowedAccountIds && !allowedAccountIds.has(account.id))) continue;
       if (adGroup.status !== 'ENABLED') continue;
       const scope = scopeByAdGroupId.get(adGroup.id);
-      if (!scope?.languageCode || !scope.adGroupTopic) continue;
+      if (!scope?.adGroupTopic) continue;
       targets.set(`${account.customerId}:${adGroup.googleAdGroupId}`, {
         customerId: account.customerId,
         campaignId: campaign.googleCampaignId,
         campaignName: campaign.name || `Campaign ${campaign.googleCampaignId}`,
         adGroupId: adGroup.googleAdGroupId,
         adGroupName: adGroup.name || `Ad group ${adGroup.googleAdGroupId}`,
-        languageCode: scope.languageCode,
+        // Automation must detect the language from the assets of each ad group.
+        // A previously saved manual language must not override the real content.
+        languageCode: '',
         topic: scope.adGroupTopic,
         automationPrompt: campaignScope?.automationPrompt ?? '',
       });

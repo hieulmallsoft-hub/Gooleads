@@ -2,6 +2,8 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Check,
+  Clipboard,
+  FileText,
   ExternalLink,
   History,
   KeyRound,
@@ -14,7 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { extractApiError, parseJsonSafe } from '../api/client';
-import { COMMON_LANGUAGE_OPTIONS, getLanguageLabel, LANGUAGE_OPTIONS, OTHER_LANGUAGE_OPTIONS } from '../config/languages';
+import { getLanguageLabel, LANGUAGE_OPTIONS } from '../config/languages';
 import type { AuthUser, Campaign } from '../types/googleAds';
 
 export type OperationsSection = 'overview' | 'recommendations' | 'impact' | 'automation' | 'keywords' | 'settings' | 'guide';
@@ -400,6 +402,7 @@ function automationRunActionLabel(value: string) {
     SKIPPED: 'Bỏ qua',
     PAUSED: 'Đã dừng',
     SUGGESTED: 'Đã đề xuất',
+    PROMPT: 'Prompt AI',
   }[value] ?? value;
 }
 
@@ -456,6 +459,13 @@ export function OperationsPanel({
   const [automationRunning, setAutomationRunning] = useState(false);
   const [automationRunningCampaignId, setAutomationRunningCampaignId] = useState('');
   const [automationResultOpen, setAutomationResultOpen] = useState(false);
+  const [automationPromptLog, setAutomationPromptLog] = useState<{
+    prompt: string;
+    campaignName: string;
+    adGroupName: string;
+    adGroupId: string;
+    runAt: string;
+  } | null>(null);
   const automationStopRequestedRef = useRef(false);
   const [automationScopeSaving, setAutomationScopeSaving] = useState(false);
   const [selectedAutomationCampaignIds, setSelectedAutomationCampaignIds] =
@@ -1678,6 +1688,34 @@ export function OperationsPanel({
                       .sort((left, right) => Number(right.action === 'FAILED') - Number(left.action === 'FAILED'))
                       .map((item) => {
                       const failed = item.action === 'FAILED';
+                      if (item.action === 'PROMPT') {
+                        return (
+                          <div className="automationRunItem automationPromptRunItem" key={item.id}>
+                            <FileText size={17} />
+                            <div>
+                              <strong>Prompt AI đã đọc</strong>
+                              <span>
+                                {item.targetSnapshot?.campaignName ? `Chiến dịch: ${item.targetSnapshot.campaignName}` : ''}
+                                {item.targetSnapshot?.adGroupName ? ` · Nhóm: ${item.targetSnapshot.adGroupName}` : ''}
+                              </span>
+                              <p>Bản prompt thật đã chèn dữ liệu và gửi cho AI trong lần chạy này.</p>
+                            </div>
+                            <button
+                              className="automationPromptViewButton"
+                              type="button"
+                              onClick={() => setAutomationPromptLog({
+                                prompt: item.reason ?? '',
+                                campaignName: item.targetSnapshot?.campaignName ?? 'Chiến dịch',
+                                adGroupName: item.targetSnapshot?.adGroupName ?? 'Nhóm quảng cáo',
+                                adGroupId: item.targetSnapshot?.adGroupId ?? '',
+                                runAt: latestAutomationRun.completedAt ?? latestAutomationRun.startedAt,
+                              })}
+                            >
+                              Xem prompt
+                            </button>
+                          </div>
+                        );
+                      }
                       return (
                         <div className={`automationRunItem ${failed ? 'failed' : ''}`} key={item.id}>
                           <AlertCircle size={16} />
@@ -1697,6 +1735,32 @@ export function OperationsPanel({
                 ) : (
                   <div className="automationRunEmpty">Lần chạy này chưa lưu chi tiết xử lý.</div>
                 )}
+              </div>
+            ) : null}
+            {automationPromptLog ? (
+              <div className="automationHistoryBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAutomationPromptLog(null); }}>
+                <aside className="automationHistoryDrawer automationPromptLogDrawer" role="dialog" aria-modal="true" aria-label="Prompt AI đã đọc">
+                  <header className="automationHistoryHeader">
+                    <div>
+                      <span className="eyebrow">Nhật ký lần chạy</span>
+                      <h2>Prompt AI đã đọc</h2>
+                      <p>Đây là nội dung thật đã gửi tới AI, không còn biến <code>{'{{...}}'}</code>.</p>
+                    </div>
+                    <button className="iconAction" type="button" onClick={() => setAutomationPromptLog(null)} aria-label="Đóng prompt"><X size={18} /></button>
+                  </header>
+                  <div className="automationHistoryDrawerBody automationPromptLogBody">
+                    <div className="automationPromptLogMeta">
+                      <div><span>Chiến dịch</span><strong>{automationPromptLog.campaignName}</strong></div>
+                      <div><span>Nhóm quảng cáo</span><strong>{automationPromptLog.adGroupName}</strong><small>{automationPromptLog.adGroupId ? `ID ${automationPromptLog.adGroupId}` : ''}</small></div>
+                      <div><span>Thời điểm chạy</span><strong>{formatDate(automationPromptLog.runAt)}</strong></div>
+                    </div>
+                    <div className="automationPromptLogToolbar">
+                      <div><strong>Prompt hoàn chỉnh</strong><span>Các quy tắc, ngữ cảnh, dữ liệu và LOW candidate AI nhận được.</span></div>
+                      <button type="button" onClick={() => void navigator.clipboard.writeText(automationPromptLog.prompt)}><Clipboard size={15} /> Sao chép</button>
+                    </div>
+                    <pre className="automationPromptLogContent">{automationPromptLog.prompt}</pre>
+                  </div>
+                </aside>
               </div>
             ) : null}
             {(!hasAutomationTarget || automationScopeDirty) ? <div className={`automationNextStep ${automationScopeDirty ? 'warning' : ''}`}>
@@ -2140,7 +2204,7 @@ export function OperationsPanel({
                         <small data-label="ROAS">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.roas) : '—'}</small>
                       </span>
                       {targeted ? <div className="automationAdGroupContext">
-                        <label><span>Ngôn ngữ AI phải sử dụng</span><select value={config.languageCode} onChange={(event) => setAutomationAdGroupConfigs((current) => ({ ...current, [adGroup.id]: { ...config, languageCode: event.target.value } }))}><option value="">Chọn theo tên ngôn ngữ hoặc quốc gia</option><optgroup label="Ngôn ngữ thường dùng">{COMMON_LANGUAGE_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</optgroup><optgroup label="Ngôn ngữ khác">{OTHER_LANGUAGE_OPTIONS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</optgroup></select></label>
+                        <div className="automationLanguageDetection"><span>Ngôn ngữ đầu ra</span><strong>Tự nhận diện theo nội dung nhóm</strong><small>Mỗi nhóm quảng cáo được phân tích riêng; AI không mặc định sang tiếng Anh.</small></div>
                         <label><span>Chủ đề của nhóm quảng cáo</span><input value={config.topic} maxLength={500} placeholder="Ví dụ: Ứng dụng điều khiển điều hòa từ điện thoại" onChange={(event) => setAutomationAdGroupConfigs((current) => ({ ...current, [adGroup.id]: { ...config, topic: event.target.value } }))} /></label>
                       </div> : null}
                     </div>
@@ -2158,7 +2222,7 @@ export function OperationsPanel({
                   <button
                     className="primaryButton"
                     type="button"
-                    disabled={!selectedAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || automationCampaignDetail.adGroups.some((adGroup) => (allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id)) && (!automationAdGroupConfigs[adGroup.id]?.languageCode || !automationAdGroupConfigs[adGroup.id]?.topic.trim()))}
+                    disabled={!selectedAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || automationCampaignDetail.adGroups.some((adGroup) => (allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id)) && !automationAdGroupConfigs[adGroup.id]?.topic.trim())}
                     onClick={() => setAutomationCampaignDetail(null)}
                   >
                     Xong

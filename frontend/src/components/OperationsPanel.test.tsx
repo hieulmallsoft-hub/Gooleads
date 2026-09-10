@@ -212,7 +212,6 @@ describe('OperationsPanel đổi mật khẩu', () => {
     await user.click(
       screen.getByLabelText('Cho phép Automation trong nhóm quảng cáo Nhóm Việt Nam'),
     );
-    await user.selectOptions(screen.getByLabelText('Ngôn ngữ AI phải sử dụng'), 'vi');
     await user.type(screen.getByLabelText('Chủ đề của nhóm quảng cáo'), 'Ứng dụng điều khiển điều hòa');
     await user.click(screen.getByRole('button', { name: 'Lưu phạm vi' }));
 

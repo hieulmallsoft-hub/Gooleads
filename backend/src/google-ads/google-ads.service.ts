@@ -1521,6 +1521,7 @@ export class GoogleAdsService {
       campaignName?: string;
       adGroupName?: string;
       editableSystemPrompt?: string;
+      onPromptBuilt?: (prompt: string) => void | Promise<void>;
     },
   ) {
     const aiProvider = this.getAiProvider('AI text suggestions');
@@ -1583,6 +1584,7 @@ export class GoogleAdsService {
       adGroupName: automationContext?.adGroupName ?? null,
       editableSystemPrompt: automationContext?.editableSystemPrompt ?? '',
     }, guidance, history);
+    await automationContext?.onPromptBuilt?.(prompt);
     if (String(process.env.AUTOMATION_PROMPT_DEBUG ?? '').toLowerCase() === 'true') {
       this.logger.warn(
         `\n========== AUTOMATION PROMPT DEBUG START ==========` +
@@ -1658,6 +1660,7 @@ export class GoogleAdsService {
         },
         suggestions,
         omittedCandidates,
+        promptUsed: prompt,
         candidateCount: candidates.length,
         model: aiProvider.model,
         source: aiProvider.source,
