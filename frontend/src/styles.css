@@ -3972,6 +3972,13 @@ button:disabled {
 .automationCampaignPromptEditor textarea:focus { border-color: #2d6cdf; box-shadow: 0 0 0 3px rgba(45,108,223,.1); outline: none; }
 .automationCampaignPromptEditor > div:last-child { align-items: center; display: flex; justify-content: space-between; }
 .automationCampaignPromptEditor > div:last-child span { color: #71809a; font-size: 12px; }
+.automationCampaignPromptResult { align-items: center; background: #fffaf0; border: 1px solid #f2d59c; border-radius: 10px; display: grid; gap: 12px; grid-template-columns: auto minmax(0, 1fr) auto; padding: 12px 14px; }
+.automationCampaignPromptResult > svg { color: #b7791f; }
+.automationCampaignPromptResult.available { background: #f0f7ff; border-color: #bdd5ff; }
+.automationCampaignPromptResult.available > svg { color: #2563eb; }
+.automationCampaignPromptResult > div { display: grid; gap: 3px; }
+.automationCampaignPromptResult > div span { color: #64748b; font-size: 12px; }
+.automationPromptNotSent { background: #fff1d6; border-radius: 999px; color: #9a5b00; font-size: 11px; font-weight: 800; padding: 5px 9px; }
 
 .assetCell {
   display: grid;
@@ -4640,6 +4647,7 @@ tbody tr:hover td:first-child {
 .automationRunEmpty { padding: 18px; text-align: center; color: #64748b; font-size: 13px; }
 
 .automationPromptLogDrawer { width: min(820px, 100vw); }
+.automationPromptLogBackdrop { z-index: 1300; }
 .automationPromptLogBody { background: #f5f7fb; display: grid; gap: 14px; }
 .automationPromptLogMeta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .automationPromptLogMeta > div { background: #fff; border: 1px solid #dce5f2; border-radius: 10px; display: grid; gap: 4px; padding: 12px; }

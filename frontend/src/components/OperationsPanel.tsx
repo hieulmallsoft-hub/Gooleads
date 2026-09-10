@@ -1363,6 +1363,27 @@ export function OperationsPanel({
   const activeAutomationChangeHistory = automationHistoryCampaign
     ? automationChangeHistoryByCampaignId.get(automationHistoryCampaign.id) ?? []
     : [];
+  const activeCampaignPromptLog = useMemo(() => {
+    const campaignId = automationCampaignDetail?.campaign.id;
+    if (!campaignId) return null;
+    for (const run of settings?.recentAutomationRuns ?? []) {
+      const item = (run.items ?? []).find((entry) =>
+        entry.action === 'PROMPT' && entry.targetSnapshot?.campaignId === campaignId,
+      );
+      if (item?.reason) return {
+        item,
+        runAt: run.completedAt ?? run.startedAt,
+      };
+    }
+    return null;
+  }, [automationCampaignDetail?.campaign.id, settings?.recentAutomationRuns]);
+  const activeCampaignLastRun = useMemo(() => {
+    const campaignId = automationCampaignDetail?.campaign.id;
+    if (!campaignId) return null;
+    return (settings?.recentAutomationRuns ?? []).find((run) =>
+      (run.items ?? []).some((item) => item.targetSnapshot?.campaignId === campaignId),
+    ) ?? null;
+  }, [automationCampaignDetail?.campaign.id, settings?.recentAutomationRuns]);
   const fullAutomationPromptPreview = useMemo(
     () => buildFullPromptPreview(settingsDraft.businessPrompt),
     [settingsDraft.businessPrompt],
@@ -1738,7 +1759,7 @@ export function OperationsPanel({
               </div>
             ) : null}
             {automationPromptLog ? (
-              <div className="automationHistoryBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAutomationPromptLog(null); }}>
+              <div className="automationHistoryBackdrop automationPromptLogBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAutomationPromptLog(null); }}>
                 <aside className="automationHistoryDrawer automationPromptLogDrawer" role="dialog" aria-modal="true" aria-label="Prompt AI đã đọc">
                   <header className="automationHistoryHeader">
                     <div>
@@ -2142,6 +2163,28 @@ export function OperationsPanel({
                     disabled={!canManageAutomationScope}
                   />
                   <div><button className="tableActionButton" type="button" disabled={!canManageAutomationScope} onClick={() => setAutomationCampaignPrompts((current) => ({ ...current, [automationCampaignDetail.campaign.id]: DEFAULT_EDITABLE_SYSTEM_PROMPT }))}>Khôi phục mặc định</button><span>{(automationCampaignPrompts[automationCampaignDetail.campaign.id] || automationCampaignDetail.campaign.prompt || DEFAULT_EDITABLE_SYSTEM_PROMPT).length}/8000</span></div>
+                </div>
+                <div className={`automationCampaignPromptResult${activeCampaignPromptLog ? ' available' : ''}`}>
+                  <FileText size={19} />
+                  <div>
+                    <strong>Prompt đã gửi lần gần nhất</strong>
+                    {activeCampaignPromptLog ? (
+                      <span>Đã gửi cho AI · {activeCampaignPromptLog.item.targetSnapshot?.adGroupName ?? 'Nhóm quảng cáo'} · {formatDate(activeCampaignPromptLog.runAt)}</span>
+                    ) : activeCampaignLastRun ? (
+                      <span>AI chưa được gọi trong lần chạy gần nhất. Không tìm thấy tiêu đề hoặc mô tả mang nhãn LOW.</span>
+                    ) : (
+                      <span>Chưa có lần chạy nào tạo prompt thật cho chiến dịch này.</span>
+                    )}
+                  </div>
+                  {activeCampaignPromptLog ? (
+                    <button className="automationPromptViewButton" type="button" onClick={() => setAutomationPromptLog({
+                      prompt: activeCampaignPromptLog.item.reason ?? '',
+                      campaignName: activeCampaignPromptLog.item.targetSnapshot?.campaignName ?? automationCampaignDetail.campaign.name,
+                      adGroupName: activeCampaignPromptLog.item.targetSnapshot?.adGroupName ?? 'Nhóm quảng cáo',
+                      adGroupId: activeCampaignPromptLog.item.targetSnapshot?.adGroupId ?? '',
+                      runAt: activeCampaignPromptLog.runAt,
+                    })}>Xem prompt AI đã đọc</button>
+                  ) : <span className="automationPromptNotSent">Chưa gửi AI</span>}
                 </div>
                 <div className="automationCampaignMode" role="radiogroup" aria-label="Phạm vi chạy của chiến dịch">
                   <label aria-label="Chạy toàn bộ chiến dịch">
