@@ -406,6 +406,53 @@ function automationRunActionLabel(value: string) {
   }[value] ?? value;
 }
 
+function formatAutomationPromptBlock(value: string) {
+  return value.split('\n').map((line) => {
+    const jsonStart = line.search(/[\[{]/);
+    if (jsonStart <= 0) return line;
+    const prefix = line.slice(0, jsonStart).trimEnd();
+    try {
+      const parsed = JSON.parse(line.slice(jsonStart));
+      return `${prefix}\n${JSON.stringify(parsed, null, 2)}`;
+    } catch {
+      return line;
+    }
+  }).join('\n');
+}
+
+function splitAutomationPrompt(value: string) {
+  const titleLabels: Record<string, string> = {
+    'HƯỚNG DẪN HỆ THỐNG DO NGƯỜI DÙNG CẤU HÌNH:': 'Hướng dẫn được cấu hình',
+    'YÊU CẦU NGHIỆP VỤ DO NGƯỜI DÙNG CẤU HÌNH:': 'Yêu cầu nghiệp vụ',
+    'QUY TẮC CHẤT LƯỢNG NỘI DUNG:': 'Quy tắc chất lượng',
+    'QUY TẮC NGÔN NGỮ VÀ THỊ TRƯỜNG:': 'Ngôn ngữ và thị trường',
+    'QUY TẮC GOOGLE ADS VÀ DỮ LIỆU:': 'Google Ads và dữ liệu',
+    'USER-EDITABLE SYSTEM INSTRUCTIONS:': 'Hướng dẫn được cấu hình',
+    'COPY QUALITY RULES:': 'Quy tắc chất lượng',
+    'LANGUAGE AND MARKET RULES:': 'Ngôn ngữ và thị trường',
+    'GOOGLE ADS AND DATA RULES:': 'Google Ads và dữ liệu',
+  };
+  const sections: Array<{ title: string; content: string }> = [];
+  let title = 'Vai trò và nhiệm vụ';
+  let lines: string[] = [];
+  const flush = () => {
+    const content = formatAutomationPromptBlock(lines.join('\n').trim());
+    if (content) sections.push({ title, content });
+    lines = [];
+  };
+  for (const line of String(value ?? '').split('\n')) {
+    const heading = line.trim();
+    if (titleLabels[heading]) {
+      flush();
+      title = titleLabels[heading];
+    } else {
+      lines.push(line);
+    }
+  }
+  flush();
+  return sections;
+}
+
 const AUTOMATION_STALE_RUNNING_MINUTES = 30;
 
 function isStaleAutomationRun(
@@ -466,6 +513,7 @@ export function OperationsPanel({
     adGroupId: string;
     runAt: string;
   } | null>(null);
+  const [automationPromptRaw, setAutomationPromptRaw] = useState(false);
   const automationStopRequestedRef = useRef(false);
   const [automationScopeSaving, setAutomationScopeSaving] = useState(false);
   const [selectedAutomationCampaignIds, setSelectedAutomationCampaignIds] =
@@ -1384,6 +1432,10 @@ export function OperationsPanel({
       (run.items ?? []).some((item) => item.targetSnapshot?.campaignId === campaignId),
     ) ?? null;
   }, [automationCampaignDetail?.campaign.id, settings?.recentAutomationRuns]);
+  const automationPromptSections = useMemo(
+    () => splitAutomationPrompt(automationPromptLog?.prompt ?? ''),
+    [automationPromptLog?.prompt],
+  );
   const fullAutomationPromptPreview = useMemo(
     () => buildFullPromptPreview(settingsDraft.businessPrompt),
     [settingsDraft.businessPrompt],
@@ -1776,10 +1828,24 @@ export function OperationsPanel({
                       <div><span>Thời điểm chạy</span><strong>{formatDate(automationPromptLog.runAt)}</strong></div>
                     </div>
                     <div className="automationPromptLogToolbar">
-                      <div><strong>Prompt hoàn chỉnh</strong><span>Các quy tắc, ngữ cảnh, dữ liệu và LOW candidate AI nhận được.</span></div>
-                      <button type="button" onClick={() => void navigator.clipboard.writeText(automationPromptLog.prompt)}><Clipboard size={15} /> Sao chép</button>
+                      <div><strong>{automationPromptRaw ? 'Prompt thô' : 'Prompt đã phân nhóm'}</strong><span>Các quy tắc, ngữ cảnh, dữ liệu và LOW candidate AI nhận được.</span></div>
+                      <div className="automationPromptLogActions">
+                        <button type="button" onClick={() => setAutomationPromptRaw((current) => !current)}>{automationPromptRaw ? 'Xem trình bày' : 'Xem bản thô'}</button>
+                        <button type="button" onClick={() => void navigator.clipboard.writeText(automationPromptLog.prompt)}><Clipboard size={15} /> Sao chép</button>
+                      </div>
                     </div>
-                    <pre className="automationPromptLogContent">{automationPromptLog.prompt}</pre>
+                    {automationPromptRaw ? (
+                      <pre className="automationPromptLogContent">{automationPromptLog.prompt}</pre>
+                    ) : (
+                      <div className="automationPromptSections">
+                        {automationPromptSections.map((section, index) => (
+                          <section className="automationPromptSection" key={`${section.title}-${index}`}>
+                            <header><span>{index + 1}</span><strong>{section.title}</strong></header>
+                            <pre>{section.content}</pre>
+                          </section>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </aside>
               </div>

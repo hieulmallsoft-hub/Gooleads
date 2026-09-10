@@ -4656,8 +4656,15 @@ tbody tr:hover td:first-child {
 .automationPromptLogToolbar { align-items: center; display: flex; gap: 16px; justify-content: space-between; }
 .automationPromptLogToolbar > div { display: grid; gap: 3px; }
 .automationPromptLogToolbar span { color: #64748b; font-size: 12px; }
-.automationPromptLogToolbar button { align-items: center; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; color: #334155; cursor: pointer; display: flex; flex: 0 0 auto; gap: 6px; font-weight: 700; padding: 8px 11px; }
+.automationPromptLogToolbar button { align-items: center; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; color: #334155; cursor: pointer; display: flex; flex: 0 0 auto; gap: 6px; font-weight: 700; justify-content: center; padding: 8px 11px; }
+.automationPromptLogActions { display: flex !important; flex: 0 0 auto; gap: 8px !important; }
 .automationPromptLogContent { background: #101827; border: 1px solid #25334a; border-radius: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.05); color: #dce7f7; font: 12px/1.65 Consolas, "SFMono-Regular", monospace; margin: 0; min-height: 360px; overflow: auto; padding: 20px; tab-size: 2; white-space: pre-wrap; word-break: break-word; }
+.automationPromptSections { display: grid; gap: 12px; }
+.automationPromptSection { background: #fff; border: 1px solid #dce5f2; border-radius: 12px; box-shadow: 0 3px 12px rgba(15,23,42,.04); overflow: hidden; }
+.automationPromptSection > header { align-items: center; background: linear-gradient(90deg, #edf4ff, #f8fbff); border-bottom: 1px solid #dce5f2; display: flex; gap: 9px; padding: 10px 14px; }
+.automationPromptSection > header span { align-items: center; background: #2563eb; border-radius: 50%; color: #fff; display: inline-flex; font-size: 10px; font-weight: 800; height: 22px; justify-content: center; width: 22px; }
+.automationPromptSection > header strong { color: #1e3a68; font-size: 13px; }
+.automationPromptSection > pre { color: #334155; font: 12px/1.65 Consolas, "SFMono-Regular", monospace; margin: 0; max-height: 440px; overflow: auto; padding: 14px 16px; tab-size: 2; white-space: pre-wrap; word-break: break-word; }
 .automationLanguageDetection { background: #f0f7ff; border: 1px solid #c7dcff; border-radius: 8px; display: grid; gap: 3px; padding: 9px 11px; }
 .automationLanguageDetection > span { color: #64748b; font-size: 11px; font-weight: 700; }
 .automationLanguageDetection > strong { color: #174ea6; font-size: 13px; }
@@ -4666,7 +4673,7 @@ tbody tr:hover td:first-child {
 @media (max-width: 700px) {
   .automationPromptLogMeta { grid-template-columns: 1fr; }
   .automationPromptLogToolbar { align-items: stretch; flex-direction: column; }
-  .automationPromptLogToolbar button { justify-content: center; }
+  .automationPromptLogActions { display: grid !important; grid-template-columns: 1fr 1fr; }
 }
 
 .automationOverviewCards > div { display: grid; gap: 5px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--white); }
