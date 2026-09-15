@@ -1522,6 +1522,10 @@ export class GoogleAdsService {
       adGroupName?: string;
       editableSystemPrompt?: string;
       onPromptBuilt?: (prompt: string) => void | Promise<void>;
+      onInputSnapshot?: (snapshot: unknown) => void | Promise<void>;
+      onAiRequest?: (request: { provider: string; model: string; prompt: string; schema: unknown }) => void | Promise<void>;
+      onAiResponse?: (response: { raw: string; used: string }) => void | Promise<void>;
+      onValidation?: (results: unknown) => void | Promise<void>;
     },
   ) {
     const aiProvider = this.getAiProvider('AI text suggestions');
@@ -1566,6 +1570,13 @@ export class GoogleAdsService {
       headlines: [...new Set(assetPerformance.assets.filter((asset) => asset.fieldType === 'HEADLINE' && asset.text.trim()).map((asset) => asset.text.trim()))],
       descriptions: [...new Set(assetPerformance.assets.filter((asset) => asset.fieldType === 'DESCRIPTION' && asset.text.trim()).map((asset) => asset.text.trim()))],
     };
+    await automationContext?.onInputSnapshot?.({
+      customerId, adGroupId, timeRange, candidates, existingAdCopy,
+      guidance, history,
+      configuredLanguage: savedAdGroupContext?.languageCode ?? null,
+      topic: savedAdGroupContext?.topic ?? null,
+      totals: { impressions: assetPerformance.totalImpressions, clicks: assetPerformance.totalClicks, cost: assetPerformance.totalCost, ctr: assetPerformance.avgCtr, roas: assetPerformance.avgRoas },
+    });
     const prompt = this.buildOpenAiTextSuggestionPrompt(candidates, existingAdCopy, {
       customerId,
       adGroupId,
@@ -1597,6 +1608,9 @@ export class GoogleAdsService {
       );
     }
     const schema = this.aiTextSuggestionSchema(candidates);
+    if (aiProvider.source === 'openai') {
+      await automationContext?.onAiRequest?.({ provider: aiProvider.source, model: aiProvider.model, prompt, schema });
+    }
     const outputText =
       aiProvider.source === 'gemini'
         ? await this.requestGeminiJson({
@@ -1604,6 +1618,8 @@ export class GoogleAdsService {
             prompt,
             schema,
             maxOutputTokens: Math.min(16_000, Math.max(3_600, candidates.length * 320)),
+            onRequestBuilt: (actualPrompt) => automationContext?.onAiRequest?.({ provider: aiProvider.source, model: aiProvider.model, prompt: actualPrompt, schema }),
+            onResponse: (raw, used) => automationContext?.onAiResponse?.({ raw, used }),
           })
         : await this.requestOpenAiJson({
             model: aiProvider.model,
@@ -1623,6 +1639,10 @@ export class GoogleAdsService {
             maxOutputTokens: Math.min(16_000, Math.max(3_600, candidates.length * 320)),
           });
 
+    if (aiProvider.source === 'openai' && outputText) {
+      await automationContext?.onAiResponse?.({ raw: outputText, used: outputText });
+    }
+
     if (!outputText) {
       throw new InternalServerErrorException(`${aiProvider.label} returned empty text suggestions`);
     }
@@ -1639,6 +1659,15 @@ export class GoogleAdsService {
         result.suggestions ?? [],
         candidates,
       );
+      const acceptedKeysForLog = new Set(suggestions.map((suggestion) => suggestion.key));
+      await automationContext?.onValidation?.({
+        accepted: suggestions.map((suggestion) => ({ key: suggestion.key, oldText: suggestion.text, newText: suggestion.suggestion })),
+        rejected: (result.suggestions ?? []).filter((entry) => !acceptedKeysForLog.has(String(entry.key ?? ''))).map((entry) => ({
+          key: String(entry.key ?? ''), oldText: String(entry.currentText ?? ''), proposedText: String(entry.suggestion ?? ''),
+          reason: this.explainRejectedTextSuggestion(entry, candidates),
+        })),
+        missing: candidates.filter((candidate) => !(result.suggestions ?? []).some((entry) => String(entry.key ?? '') === candidate.key)).map((candidate) => ({ key: candidate.key, oldText: candidate.text, reason: 'AI không trả đề xuất cho nội dung này' })),
+      });
       const acceptedKeys = new Set(suggestions.map((suggestion) => suggestion.key));
       const omittedCandidates = candidates
         .filter((candidate) => !acceptedKeys.has(candidate.key))
@@ -1837,6 +1866,21 @@ export class GoogleAdsService {
         };
       })
       .filter((suggestion): suggestion is NonNullable<typeof suggestion> => Boolean(suggestion));
+  }
+
+  private explainRejectedTextSuggestion(
+    entry: Record<string, unknown>,
+    candidates: AiTextSuggestionCandidate[],
+  ) {
+    const candidate = candidates.find((item) => item.key === String(entry.key ?? ''));
+    if (!candidate) return 'Key không khớp nội dung LOW trong prompt';
+    const text = this.sanitizeGeneratedAdCopy(String(entry.suggestion ?? ''), candidate.fieldType);
+    if (!text) return 'Nội dung rỗng sau khi làm sạch';
+    if (text.length > candidate.maxLength) return `Vượt giới hạn ${candidate.maxLength} ký tự`;
+    if (!this.isGeneratedAdCopyEditoriallySafe(text)) return 'Không đạt quy tắc biên tập';
+    if (this.normalizeSuggestionCopy(text) === this.normalizeSuggestionCopy(candidate.text)) return 'Trùng nội dung gốc';
+    if (this.isReplacementLanguageMismatch(text, candidate.targetLanguageCode)) return 'Sai ngôn ngữ yêu cầu';
+    return 'Trùng đề xuất khác hoặc không được bộ lọc chấp nhận';
   }
 
   private buildFallbackTextSuggestions(
@@ -4580,11 +4624,15 @@ export class GoogleAdsService {
     prompt,
     schema,
     maxOutputTokens,
+    onRequestBuilt,
+    onResponse,
   }: {
     model: string;
     prompt: string;
     schema: unknown;
     maxOutputTokens: number;
+    onRequestBuilt?: (prompt: string) => void | Promise<void>;
+    onResponse?: (raw: string, used: string) => void | Promise<void>;
   }) {
     const jsonPrompt = [
       prompt,
@@ -4594,6 +4642,7 @@ export class GoogleAdsService {
       'Keep every string concise so the JSON is not truncated.',
       JSON.stringify(schema),
     ].join('\n');
+    await onRequestBuilt?.(jsonPrompt);
     const jsonSchemaPayload = {
       contents: [
         {
@@ -4645,6 +4694,7 @@ export class GoogleAdsService {
 
     try {
       this.parseAiJson(outputText);
+      await onResponse?.(outputText, outputText);
       return outputText;
     } catch {
       const repairedText = await this.repairGeminiJson({
@@ -4654,6 +4704,7 @@ export class GoogleAdsService {
         maxOutputTokens,
       });
 
+      await onResponse?.(outputText, repairedText || outputText);
       return repairedText || outputText;
     }
   }

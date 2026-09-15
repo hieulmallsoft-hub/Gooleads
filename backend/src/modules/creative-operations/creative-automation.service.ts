@@ -345,6 +345,10 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
           undefined,
           target,
         ),
+        onInputSnapshot: (snapshot) => this.saveRunItem(run.id, 'INPUT_SNAPSHOT', JSON.stringify(snapshot), undefined, target),
+        onAiRequest: (request) => this.saveRunItem(run.id, 'AI_REQUEST', JSON.stringify(request), undefined, target),
+        onAiResponse: (response) => this.saveRunItem(run.id, 'AI_RESPONSE', JSON.stringify(response), undefined, target),
+        onValidation: (results) => this.saveRunItem(run.id, 'AI_VALIDATION', JSON.stringify(results), undefined, target),
       },
     );
     for (const omitted of generated.omittedCandidates ?? []) {
@@ -459,6 +463,12 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         target,
         changeRequest.id,
       );
+      await this.saveRunItem(run.id, 'APPLY_RESULT', JSON.stringify({
+        changeRequestId: changeRequest.id,
+        selected: [...replacements.headlineReplacements, ...replacements.descriptionReplacements].map((item) => ({ oldText: item.oldText, newText: item.newText })),
+        appliedCount,
+        replacedAds: applyResult.replacedAds,
+      }), undefined, target, changeRequest.id);
     } else {
       await this.saveRunItem(
         run.id,
@@ -522,6 +532,10 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
         googleCampaignId: target.campaignId,
       });
     if (!campaign || campaign.status !== 'ENABLED') return false;
+    const campaignScope = await this.dataSource
+      .getRepository(CreativePolicyScopeEntity)
+      .findOneBy({ campaignId: campaign.id });
+    if (campaignScope?.automationEnabled === false) return false;
     const adGroup = await this.dataSource
       .getRepository(AdGroupEntity)
       .findOneBy({
@@ -609,6 +623,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       if (!campaign || campaign.status !== 'ENABLED') continue;
       if (allowedCampaignIds && !allowedCampaignIds.has(campaign.googleCampaignId)) continue;
       const campaignScope = campaignScopeMap.get(campaign.id);
+      if (campaignScope?.automationEnabled === false) continue;
       if (!force && campaignScope?.nextRunAt && campaignScope.nextRunAt > now) continue;
       const account = accountMap.get(campaign.accountId);
       if (!account || (allowedAccountIds && !allowedAccountIds.has(account.id))) continue;
@@ -678,7 +693,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       );
       for (const scope of processedScopes) {
         scope.lastRunAt = now;
-        scope.nextRunAt = schedule.enabled
+        scope.nextRunAt = schedule.enabled && scope.automationEnabled !== false
           ? this.addDays(now, Math.max(scope.intervalDays ?? schedule.intervalDays, 1))
           : null;
       }
@@ -689,7 +704,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       );
       for (const scope of dueScopes) {
         scope.lastRunAt = now;
-        scope.nextRunAt = schedule.enabled
+        scope.nextRunAt = schedule.enabled && scope.automationEnabled !== false
           ? this.addDays(now, Math.max(scope.intervalDays ?? schedule.intervalDays, 1))
           : null;
       }
@@ -697,7 +712,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     }
     const refreshedScopes = await scopeRepository.findBy({ policyId: schedule.policyId });
     const futureTimes = refreshedScopes
-      .filter((scope) => scope.campaignId && scope.nextRunAt)
+      .filter((scope) => scope.campaignId && scope.automationEnabled !== false && scope.nextRunAt)
       .map((scope) => scope.nextRunAt!.getTime());
     schedule.nextRunAt = schedule.enabled && futureTimes.length
       ? new Date(Math.min(...futureTimes))

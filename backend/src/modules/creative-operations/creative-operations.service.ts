@@ -1261,8 +1261,11 @@ export class CreativeOperationsService {
               includeAllAdGroups: allCampaignIds.includes(campaign.googleCampaignId),
               intervalDays,
               automationPrompt: scheduleByCampaignId.get(campaign.googleCampaignId)!.prompt,
+              automationEnabled: scheduleByCampaignId.get(campaign.googleCampaignId)!.enabled,
               lastRunAt: currentScope?.lastRunAt ?? null,
-              nextRunAt: intervalChanged
+              nextRunAt: !scheduleByCampaignId.get(campaign.googleCampaignId)!.enabled
+                ? null
+                : intervalChanged
                 ? this.addDays(currentScope?.lastRunAt ?? new Date(), intervalDays)
                 : currentScope?.nextRunAt ?? this.addDays(new Date(), intervalDays),
             };
@@ -1289,7 +1292,7 @@ export class CreativeOperationsService {
         .getRepository(CreativePolicyScopeEntity)
         .findBy({ policyId: policy.id });
       const nextRunTimes = campaignScopes
-        .filter((scope) => scope.campaignId && scope.nextRunAt)
+        .filter((scope) => scope.campaignId && scope.automationEnabled !== false && scope.nextRunAt)
         .map((scope) => scope.nextRunAt!.getTime());
       await this.automationService.ensureSchedule(policy, {
         enabled: true,
@@ -1300,6 +1303,58 @@ export class CreativeOperationsService {
     }
 
     return this.getAutomationScope(account, policy.id);
+  }
+
+  async updateAutomationCampaignStatus(
+    customerId: string,
+    googleCampaignIdValue: string,
+    actionValue: string,
+  ) {
+    const account = await this.getAccount(customerId);
+    const policy = await this.getPolicy(account.workspaceId);
+    const campaignId = String(googleCampaignIdValue ?? '').replace(/\D/g, '');
+    const action = String(actionValue ?? '').trim().toUpperCase();
+    if (!['PAUSE', 'RESUME', 'REMOVE'].includes(action)) {
+      throw new BadRequestException('Thao tác chiến dịch Automation không hợp lệ');
+    }
+    const campaign = await this.dataSource.getRepository(CampaignEntity).findOneBy({
+      accountId: account.id,
+      googleCampaignId: campaignId,
+    });
+    if (!campaign) throw new BadRequestException('Không tìm thấy chiến dịch trong tài khoản này');
+
+    await this.dataSource.transaction(async (manager) => {
+      const scopeRepository = manager.getRepository(CreativePolicyScopeEntity);
+      const campaignScope = await scopeRepository.findOneBy({ policyId: policy.id, campaignId: campaign.id });
+      if (!campaignScope) throw new BadRequestException('Chiến dịch chưa nằm trong phạm vi Automation');
+      if (action === 'REMOVE') {
+        const adGroups = await manager.getRepository(AdGroupEntity).findBy({ campaignId: campaign.id });
+        const adGroupIds = new Set(adGroups.map((item) => item.id));
+        const scopes = await scopeRepository.findBy({ policyId: policy.id });
+        const removable = scopes.filter((scope) =>
+          scope.id === campaignScope.id || Boolean(scope.adGroupId && adGroupIds.has(scope.adGroupId)),
+        );
+        if (removable.length) await scopeRepository.remove(removable);
+      } else {
+        campaignScope.automationEnabled = action === 'RESUME';
+        campaignScope.nextRunAt = action === 'RESUME'
+          ? this.addDays(new Date(), Math.max(campaignScope.intervalDays ?? policy.reviewIntervalDays, 1))
+          : null;
+        await scopeRepository.save(campaignScope);
+      }
+    });
+
+    const remainingScopes = await this.dataSource.getRepository(CreativePolicyScopeEntity).findBy({ policyId: policy.id });
+    const nextRunTimes = remainingScopes
+      .filter((scope) => scope.campaignId && scope.automationEnabled !== false && scope.nextRunAt)
+      .map((scope) => scope.nextRunAt!.getTime());
+    const schedule = await this.dataSource.getRepository(AutomationScheduleEntity).findOneBy({ policyId: policy.id });
+    if (schedule) {
+      schedule.enabled = nextRunTimes.length > 0;
+      schedule.nextRunAt = nextRunTimes.length ? new Date(Math.min(...nextRunTimes)) : null;
+      await this.dataSource.getRepository(AutomationScheduleEntity).save(schedule);
+    }
+    return { action, campaignId, automationEnabled: action === 'RESUME' };
   }
 
   async getAutomationCampaignScope(
@@ -1508,6 +1563,7 @@ export class CreativeOperationsService {
         intervalDays: activeScopes.find((scope) => scope.campaignId === campaign.id)?.intervalDays
           ?? 14,
         prompt: activeScopes.find((scope) => scope.campaignId === campaign.id)?.automationPrompt ?? '',
+        automationEnabled: activeScopes.find((scope) => scope.campaignId === campaign.id)?.automationEnabled !== false,
         lastRunAt: activeScopes.find((scope) => scope.campaignId === campaign.id)?.lastRunAt ?? null,
         nextRunAt: activeScopes.find((scope) => scope.campaignId === campaign.id)?.nextRunAt ?? null,
       })),
@@ -1597,6 +1653,7 @@ export class CreativeOperationsService {
         campaignId,
         intervalDays: Math.round(this.clampNumber(rawInterval, 14, 1, 365)),
         prompt: String(input.prompt ?? '').trim().slice(0, 8000),
+        enabled: input.enabled !== false,
       }];
     });
   }

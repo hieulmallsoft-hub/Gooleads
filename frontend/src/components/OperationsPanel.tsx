@@ -7,6 +7,7 @@ import {
   ExternalLink,
   History,
   KeyRound,
+  Pause,
   Play,
   Plus,
   RefreshCw,
@@ -262,6 +263,7 @@ type SettingsData = {
       selectedAdGroupIds: string[];
       intervalDays: number;
       prompt: string;
+      automationEnabled: boolean;
       lastRunAt: string | null;
       nextRunAt: string | null;
     }>;
@@ -453,6 +455,112 @@ function splitAutomationPrompt(value: string) {
   return sections;
 }
 
+function presentAutomationPromptSection(content: string) {
+  const labels: Array<[RegExp, string]> = [
+    [/^Creative policy and term database:/, 'Chính sách creative và kho thuật ngữ:'],
+    [/^Suggestion history to avoid:/, 'Lịch sử đề xuất cần tránh:'],
+    [/^All current ad group copy that new suggestions must not duplicate:/, 'Nội dung hiện có cần tránh trùng:'],
+    [/^Context:/, 'Dữ liệu lần chạy:'],
+    [/^LOW-label text candidates sorted by views:/, 'Nội dung LOW cần thay:'],
+  ];
+  return content.split('\n').map((line) => {
+    for (const [pattern, label] of labels) {
+      if (pattern.test(line)) return line.replace(pattern, label);
+    }
+    return line;
+  }).join('\n');
+}
+
+function presentLegacyPromptRules(title: string, content: string) {
+  const isEnglishLegacy = /\b(?:Write natural|User-configured|Use the stricter|Do not|Never)\b/.test(content);
+  if (!isEnglishLegacy) return presentAutomationPromptSection(content);
+  if (title === 'Quy tắc chất lượng') return [
+    '1. Viết tự nhiên như copywriter bản địa, không dùng văn phong AI chung chung.',
+    '2. Tập trung vào lợi ích cụ thể, nhu cầu của khách hàng, điểm khác biệt có ý nghĩa hoặc hành động rõ ràng.',
+    '3. Diễn đạt cụ thể, dễ hiểu; nêu giá trị thay vì chỉ kể tên tính năng.',
+    '4. Không bịa giá, khuyến mãi, số liệu, giải thưởng, cam kết, tính năng hoặc tuyên bố cạnh tranh.',
+    '5. Tránh các từ sáo rỗng như “hàng đầu”, “tốt nhất”, “hoàn hảo” khi không có bằng chứng.',
+    '6. Không lặp lại cùng thông điệp; phải đa dạng góc thuyết phục và cấu trúc câu.',
+    '7. Dùng từ khóa tự nhiên; không nhồi từ khóa, viết hoa toàn bộ, tạo khẩn cấp giả hoặc hứa hẹn không kiểm chứng.',
+    '8. Tiêu đề phải có một ý rõ ràng; mô tả phải bổ sung thông tin hữu ích.',
+    '9. Không sao chép nội dung hiện tại, nội dung bị từ chối hoặc lịch sử đề xuất.',
+    '10. So sánh với toàn bộ tiêu đề và mô tả trong nhóm để không trùng hoặc gần trùng.',
+    '11. Tuân thủ biên tập Google Ads: không emoji, ký hiệu trang trí, lặp dấu câu, clickbait hoặc gây hiểu nhầm.',
+    '12. Trước khi trả về, tự kiểm tra tính liên quan, duy nhất, có căn cứ, đúng ngôn ngữ và giới hạn ký tự.',
+  ].join('\n');
+  if (title === 'Ngôn ngữ và thị trường') {
+    const configured = content.match(/User-configured ad group language:\s*([^.]*)/)?.[1]?.trim() || 'không cấu hình';
+    const topic = content.match(/User-configured ad group topic:\s*([^.]*)/)?.[1]?.trim() || 'không cấu hình';
+    const fallback = content.match(/Ad group fallback language:\s*([^.]*)/)?.[1]?.trim() || 'hệ thống tự nhận diện';
+    return [
+      `Ngôn ngữ cấu hình: ${configured || 'không cấu hình'}`,
+      `Chủ đề nhóm quảng cáo: ${topic}`,
+      `Ngôn ngữ hệ thống nhận diện: ${fallback}`,
+      '',
+      '1. Viết đúng ngôn ngữ của từng candidate; chỉ giữ nguyên tên thương hiệu hoặc sản phẩm.',
+      '2. Quốc gia/thị trường không phải ngôn ngữ; chỉ dùng để bản địa hóa giọng văn và từ vựng.',
+      '3. Nếu không cấu hình ngôn ngữ, nhận diện trực tiếp từ nội dung hiện tại.',
+      '4. Không mặc định sang tiếng Anh chỉ vì tên thương hiệu hoặc từ khóa bằng tiếng Anh.',
+      '5. Không trộn nhiều ngôn ngữ trong một nội dung.',
+      '6. Dùng ngữ pháp, dấu câu, trật tự từ và từ vựng tự nhiên của người bản địa.',
+    ].join('\n');
+  }
+  if (title === 'Google Ads và dữ liệu') return [
+    '1. Tiêu đề tối đa 30 ký tự; mô tả tối đa 60 ký tự.',
+    '2. Mỗi nội dung LOW phải có đúng một nội dung thay thế hợp lệ.',
+    '3. Chỉ dùng từ khóa, thương hiệu và CTA khi phù hợp; không dùng từ phủ định hoặc tuyên bố bị cấm.',
+    '4. Không dùng lại nguyên văn trong lịch sử; nội dung bị từ chối không được phép tái sử dụng.',
+    '5. Chỉ dùng dữ liệu được cung cấp làm sự thật về sản phẩm; không tự đoán tính năng.',
+    '6. Số liệu hiệu suất chỉ dùng để xác định ưu tiên, không được biến thành tuyên bố quảng cáo.',
+    '7. Kết quả phải trả đúng JSON mà hệ thống yêu cầu.',
+  ].join('\n');
+  return presentAutomationPromptSection(content);
+}
+
+type AutomationPromptCandidate = {
+  key?: string;
+  fieldType?: string;
+  currentText?: string;
+  sourceLanguage?: string;
+  targetLanguage?: string;
+  targetLanguageCode?: string;
+  maxLength?: number;
+  impressions?: number;
+  clicks?: number;
+  ctr?: number;
+  cost?: number;
+  roas?: number;
+};
+
+function readPromptJson<T>(prompt: string, labels: string[], fallback: T): T {
+  for (const line of prompt.split('\n')) {
+    const label = labels.find((candidate) => line.startsWith(candidate));
+    if (!label) continue;
+    try {
+      return JSON.parse(line.slice(label.length).trim()) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+function readAutomationLog<T>(items: SettingsData['recentAutomationRuns'][number]['items'], action: string): T | null {
+  const entry = items.find((item) => item.action === action);
+  if (!entry?.reason) return null;
+  try { return JSON.parse(entry.reason) as T; } catch { return null; }
+}
+
+function understandAutomationPrompt(prompt: string) {
+  return {
+    context: readPromptJson<Record<string, unknown>>(prompt, ['Ngữ cảnh lần chạy:', 'Context:'], {}),
+    policy: readPromptJson<Record<string, unknown>>(prompt, ['Chính sách creative và kho thuật ngữ:', 'Creative policy and term database:'], {}),
+    history: readPromptJson<{ approved?: string[]; rejected?: string[]; applied?: string[] }>(prompt, ['Lịch sử đề xuất cần tránh:', 'Suggestion history to avoid:'], {}),
+    existingCopy: readPromptJson<{ headlines?: string[]; descriptions?: string[] }>(prompt, ['Toàn bộ nội dung hiện có không được trùng:', 'All current ad group copy that new suggestions must not duplicate:'], {}),
+    candidates: readPromptJson<AutomationPromptCandidate[]>(prompt, ['Danh sách candidate mang nhãn LOW, sắp xếp theo lượt hiển thị:', 'LOW-label text candidates sorted by views:'], []),
+  };
+}
+
 const AUTOMATION_STALE_RUNNING_MINUTES = 30;
 
 function isStaleAutomationRun(
@@ -508,6 +616,7 @@ export function OperationsPanel({
   const [automationResultOpen, setAutomationResultOpen] = useState(false);
   const [automationPromptLog, setAutomationPromptLog] = useState<{
     prompt: string;
+    runId: string;
     campaignName: string;
     adGroupName: string;
     adGroupId: string;
@@ -1086,6 +1195,7 @@ export function OperationsPanel({
             campaignId,
             intervalDays: automationCampaignIntervals[campaignId] || settingsDraft.reviewIntervalDays || 14,
             prompt: automationCampaignPrompts[campaignId] || DEFAULT_EDITABLE_SYSTEM_PROMPT,
+            enabled: settings?.automationScope?.campaigns.find((campaign) => campaign.id === campaignId)?.automationEnabled !== false,
           })),
         }),
       });
@@ -1101,6 +1211,39 @@ export function OperationsPanel({
       window.dispatchEvent(new Event('automation-notifications-refresh'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể lưu phạm vi Automation');
+    } finally {
+      setAutomationScopeSaving(false);
+    }
+  }
+
+  async function updateAutomationCampaignStatus(campaign: SettingsData['automationScope']['campaigns'][number], action: 'PAUSE' | 'RESUME' | 'REMOVE') {
+    if (!canManageAutomationScope) return;
+    const message = action === 'REMOVE'
+      ? `Bỏ chiến dịch “${campaign.name}” khỏi Automation? Lịch và phạm vi nhóm của chiến dịch này sẽ bị xóa.`
+      : action === 'PAUSE'
+        ? `Dừng lịch Automation của chiến dịch “${campaign.name}”? Các chiến dịch khác vẫn tiếp tục chạy.`
+        : `Bật lại lịch Automation cho chiến dịch “${campaign.name}”?`;
+    if (!window.confirm(message)) return;
+    setAutomationScopeSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      const params = new URLSearchParams({ customerId });
+      const response = await request(`/creative-operations/automation/scope/campaigns/${campaign.id}/status?${params}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      const body = await parseJsonSafe(response);
+      if (!response.ok) throw new Error(errorMessage(body, 'Không thể cập nhật chiến dịch Automation'));
+      setNotice(action === 'REMOVE'
+        ? `Đã bỏ ${campaign.name} khỏi Automation. Các chiến dịch khác không bị ảnh hưởng.`
+        : action === 'PAUSE'
+          ? `Đã dừng lịch riêng của ${campaign.name}.`
+          : `Đã bật lại lịch riêng của ${campaign.name}.`);
+      await loadSettings();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể cập nhật chiến dịch Automation');
     } finally {
       setAutomationScopeSaving(false);
     }
@@ -1420,6 +1563,7 @@ export function OperationsPanel({
       );
       if (item?.reason) return {
         item,
+        runId: run.id,
         runAt: run.completedAt ?? run.startedAt,
       };
     }
@@ -1436,6 +1580,24 @@ export function OperationsPanel({
     () => splitAutomationPrompt(automationPromptLog?.prompt ?? ''),
     [automationPromptLog?.prompt],
   );
+  const automationPromptExplanation = useMemo(
+    () => understandAutomationPrompt(automationPromptLog?.prompt ?? ''),
+    [automationPromptLog?.prompt],
+  );
+  const automationPromptRunItems = useMemo(() => {
+    if (!automationPromptLog) return [];
+    const run = (settings?.recentAutomationRuns ?? []).find((entry) => entry.id === automationPromptLog.runId);
+    return (run?.items ?? [])
+      .filter((item) => item.targetSnapshot?.adGroupId === automationPromptLog.adGroupId)
+      .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+  }, [automationPromptLog, settings?.recentAutomationRuns]);
+  const automationRunAudit = useMemo(() => ({
+    input: readAutomationLog<{ candidates?: Array<{ key: string; text: string; fieldType: string; impressions: number; clicks: number }>; existingAdCopy?: { headlines?: string[]; descriptions?: string[] } }>(automationPromptRunItems, 'INPUT_SNAPSHOT'),
+    request: readAutomationLog<{ provider: string; model: string; prompt: string; schema: unknown }>(automationPromptRunItems, 'AI_REQUEST'),
+    response: readAutomationLog<{ raw: string; used: string }>(automationPromptRunItems, 'AI_RESPONSE'),
+    validation: readAutomationLog<{ accepted?: Array<{ key: string; oldText: string; newText: string }>; rejected?: Array<{ key: string; oldText: string; proposedText: string; reason: string }>; missing?: Array<{ key: string; oldText: string; reason: string }> }>(automationPromptRunItems, 'AI_VALIDATION'),
+    apply: readAutomationLog<{ appliedCount: number; selected?: Array<{ oldText: string; newText: string }> }>(automationPromptRunItems, 'APPLY_RESULT'),
+  }), [automationPromptRunItems]);
   const fullAutomationPromptPreview = useMemo(
     () => buildFullPromptPreview(settingsDraft.businessPrompt),
     [settingsDraft.businessPrompt],
@@ -1758,6 +1920,7 @@ export function OperationsPanel({
                 {(latestAutomationRun.items ?? []).length ? (
                   <div className="automationRunItemList">
                     {[...(latestAutomationRun.items ?? [])]
+                      .filter((item) => !['INPUT_SNAPSHOT', 'AI_REQUEST', 'AI_RESPONSE', 'AI_VALIDATION', 'APPLY_RESULT'].includes(item.action))
                       .sort((left, right) => Number(right.action === 'FAILED') - Number(left.action === 'FAILED'))
                       .map((item) => {
                       const failed = item.action === 'FAILED';
@@ -1778,6 +1941,7 @@ export function OperationsPanel({
                               type="button"
                               onClick={() => setAutomationPromptLog({
                                 prompt: item.reason ?? '',
+                                runId: latestAutomationRun.id,
                                 campaignName: item.targetSnapshot?.campaignName ?? 'Chiến dịch',
                                 adGroupName: item.targetSnapshot?.adGroupName ?? 'Nhóm quảng cáo',
                                 adGroupId: item.targetSnapshot?.adGroupId ?? '',
@@ -1816,8 +1980,8 @@ export function OperationsPanel({
                   <header className="automationHistoryHeader">
                     <div>
                       <span className="eyebrow">Nhật ký lần chạy</span>
-                      <h2>Prompt AI đã đọc</h2>
-                      <p>Đây là nội dung thật đã gửi tới AI, không còn biến <code>{'{{...}}'}</code>.</p>
+                      <h2>Kiểm tra lần chạy AI</h2>
+                      <p>Đối chiếu dữ liệu đầu vào, yêu cầu gửi đi, phản hồi và kết quả áp dụng cho nhóm này.</p>
                     </div>
                     <button className="iconAction" type="button" onClick={() => setAutomationPromptLog(null)} aria-label="Đóng prompt"><X size={18} /></button>
                   </header>
@@ -1827,8 +1991,32 @@ export function OperationsPanel({
                       <div><span>Nhóm quảng cáo</span><strong>{automationPromptLog.adGroupName}</strong><small>{automationPromptLog.adGroupId ? `ID ${automationPromptLog.adGroupId}` : ''}</small></div>
                       <div><span>Thời điểm chạy</span><strong>{formatDate(automationPromptLog.runAt)}</strong></div>
                     </div>
+                    <section className="automationPromptRunTimeline" aria-label="Diễn biến lần chạy AI">
+                      <h3>Diễn biến lần chạy AI</h3>
+                      <ol>
+                        <li><strong>Dữ liệu đầu vào</strong><span>{automationRunAudit.input ? `${automationRunAudit.input.candidates?.length ?? 0} nội dung LOW; ${(automationRunAudit.input.existingAdCopy?.headlines?.length ?? 0) + (automationRunAudit.input.existingAdCopy?.descriptions?.length ?? 0)} nội dung hiện có. Snapshot đã lưu ở lần chạy này.` : 'Lần chạy cũ chưa lưu snapshot riêng; xem dữ liệu đã chèn trong prompt bên dưới.'}</span>
+                          {automationRunAudit.input?.candidates?.map((item) => <p key={item.key}>{item.fieldType}: {item.text} · {item.impressions} hiển thị · {item.clicks} nhấp</p>)}
+                        </li>
+                        <li><strong>Yêu cầu gửi AI</strong><span>{automationRunAudit.request ? `${automationRunAudit.request.provider} · ${automationRunAudit.request.model} · gửi lúc ${formatDate(automationPromptRunItems.find((item) => item.action === 'AI_REQUEST')?.createdAt ?? automationPromptLog.runAt)}` : 'Lần chạy cũ chỉ lưu prompt nghiệp vụ, chưa lưu payload gửi AI và tên mô hình.'}</span>
+                          {automationRunAudit.request ? <details><summary>Xem chính xác văn bản gửi AI và schema đầu ra</summary><pre>{automationRunAudit.request.prompt}</pre><pre>{JSON.stringify(automationRunAudit.request.schema, null, 2)}</pre></details> : null}
+                        </li>
+                        <li><strong>Phản hồi AI</strong><span>{automationRunAudit.response ? 'Đã lưu phản hồi mô hình trước bước lọc.' : 'Lần chạy cũ chưa lưu phản hồi mô hình.'}</span>
+                          {automationRunAudit.response ? <details><summary>Xem phản hồi nguyên văn{automationRunAudit.response.raw !== automationRunAudit.response.used ? ' và bản JSON đã sửa' : ''}</summary><pre>{automationRunAudit.response.raw}</pre>{automationRunAudit.response.raw !== automationRunAudit.response.used ? <pre>{automationRunAudit.response.used}</pre> : null}</details> : null}
+                        </li>
+                        <li><strong>Kiểm tra và chọn nội dung</strong><span>{automationRunAudit.validation ? `${automationRunAudit.validation.accepted?.length ?? 0} hợp lệ · ${(automationRunAudit.validation.rejected?.length ?? 0) + (automationRunAudit.validation.missing?.length ?? 0)} không được chọn` : `${automationPromptRunItems.filter((item) => item.action === 'SELECTED').length} nội dung được chọn; lần chạy cũ chưa lưu lý do lọc từng câu.`}</span>
+                          {automationRunAudit.validation?.accepted?.map((item) => <p key={item.key}>Đạt: {item.oldText} → {item.newText}</p>)}
+                          {automationRunAudit.validation?.rejected?.map((item, index) => <p key={`${item.key}-${index}`}>Loại: {item.proposedText} · {item.reason}</p>)}
+                          {automationRunAudit.validation?.missing?.map((item) => <p key={item.key}>Thiếu: {item.oldText} · {item.reason}</p>)}
+                          {!automationRunAudit.validation ? automationPromptRunItems.filter((item) => item.action === 'SELECTED').map((item) => <p key={item.id}>{item.reason}</p>) : null}
+                        </li>
+                        <li><strong>Kết quả áp dụng</strong><span>{automationRunAudit.apply ? `Google Ads báo đã áp dụng ${automationRunAudit.apply.appliedCount} thay đổi.` : automationPromptRunItems.filter((item) => item.action === 'APPLIED').length ? 'Đã ghi nhận áp dụng lên Google Ads; lần chạy cũ chưa lưu biên bản chi tiết.' : automationPromptRunItems.some((item) => item.action === 'SUGGESTED') ? 'Đã tạo yêu cầu thay đổi, chờ duyệt.' : 'Chưa ghi nhận áp dụng cho nhóm này.'}</span>
+                          {automationRunAudit.apply?.selected?.map((item, index) => <p key={index}>Đề xuất gửi áp dụng: {item.oldText} → {item.newText}</p>)}
+                          {automationPromptRunItems.filter((item) => ['APPLIED', 'SUGGESTED', 'FAILED', 'SKIPPED'].includes(item.action)).map((item) => <p key={item.id}>{automationRunActionLabel(item.action)}: {item.reason}</p>)}
+                        </li>
+                      </ol>
+                    </section>
                     <div className="automationPromptLogToolbar">
-                      <div><strong>{automationPromptRaw ? 'Prompt thô' : 'Prompt đã phân nhóm'}</strong><span>Các quy tắc, ngữ cảnh, dữ liệu và LOW candidate AI nhận được.</span></div>
+                      <div><strong>{automationPromptRaw ? 'Prompt nghiệp vụ thô' : 'Prompt nghiệp vụ đã phân nhóm'}</strong><span>Văn bản trước khi gắn schema đầu ra; payload thực gửi AI nằm ở bước 2 bên trên.</span></div>
                       <div className="automationPromptLogActions">
                         <button type="button" onClick={() => setAutomationPromptRaw((current) => !current)}>{automationPromptRaw ? 'Xem trình bày' : 'Xem bản thô'}</button>
                         <button type="button" onClick={() => void navigator.clipboard.writeText(automationPromptLog.prompt)}><Clipboard size={15} /> Sao chép</button>
@@ -1837,13 +2025,95 @@ export function OperationsPanel({
                     {automationPromptRaw ? (
                       <pre className="automationPromptLogContent">{automationPromptLog.prompt}</pre>
                     ) : (
-                      <div className="automationPromptSections">
-                        {automationPromptSections.map((section, index) => (
-                          <section className="automationPromptSection" key={`${section.title}-${index}`}>
-                            <header><span>{index + 1}</span><strong>{section.title}</strong></header>
-                            <pre>{section.content}</pre>
-                          </section>
-                        ))}
+                      <div className="automationPromptReport">
+                        <section className="automationResolvedTemplate">
+                          <header>
+                            <span>PROMPT NGHIỆP VỤ — DỮ LIỆU THẬT KHI CHẠY</span>
+                            <small>Các biến trong mẫu đã được thay bằng giá trị AI thực sự nhận.</small>
+                          </header>
+                          <div className="automationResolvedCommon">
+                            <p><span>Chiến dịch:</span><strong>{String(automationPromptExplanation.context.campaignName || automationPromptLog.campaignName)}</strong><code>{'{{campaign_name}}'}</code></p>
+                            <p><span>Nhóm quảng cáo:</span><strong>{String(automationPromptExplanation.context.adGroupName || automationPromptLog.adGroupName)}</strong><code>{'{{ad_group_name}}'}</code></p>
+                            <p><span>Ngôn ngữ:</span><strong>{String(automationPromptExplanation.context.targetLanguageName || automationPromptExplanation.candidates[0]?.targetLanguage || '—')} ({String(automationPromptExplanation.context.targetLanguageCode || automationPromptExplanation.candidates[0]?.targetLanguageCode || '—')})</strong><code>{'{{language}}'}</code></p>
+                            <p><span>Chủ đề:</span><strong>{String(automationPromptExplanation.context.automationTopic || 'Chưa cấu hình')}</strong><code>{'{{topic}}'}</code></p>
+                          </div>
+                          <div className="automationResolvedCandidates">
+                            <strong>DỮ LIỆU ĐỘNG ĐƯỢC CHÈN CHO TừNG NỘI DUNG LOW</strong>
+                            {automationPromptExplanation.candidates.map((candidate, index) => (
+                              <article key={candidate.key || index}>
+                                <div><span>LOW candidate #{index + 1}</span><em>{candidate.fieldType === 'HEADLINE' ? 'Tiêu đề' : 'Mô tả'}</em></div>
+                                <p><span>Loại nội dung:</span><strong>{candidate.fieldType === 'HEADLINE' ? 'HEADLINE — Tiêu đề' : 'DESCRIPTION — Mô tả'}</strong><code>{'{{field_type}}'}</code></p>
+                                <p><span>Nội dung LOW hiện tại:</span><strong dir="auto">{candidate.currentText || '—'}</strong><code>{'{{old_text}}'}</code></p>
+                                <p><span>Giới hạn ký tự:</span><strong>{candidate.maxLength ?? '—'} ký tự</strong><code>{'{{max_length}}'}</code></p>
+                                <p><span>Số liệu hiệu suất:</span><strong>{Number(candidate.impressions ?? 0).toLocaleString('vi-VN')} hiển thị · {Number(candidate.clicks ?? 0).toLocaleString('vi-VN')} nhấp · CTR {(Number(candidate.ctr ?? 0) * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 })}% · ROAS {(Number(candidate.roas ?? 0) * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 })}%</strong><code>{'{{performance_metrics}}'}</code></p>
+                              </article>
+                            ))}
+                          </div>
+                          <div className="automationResolvedReferences">
+                            <p><span>Nội dung hiện có để tránh trùng:</span><strong>{(automationPromptExplanation.existingCopy.headlines?.length ?? 0) + (automationPromptExplanation.existingCopy.descriptions?.length ?? 0)} nội dung</strong><code>{'{{existing_ad_copy}}'}</code></p>
+                            <p><span>Lịch sử đề xuất:</span><strong>{(automationPromptExplanation.history.approved?.length ?? 0) + (automationPromptExplanation.history.rejected?.length ?? 0) + (automationPromptExplanation.history.applied?.length ?? 0)} nội dung</strong><code>{'{{suggestion_history}}'}</code></p>
+                            <p><span>Quy tắc từ khóa và từ cấm:</span><strong>{Object.keys(automationPromptExplanation.policy.terms && typeof automationPromptExplanation.policy.terms === 'object' ? automationPromptExplanation.policy.terms as object : {}).length} nhóm quy tắc</strong><code>{'{{creative_policy_terms}}'}</code></p>
+                          </div>
+                          <footer><strong>OUTPUT CONTRACT — KHÔNG THỂ CHỈNH</strong><span>AI phải trả về JSON gồm summary và suggestions, khớp đúng candidate key.</span></footer>
+                        </section>
+                        <div className="automationPromptReadingSummary">
+                          <span>AI HIỂU YÊU CẦU NHƯ SAU</span>
+                          <strong>
+                            Tạo nội dung thay thế cho {automationPromptExplanation.candidates.length} tài nguyên LOW bằng{' '}
+                            {String(automationPromptExplanation.context.targetLanguageName || automationPromptExplanation.candidates[0]?.targetLanguage || 'ngôn ngữ đã nhận diện')},
+                            không trùng nội dung cũ và tuân thủ giới hạn Google Ads.
+                          </strong>
+                        </div>
+
+                        <section className="automationPromptValueSection">
+                          <header><span>1</span><div><strong>Phạm vi AI đang xử lý</strong><small>Các giá trị thật được chèn khi bấm chạy.</small></div></header>
+                          <div className="automationPromptValueGrid">
+                            <div><span>Tài khoản Google Ads</span><strong>{String(automationPromptExplanation.context.customerId || '—')}</strong></div>
+                            <div><span>Chiến dịch</span><strong>{String(automationPromptExplanation.context.campaignName || automationPromptLog.campaignName)}</strong></div>
+                            <div><span>Nhóm quảng cáo</span><strong>{String(automationPromptExplanation.context.adGroupName || automationPromptLog.adGroupName)}</strong><small>ID {String(automationPromptExplanation.context.adGroupId || automationPromptLog.adGroupId || '—')}</small></div>
+                            <div className="language"><span>Ngôn ngữ AI phải viết</span><strong>{String(automationPromptExplanation.context.targetLanguageName || automationPromptExplanation.candidates[0]?.targetLanguage || '—')} ({String(automationPromptExplanation.context.targetLanguageCode || automationPromptExplanation.candidates[0]?.targetLanguageCode || '—')})</strong><small>Độ tin cậy: {String(automationPromptExplanation.context.targetLanguageConfidence || '—')}</small></div>
+                            <div><span>Chủ đề</span><strong>{String(automationPromptExplanation.context.automationTopic || 'Chưa cấu hình')}</strong></div>
+                            <div><span>Khoảng dữ liệu</span><strong>{String(automationPromptExplanation.context.timeRange || '—')}</strong></div>
+                          </div>
+                        </section>
+
+                        <section className="automationPromptValueSection">
+                          <header><span>2</span><div><strong>Nội dung LOW AI nhận được</strong><small>Mỗi dòng là một nội dung AI phải viết thay thế.</small></div></header>
+                          <div className="automationPromptCandidateList">
+                            {automationPromptExplanation.candidates.map((candidate, index) => (
+                              <article key={candidate.key || index}>
+                                <div className="automationPromptCandidateIndex">{index + 1}</div>
+                                <div className="automationPromptCandidateText"><span>{candidate.fieldType === 'HEADLINE' ? 'TIÊU ĐỀ' : 'MÔ TẢ'} HIỆN TẠI</span><strong dir="auto">{candidate.currentText || '—'}</strong></div>
+                                <div><span>Ngôn ngữ</span><strong>{candidate.targetLanguage || candidate.sourceLanguage || '—'}</strong></div>
+                                <div><span>Giới hạn</span><strong>{candidate.maxLength ?? '—'} ký tự</strong></div>
+                                <div><span>Hiển thị / Nhấp</span><strong>{Number(candidate.impressions ?? 0).toLocaleString('vi-VN')} / {Number(candidate.clicks ?? 0).toLocaleString('vi-VN')}</strong></div>
+                                <div><span>CTR / ROAS</span><strong>{(Number(candidate.ctr ?? 0) * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 })}% / {(Number(candidate.roas ?? 0) * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 })}%</strong></div>
+                              </article>
+                            ))}
+                            {!automationPromptExplanation.candidates.length ? <p className="automationPromptNoData">Log cũ không tách được danh sách LOW. Hãy xem bản thô để đối chiếu.</p> : null}
+                          </div>
+                        </section>
+
+                        <section className="automationPromptValueSection">
+                          <header><span>3</span><div><strong>Dữ liệu AI dùng để tránh trùng</strong><small>AI được yêu cầu không lặp lại các nội dung này.</small></div></header>
+                          <div className="automationPromptAvoidGrid">
+                            <div><span>Tiêu đề hiện có ({automationPromptExplanation.existingCopy.headlines?.length ?? 0})</span>{(automationPromptExplanation.existingCopy.headlines ?? []).map((text, index) => <p dir="auto" key={index}>{text}</p>)}</div>
+                            <div><span>Mô tả hiện có ({automationPromptExplanation.existingCopy.descriptions?.length ?? 0})</span>{(automationPromptExplanation.existingCopy.descriptions ?? []).map((text, index) => <p dir="auto" key={index}>{text}</p>)}</div>
+                            <div><span>Lịch sử đã áp dụng ({automationPromptExplanation.history.applied?.length ?? 0})</span>{(automationPromptExplanation.history.applied ?? []).map((text, index) => <p dir="auto" key={index}>{text}</p>)}</div>
+                          </div>
+                        </section>
+
+                        <details className="automationPromptRuleDetails">
+                          <summary>4. Xem các quy tắc AI phải tuân thủ</summary>
+                          <div className="automationPromptSections">
+                            {automationPromptSections.map((section, index) => (
+                              <section className="automationPromptSection" key={`${section.title}-${index}`}>
+                                <header><strong>{section.title.toLocaleUpperCase('vi-VN')}</strong></header>
+                                <pre>{presentLegacyPromptRules(section.title, section.content)}</pre>
+                              </section>
+                            ))}
+                          </div>
+                        </details>
                       </div>
                     )}
                   </div>
@@ -1968,11 +2238,29 @@ export function OperationsPanel({
                           <button
                             className="primaryButton"
                             type="button"
-                            disabled={automationScopeDirty || automationRunning || automationRunInProgress || !canRunPeriodicAi || !campaignSelected || (!campaignRunsAll && selectedChildren === 0)}
+                            disabled={automationScopeDirty || automationRunning || automationRunInProgress || !canRunPeriodicAi || !campaignSelected || campaign.automationEnabled === false || (!campaignRunsAll && selectedChildren === 0)}
                             onClick={() => void runAutomationNow(campaign.id, campaign.name)}
                           >
                             <Play size={14} />
                             {automationRunningCampaignId === campaign.id ? 'Đang chạy...' : 'Chạy ngay'}
+                          </button>
+                          <button
+                            className={`secondaryButton${campaign.automationEnabled === false ? '' : ' warningButton'}`}
+                            type="button"
+                            disabled={automationScopeSaving || !canManageAutomationScope}
+                            onClick={() => void updateAutomationCampaignStatus(campaign, campaign.automationEnabled === false ? 'RESUME' : 'PAUSE')}
+                          >
+                            {campaign.automationEnabled === false ? <Play size={14} /> : <Pause size={14} />}
+                            {campaign.automationEnabled === false ? 'Bật lại lịch' : 'Dừng lịch'}
+                          </button>
+                          <button
+                            className="secondaryButton dangerButton"
+                            type="button"
+                            disabled={automationScopeSaving || !canManageAutomationScope}
+                            onClick={() => void updateAutomationCampaignStatus(campaign, 'REMOVE')}
+                          >
+                            <Trash2 size={14} />
+                            Bỏ Automation
                           </button>
                         </div>
                       </header>
@@ -2015,7 +2303,9 @@ export function OperationsPanel({
                         <div className="automationCampaignNextRun">
                           <span>Lịch tiếp theo</span>
                           <strong>
-                            {!settingsDraft.automationEnabled
+                            {campaign.automationEnabled === false
+                              ? 'Đã dừng riêng chiến dịch'
+                              : !settingsDraft.automationEnabled
                               ? 'Lịch đang tắt'
                               : automationScopeDirty
                                 ? 'Lưu thay đổi để lên lịch'
@@ -2245,6 +2535,7 @@ export function OperationsPanel({
                   {activeCampaignPromptLog ? (
                     <button className="automationPromptViewButton" type="button" onClick={() => setAutomationPromptLog({
                       prompt: activeCampaignPromptLog.item.reason ?? '',
+                      runId: activeCampaignPromptLog.runId,
                       campaignName: activeCampaignPromptLog.item.targetSnapshot?.campaignName ?? automationCampaignDetail.campaign.name,
                       adGroupName: activeCampaignPromptLog.item.targetSnapshot?.adGroupName ?? 'Nhóm quảng cáo',
                       adGroupId: activeCampaignPromptLog.item.targetSnapshot?.adGroupId ?? '',

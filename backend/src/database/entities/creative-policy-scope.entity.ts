@@ -17,6 +17,8 @@ export class CreativePolicyScopeEntity {
   intervalDays!: number | null;
   @Column({ name: 'automation_prompt', type: 'text', nullable: true })
   automationPrompt!: string | null;
+  @Column({ name: 'automation_enabled', type: 'boolean', default: true })
+  automationEnabled!: boolean;
   @Column({ name: 'last_run_at', type: 'timestamptz', nullable: true })
   lastRunAt!: Date | null;
   @Column({ name: 'next_run_at', type: 'timestamptz', nullable: true })

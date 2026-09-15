@@ -3979,6 +3979,8 @@ button:disabled {
 .automationCampaignPromptResult > div { display: grid; gap: 3px; }
 .automationCampaignPromptResult > div span { color: #64748b; font-size: 12px; }
 .automationPromptNotSent { background: #fff1d6; border-radius: 999px; color: #9a5b00; font-size: 11px; font-weight: 800; padding: 5px 9px; }
+.automationCampaignCardActions .warningButton { border-color: #f2c56d; color: #9a5b00; }
+.automationCampaignCardActions .warningButton:hover { background: #fff8e8; }
 
 .assetCell {
   display: grid;
@@ -4647,6 +4649,17 @@ tbody tr:hover td:first-child {
 .automationRunEmpty { padding: 18px; text-align: center; color: #64748b; font-size: 13px; }
 
 .automationPromptLogDrawer { width: min(820px, 100vw); }
+.automationPromptRunTimeline { background: #fff; border: 1px solid #dce5f2; border-radius: 12px; padding: 16px; }
+.automationPromptRunTimeline h3 { color: #172033; font-size: 15px; margin: 0 0 12px; }
+.automationPromptRunTimeline ol { counter-reset: ai-step; display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
+.automationPromptRunTimeline li { border-left: 3px solid #2f6ce5; counter-increment: ai-step; display: grid; gap: 4px; padding: 4px 0 4px 12px; }
+.automationPromptRunTimeline li strong::before { content: counter(ai-step) '. '; color: #2f6ce5; }
+.automationPromptRunTimeline li strong { color: #172033; font-size: 13px; }
+.automationPromptRunTimeline li span, .automationPromptRunTimeline li p { color: #52627a; font-size: 12px; line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
+.automationPromptRunTimeline li p { background: #f5f8fd; border-radius: 6px; padding: 7px 9px; }
+.automationPromptRunTimeline details { min-width: 0; }
+.automationPromptRunTimeline summary { color: #2456b9; cursor: pointer; font-size: 12px; font-weight: 700; padding: 5px 0; }
+.automationPromptRunTimeline pre { background: #142033; border-radius: 8px; color: #eef5ff; font-size: 11px; line-height: 1.5; max-height: 360px; overflow: auto; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .automationPromptLogBackdrop { z-index: 1300; }
 .automationPromptLogBody { background: #f5f7fb; display: grid; gap: 14px; }
 .automationPromptLogMeta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
@@ -4659,12 +4672,60 @@ tbody tr:hover td:first-child {
 .automationPromptLogToolbar button { align-items: center; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; color: #334155; cursor: pointer; display: flex; flex: 0 0 auto; gap: 6px; font-weight: 700; justify-content: center; padding: 8px 11px; }
 .automationPromptLogActions { display: flex !important; flex: 0 0 auto; gap: 8px !important; }
 .automationPromptLogContent { background: #101827; border: 1px solid #25334a; border-radius: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.05); color: #dce7f7; font: 12px/1.65 Consolas, "SFMono-Regular", monospace; margin: 0; min-height: 360px; overflow: auto; padding: 20px; tab-size: 2; white-space: pre-wrap; word-break: break-word; }
-.automationPromptSections { display: grid; gap: 12px; }
-.automationPromptSection { background: #fff; border: 1px solid #dce5f2; border-radius: 12px; box-shadow: 0 3px 12px rgba(15,23,42,.04); overflow: hidden; }
-.automationPromptSection > header { align-items: center; background: linear-gradient(90deg, #edf4ff, #f8fbff); border-bottom: 1px solid #dce5f2; display: flex; gap: 9px; padding: 10px 14px; }
-.automationPromptSection > header span { align-items: center; background: #2563eb; border-radius: 50%; color: #fff; display: inline-flex; font-size: 10px; font-weight: 800; height: 22px; justify-content: center; width: 22px; }
-.automationPromptSection > header strong { color: #1e3a68; font-size: 13px; }
-.automationPromptSection > pre { color: #334155; font: 12px/1.65 Consolas, "SFMono-Regular", monospace; margin: 0; max-height: 440px; overflow: auto; padding: 14px 16px; tab-size: 2; white-space: pre-wrap; word-break: break-word; }
+.automationPromptSections { background: #0f1728; border: 1px solid #263550; border-left: 3px solid #93c5fd; border-radius: 4px; box-shadow: 0 12px 30px rgba(15,23,42,.18); display: grid; gap: 0; overflow: hidden; padding: 8px 16px 18px; }
+.automationPromptSection { border-top: 1px solid rgba(96,165,250,.22); padding: 17px 0 0; }
+.automationPromptSection:first-child { border-top: 2px solid #1d4ed8; }
+.automationPromptSection > header { padding: 0 0 7px; }
+.automationPromptSection > header strong { color: #f8fafc; font: 700 12px/1.45 Consolas, "SFMono-Regular", monospace; letter-spacing: .035em; }
+.automationPromptSection > pre { color: #dce8f8; font: 12px/1.7 Consolas, "SFMono-Regular", monospace; margin: 0; max-height: 520px; overflow: auto; padding: 0 0 16px; tab-size: 2; white-space: pre-wrap; word-break: break-word; }
+.automationPromptReport { display: grid; gap: 14px; }
+.automationResolvedTemplate { background: #0f1728; border: 1px solid #263550; border-left: 3px solid #93c5fd; border-radius: 5px; box-shadow: 0 12px 30px rgba(15,23,42,.18); color: #dce8f8; font: 12px/1.6 Consolas, "SFMono-Regular", monospace; overflow: hidden; }
+.automationResolvedTemplate > header { border-top: 2px solid #1d4ed8; display: grid; gap: 3px; padding: 16px 17px 12px; }
+.automationResolvedTemplate > header span, .automationResolvedCandidates > strong, .automationResolvedTemplate footer strong { color: #fff; font-weight: 800; letter-spacing: .035em; }
+.automationResolvedTemplate > header small { color: #93a8c4; }
+.automationResolvedCommon, .automationResolvedReferences { border-top: 1px solid #273750; display: grid; gap: 6px; padding: 13px 17px; }
+.automationResolvedTemplate p { align-items: start; display: grid; gap: 10px; grid-template-columns: 190px minmax(0, 1fr) auto; margin: 0; }
+.automationResolvedTemplate p > span { color: #9eb0c9; }
+.automationResolvedTemplate p > strong { color: #f1f5f9; font-weight: 600; overflow-wrap: anywhere; }
+.automationResolvedTemplate p > code { background: #18243a; border: 1px solid #2b3e5d; border-radius: 4px; color: #7dd3fc; font-size: 10px; padding: 1px 5px; }
+.automationResolvedCandidates { border-top: 1px solid #273750; display: grid; gap: 11px; padding: 14px 17px; }
+.automationResolvedCandidates article { background: #111d31; border: 1px solid #2a3a55; border-radius: 8px; display: grid; gap: 7px; padding: 11px 12px; }
+.automationResolvedCandidates article > div { align-items: center; display: flex; justify-content: space-between; }
+.automationResolvedCandidates article > div span { color: #60a5fa; font-weight: 800; }
+.automationResolvedCandidates article > div em { background: #1d3150; border-radius: 999px; color: #bfdbfe; font-size: 10px; font-style: normal; padding: 2px 7px; }
+.automationResolvedTemplate footer { border-top: 1px solid #273750; display: grid; gap: 5px; padding: 14px 17px 17px; }
+.automationResolvedTemplate footer span { color: #c5d3e6; }
+.automationPromptReadingSummary { background: linear-gradient(135deg, #172554, #1e3a8a); border-radius: 12px; color: #fff; display: grid; gap: 6px; padding: 16px 18px; }
+.automationPromptReadingSummary span { color: #bfdbfe; font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.automationPromptReadingSummary strong { font-size: 14px; line-height: 1.55; }
+.automationPromptValueSection { background: #fff; border: 1px solid #dce5f2; border-radius: 12px; overflow: hidden; }
+.automationPromptValueSection > header { align-items: center; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 10px; padding: 12px 14px; }
+.automationPromptValueSection > header > span { align-items: center; background: #2563eb; border-radius: 50%; color: #fff; display: inline-flex; flex: 0 0 auto; font-size: 11px; font-weight: 900; height: 25px; justify-content: center; width: 25px; }
+.automationPromptValueSection > header > div { display: grid; gap: 2px; }
+.automationPromptValueSection > header strong { color: #172033; font-size: 13px; }
+.automationPromptValueSection > header small { color: #64748b; font-size: 11px; }
+.automationPromptValueGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.automationPromptValueGrid > div { border-bottom: 1px solid #edf1f6; border-right: 1px solid #edf1f6; display: grid; gap: 4px; padding: 12px 14px; }
+.automationPromptValueGrid > div.language { background: #eff6ff; }
+.automationPromptValueGrid span, .automationPromptCandidateList article span, .automationPromptAvoidGrid > div > span { color: #64748b; font-size: 10px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.automationPromptValueGrid strong { color: #1e293b; font-size: 13px; overflow-wrap: anywhere; }
+.automationPromptValueGrid .language strong { color: #1d4ed8; }
+.automationPromptValueGrid small { color: #64748b; font-size: 10px; }
+.automationPromptCandidateList { display: grid; }
+.automationPromptCandidateList article { align-items: center; border-bottom: 1px solid #edf1f6; display: grid; gap: 12px; grid-template-columns: auto minmax(180px, 2fr) repeat(4, minmax(80px, 1fr)); padding: 12px 14px; }
+.automationPromptCandidateList article:last-child { border-bottom: 0; }
+.automationPromptCandidateList article > div { display: grid; gap: 4px; min-width: 0; }
+.automationPromptCandidateList article strong { color: #263449; font-size: 12px; overflow-wrap: anywhere; }
+.automationPromptCandidateText strong { color: #0f172a !important; font-size: 14px !important; }
+.automationPromptCandidateIndex { align-items: center; background: #eef4ff; border-radius: 7px; color: #2563eb; display: flex !important; font-size: 11px; font-weight: 900; height: 28px; justify-content: center; width: 28px; }
+.automationPromptAvoidGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.automationPromptAvoidGrid > div { border-right: 1px solid #edf1f6; min-width: 0; padding: 13px 14px; }
+.automationPromptAvoidGrid > div:last-child { border-right: 0; }
+.automationPromptAvoidGrid p { background: #f8fafc; border-radius: 6px; color: #334155; font-size: 11px; line-height: 1.45; margin: 7px 0 0; overflow-wrap: anywhere; padding: 7px 8px; }
+.automationPromptNoData { color: #64748b; font-size: 12px; margin: 0; padding: 15px; }
+.automationPromptRuleDetails { background: #fff; border: 1px solid #dce5f2; border-radius: 12px; overflow: hidden; }
+.automationPromptRuleDetails > summary { color: #334155; cursor: pointer; font-size: 13px; font-weight: 800; padding: 13px 15px; }
+.automationPromptRuleDetails > .automationPromptSections { border: 0; border-radius: 0; }
 .automationLanguageDetection { background: #f0f7ff; border: 1px solid #c7dcff; border-radius: 8px; display: grid; gap: 3px; padding: 9px 11px; }
 .automationLanguageDetection > span { color: #64748b; font-size: 11px; font-weight: 700; }
 .automationLanguageDetection > strong { color: #174ea6; font-size: 13px; }
@@ -4674,6 +4735,11 @@ tbody tr:hover td:first-child {
   .automationPromptLogMeta { grid-template-columns: 1fr; }
   .automationPromptLogToolbar { align-items: stretch; flex-direction: column; }
   .automationPromptLogActions { display: grid !important; grid-template-columns: 1fr 1fr; }
+  .automationPromptValueGrid, .automationPromptAvoidGrid { grid-template-columns: 1fr; }
+  .automationPromptCandidateList article { grid-template-columns: auto 1fr; }
+  .automationPromptCandidateList article > div:not(.automationPromptCandidateIndex) { grid-column: 2; }
+  .automationResolvedTemplate p { gap: 3px; grid-template-columns: 1fr; }
+  .automationResolvedTemplate p > code { justify-self: start; }
 }
 
 .automationOverviewCards > div { display: grid; gap: 5px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--white); }

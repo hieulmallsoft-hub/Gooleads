@@ -229,6 +229,21 @@ export class CreativeOperationsController {
     );
   }
 
+  @Put('automation/scope/campaigns/:campaignId/status')
+  @RequirePermissions('automation.manage')
+  updateAutomationCampaignStatus(
+    @Param('campaignId') campaignId: string,
+    @Query('customerId') inputCustomerId: string | undefined,
+    @Body() input: { action?: unknown },
+    @Req() request: { user: AuthenticatedUser },
+  ) {
+    return this.service.updateAutomationCampaignStatus(
+      this.customerIdForUser(inputCustomerId, request.user),
+      campaignId,
+      String(input.action ?? ''),
+    );
+  }
+
   @Post('automation/run')
   @RequirePermissions('automation.manage')
   runAutomationNow(
