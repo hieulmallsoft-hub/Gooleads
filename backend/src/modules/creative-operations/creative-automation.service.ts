@@ -357,12 +357,13 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       },
     );
     for (const omitted of generated.omittedCandidates ?? []) {
+      run.failedCount += 1;
       await this.saveRunItem(
         run.id,
-        'SKIPPED',
+        'FAILED',
         this.formatTargetReason(
           target,
-          `Chưa thể thay ${omitted.fieldType === 'HEADLINE' ? 'tiêu đề' : 'mô tả'} "${omitted.text}": ${omitted.reason}`,
+          `AI đã thử viết lại nhưng vẫn chưa tạo được ${omitted.fieldType === 'HEADLINE' ? 'tiêu đề' : 'mô tả'} hợp lệ cho "${omitted.text}": ${omitted.reason}`,
         ),
         undefined,
         target,
@@ -385,11 +386,16 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       replacements.headlineReplacements.length + replacements.descriptionReplacements.length;
 
     if (selectedCount === 0) {
-      await this.saveRunItem(
-        run.id,
-        'SKIPPED',
-        this.formatTargetReason(target, 'AI returned no usable text replacements'),
-      );
+      if (!(generated.omittedCandidates ?? []).length) {
+        run.failedCount += 1;
+        await this.saveRunItem(
+          run.id,
+          'FAILED',
+          this.formatTargetReason(target, 'AI đã thử lại nhưng không tạo được nội dung thay thế hợp lệ'),
+          undefined,
+          target,
+        );
+      }
       return { selectedCount: 0 };
     }
 

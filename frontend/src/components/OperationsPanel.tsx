@@ -1289,9 +1289,10 @@ export function OperationsPanel({
       const appliedCount = Number(body.appliedCount ?? 0);
       const itemReasons = Array.isArray(body.items)
         ? body.items
-            .map((item: { reason?: string | null }) => String(item.reason ?? '').trim())
+            .filter((item: { action?: string }) => ['FAILED', 'SKIPPED'].includes(String(item.action ?? '')))
+            .map((item: { reason?: string | null }) => explainAutomationReason(item.reason))
             .filter(Boolean)
-            .slice(0, 3)
+            .slice(0, 2)
         : [];
       const reasonText = itemReasons.length ? ` ${itemReasons.join(' | ')}` : '';
       if (!automationStopRequestedRef.current) {
@@ -1927,8 +1928,8 @@ export function OperationsPanel({
               <div><span>Lịch chiến dịch gần nhất</span><strong>{automationNextRunLabel}</strong></div>
               <div className={latestAutomationRun ? 'automationResultSummary' : ''}>
                 <span>{automationScopeChangedSinceLastRun ? 'Phạm vi mới chưa chạy' : 'Kết quả lần chạy gần nhất'}</span>
-                <strong>{latestAutomationRun ? (automationScopeChangedSinceLastRun ? 'Chưa có kết quả cho chiến dịch mới' : `${latestAutomationRun.appliedCount} áp dụng · ${latestAutomationSkippedCount} chưa thay · ${latestAutomationRun.failedCount} lỗi`) : 'Chưa có lượt chạy'}</strong>
-                {automationScopeChangedSinceLastRun && latestAutomationRun ? <small>Lần trước: {latestAutomationRun.appliedCount} áp dụng · {latestAutomationSkippedCount} chưa thay · {latestAutomationRun.failedCount} lỗi</small> : null}
+                <strong>{latestAutomationRun ? (automationScopeChangedSinceLastRun ? 'Chưa có kết quả cho chiến dịch mới' : `${latestAutomationRun.appliedCount} áp dụng · ${latestAutomationSkippedCount} bỏ qua · ${latestAutomationRun.failedCount} lỗi`) : 'Chưa có lượt chạy'}</strong>
+                {automationScopeChangedSinceLastRun && latestAutomationRun ? <small>Lần trước: {latestAutomationRun.appliedCount} áp dụng · {latestAutomationSkippedCount} bỏ qua · {latestAutomationRun.failedCount} lỗi</small> : null}
                 {latestAutomationRun ? (
                   <button type="button" onClick={() => setAutomationResultOpen((open) => !open)}>
                     {automationResultOpen ? 'Ẩn chi tiết' : automationScopeChangedSinceLastRun ? 'Xem kết quả lần chạy trước' : 'Xem chi tiết lần chạy'}
@@ -2337,7 +2338,7 @@ export function OperationsPanel({
                         </div>
                         <div>
                           <span>Kết quả lần gần nhất</span>
-                          <strong>{runSummary ? `${runSummary.appliedCount} áp dụng · ${runSummary.skippedCount} chưa thay · ${runSummary.failedCount} lỗi` : 'Chưa có kết quả'}</strong>
+                          <strong>{runSummary ? `${runSummary.appliedCount} áp dụng · ${runSummary.skippedCount} bỏ qua · ${runSummary.failedCount} lỗi` : 'Chưa có kết quả'}</strong>
                         </div>
                         <div className="automationCampaignNextRun">
                           <span>Lịch tiếp theo</span>

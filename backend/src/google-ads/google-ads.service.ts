@@ -1655,18 +1655,69 @@ export class GoogleAdsService {
         };
         suggestions?: Array<Record<string, unknown>>;
       };
-      const suggestions = this.normalizeAiTextSuggestions(
+      let suggestions = this.normalizeAiTextSuggestions(
         result.suggestions ?? [],
         candidates,
       );
+      const firstAcceptedKeys = new Set(suggestions.map((suggestion) => suggestion.key));
+      const retryCandidates = candidates.filter((candidate) => !firstAcceptedKeys.has(candidate.key));
+      let retryRawSuggestions: Array<Record<string, unknown>> = [];
+      if (retryCandidates.length) {
+        const rejectionFeedback = retryCandidates.map((candidate) => {
+          const rejected = (result.suggestions ?? []).find((entry) => String(entry.key ?? '') === candidate.key);
+          return {
+            key: candidate.key,
+            currentText: candidate.text,
+            previousSuggestion: String(rejected?.suggestion ?? ''),
+            reason: rejected ? this.explainRejectedTextSuggestion(rejected, candidates) : 'AI chưa trả đề xuất',
+            requiredLanguage: candidate.targetLanguageCode,
+            maxLength: candidate.maxLength,
+          };
+        });
+        const retryPrompt = [
+          prompt,
+          '',
+          'LƯỢT SỬA BẮT BUỘC:',
+          'Các đề xuất dưới đây bị bộ kiểm tra từ chối. Viết lại đúng một đề xuất hợp lệ cho từng key; không bỏ sót key nào.',
+          'Phải đúng ngôn ngữ, không trùng nội dung cũ/đề xuất đã đạt và không vượt giới hạn ký tự.',
+          `Các đề xuất đã đạt, không được viết trùng: ${JSON.stringify(suggestions.map((item) => item.suggestion))}`,
+          `Các mục phải sửa: ${JSON.stringify(rejectionFeedback)}`,
+        ].join('\n');
+        const retrySchema = this.aiTextSuggestionSchema(retryCandidates);
+        await automationContext?.onAiRequest?.({ provider: aiProvider.source, model: aiProvider.model, prompt: retryPrompt, schema: retrySchema });
+        const retryOutput = aiProvider.source === 'gemini'
+          ? await this.requestGeminiJson({
+              model: aiProvider.model,
+              prompt: retryPrompt,
+              schema: retrySchema,
+              maxOutputTokens: Math.min(8_000, Math.max(2_000, retryCandidates.length * 320)),
+            })
+          : await this.requestOpenAiJson({
+              model: aiProvider.model,
+              input: [{ role: 'user', content: [{ type: 'input_text', text: retryPrompt }] }],
+              schemaName: 'google_ads_ai_text_suggestions_retry',
+              schema: retrySchema,
+              maxOutputTokens: Math.min(8_000, Math.max(2_000, retryCandidates.length * 320)),
+            });
+        if (retryOutput) {
+          await automationContext?.onAiResponse?.({ raw: retryOutput, used: retryOutput });
+          const retryResult = this.parseAiJson(retryOutput) as { suggestions?: Array<Record<string, unknown>> };
+          retryRawSuggestions = retryResult.suggestions ?? [];
+          const usedCopy = new Set(suggestions.map((item) => this.normalizeSuggestionCopy(item.suggestion)));
+          const corrected = this.normalizeAiTextSuggestions(retryRawSuggestions, retryCandidates)
+            .filter((item) => !usedCopy.has(this.normalizeSuggestionCopy(item.suggestion)));
+          suggestions = [...suggestions, ...corrected];
+        }
+      }
       const acceptedKeysForLog = new Set(suggestions.map((suggestion) => suggestion.key));
+      const allRawSuggestions = [...(result.suggestions ?? []), ...retryRawSuggestions];
       await automationContext?.onValidation?.({
         accepted: suggestions.map((suggestion) => ({ key: suggestion.key, oldText: suggestion.text, newText: suggestion.suggestion })),
-        rejected: (result.suggestions ?? []).filter((entry) => !acceptedKeysForLog.has(String(entry.key ?? ''))).map((entry) => ({
+        rejected: allRawSuggestions.filter((entry) => !acceptedKeysForLog.has(String(entry.key ?? ''))).map((entry) => ({
           key: String(entry.key ?? ''), oldText: String(entry.currentText ?? ''), proposedText: String(entry.suggestion ?? ''),
           reason: this.explainRejectedTextSuggestion(entry, candidates),
         })),
-        missing: candidates.filter((candidate) => !(result.suggestions ?? []).some((entry) => String(entry.key ?? '') === candidate.key)).map((candidate) => ({ key: candidate.key, oldText: candidate.text, reason: 'AI không trả đề xuất cho nội dung này' })),
+        missing: candidates.filter((candidate) => !acceptedKeysForLog.has(candidate.key) && !allRawSuggestions.some((entry) => String(entry.key ?? '') === candidate.key)).map((candidate) => ({ key: candidate.key, oldText: candidate.text, reason: 'AI không trả đề xuất sau cả lượt sửa lại' })),
       });
       const acceptedKeys = new Set(suggestions.map((suggestion) => suggestion.key));
       const omittedCandidates = candidates
