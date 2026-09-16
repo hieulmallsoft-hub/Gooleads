@@ -42,6 +42,8 @@ QUY TẮC BẮT BUỘC
 - Không dùng viết hoa bất thường, emoji, ký hiệu trang trí, dấu câu lặp hoặc nội dung gây hiểu nhầm.
 - HEADLINE tối đa 30 ký tự; DESCRIPTION tối đa 60 ký tự.
 - Không dùng từ khóa phủ định hoặc nội dung bị cấm.
+- Tiêu đề và mô tả phải được viết thành một cặp cùng thông điệp: tiêu đề nêu ý chính, mô tả bổ sung đúng lợi ích hoặc hành động của ý đó; không được nói sang nội dung khác.
+- Trước khi trả kết quả, đối chiếu toàn bộ tiêu đề với toàn bộ mô tả được tạo trong lần chạy và viết lại nếu chúng không thể xuất hiện cùng một mẫu quảng cáo.
 - Chỉ xử lý tài khoản, chiến dịch, nhóm quảng cáo và tài nguyên LOW đã được hệ thống cấp phép.`;
 
 function buildFullPromptPreview(businessPrompt: string) {
@@ -57,6 +59,8 @@ QUY TẮC BẮT BUỘC
 - Không dùng viết hoa bất thường, emoji, ký hiệu trang trí, dấu câu lặp hoặc nội dung gây hiểu nhầm.
 - HEADLINE tối đa 30 ký tự; DESCRIPTION tối đa 60 ký tự.
 - Không dùng từ khóa phủ định hoặc nội dung bị cấm.
+- Tiêu đề và mô tả phải được viết thành một cặp cùng thông điệp: tiêu đề nêu ý chính, mô tả bổ sung đúng lợi ích hoặc hành động của ý đó; không được nói sang nội dung khác.
+- Trước khi trả kết quả, đối chiếu toàn bộ tiêu đề với toàn bộ mô tả được tạo trong lần chạy và viết lại nếu chúng không thể xuất hiện cùng một mẫu quảng cáo.
 - Chỉ xử lý tài khoản, chiến dịch, nhóm quảng cáo và tài nguyên LOW đã được hệ thống cấp phép.
 - Phải trả đúng JSON schema của hệ thống; không viết giải thích ngoài JSON.
 
