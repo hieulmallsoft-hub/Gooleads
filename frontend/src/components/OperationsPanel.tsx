@@ -1225,6 +1225,7 @@ export function OperationsPanel({
       );
       await loadSettings();
       setAutomationAddOpen(false);
+      setAutomationCampaignDetail(null);
       window.dispatchEvent(new Event('automation-notifications-refresh'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể lưu phạm vi Automation');
@@ -2686,10 +2687,10 @@ export function OperationsPanel({
                   <button
                     className="primaryButton"
                     type="button"
-                    disabled={!selectedAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || automationCampaignDetail.adGroups.some((adGroup) => (allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id)) && (!automationAdGroupConfigs[adGroup.id]?.languageCode || !automationAdGroupConfigs[adGroup.id]?.topic.trim()))}
-                    onClick={() => setAutomationCampaignDetail(null)}
+                    disabled={automationScopeSaving || !selectedAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || automationCampaignDetail.adGroups.some((adGroup) => (allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id)) && (!automationAdGroupConfigs[adGroup.id]?.languageCode || !automationAdGroupConfigs[adGroup.id]?.topic.trim()))}
+                    onClick={() => void saveAutomationScope()}
                   >
-                    Xong
+                    {automationScopeSaving ? 'Đang lưu...' : 'Lưu cấu hình nhóm'}
                   </button>
                 </div>
               </div>
