@@ -260,6 +260,7 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       run.errorMessage = error instanceof Error ? error.message : String(error);
       run.completedAt = new Date();
       await runRepository.save(run);
+      await this.saveRunItem(run.id, 'FAILED', `Lần chạy dừng trước khi xử lý hết phạm vi: ${run.errorMessage}`).catch(() => undefined);
       await this.advanceSchedule(schedule, now);
       throw error;
     }
@@ -316,7 +317,9 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
     target: AutomationTarget,
     timeRange: string,
   ) {
+    await this.saveRunItem(run.id, 'SYNC_STARTED', `Bắt đầu đồng bộ Google Ads; khoảng dữ liệu ${timeRange}`, undefined, target);
     await this.googleAdsSyncService.sync(target.customerId, target.adGroupId, timeRange);
+    await this.saveRunItem(run.id, 'SYNC_COMPLETED', `Đã đồng bộ Google Ads; khoảng dữ liệu ${timeRange}`, undefined, target);
     if (!(await this.isTargetStillEnabled(target))) {
       await this.saveRunItem(
         run.id,
@@ -325,6 +328,8 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
           target,
           'Chiến dịch hoặc nhóm quảng cáo hiện đã tạm dừng',
         ),
+        undefined,
+        target,
       );
       return { selectedCount: 0 };
     }
@@ -629,16 +634,14 @@ export class CreativeAutomationService implements OnModuleInit, OnModuleDestroy 
       if (!account || (allowedAccountIds && !allowedAccountIds.has(account.id))) continue;
       if (adGroup.status !== 'ENABLED') continue;
       const scope = scopeByAdGroupId.get(adGroup.id);
-      if (!scope?.adGroupTopic) continue;
+      if (!scope?.adGroupTopic || !scope.languageCode) continue;
       targets.set(`${account.customerId}:${adGroup.googleAdGroupId}`, {
         customerId: account.customerId,
         campaignId: campaign.googleCampaignId,
         campaignName: campaign.name || `Campaign ${campaign.googleCampaignId}`,
         adGroupId: adGroup.googleAdGroupId,
         adGroupName: adGroup.name || `Ad group ${adGroup.googleAdGroupId}`,
-        // Automation must detect the language from the assets of each ad group.
-        // A previously saved manual language must not override the real content.
-        languageCode: '',
+        languageCode: scope.languageCode,
         topic: scope.adGroupTopic,
         automationPrompt: campaignScope?.automationPrompt ?? '',
       });

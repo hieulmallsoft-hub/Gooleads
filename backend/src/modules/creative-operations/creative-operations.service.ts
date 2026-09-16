@@ -1224,8 +1224,8 @@ export class CreativeOperationsService {
       ),
     );
     const configByAdGroupId = new Map(adGroupConfigs.map((config) => [config.adGroupId, config]));
-    if (targetAdGroups.some((adGroup) => !configByAdGroupId.has(adGroup.googleAdGroupId))) {
-      throw new BadRequestException('Mỗi nhóm quảng cáo chạy Automation phải có chủ đề');
+    if (targetAdGroups.some((adGroup) => !configByAdGroupId.get(adGroup.googleAdGroupId)?.languageCode || !configByAdGroupId.get(adGroup.googleAdGroupId)?.topic)) {
+      throw new BadRequestException('Mỗi nhóm quảng cáo chạy Automation phải có ngôn ngữ và chủ đề');
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -1573,7 +1573,7 @@ export class CreativeOperationsService {
       adGroupConfigs: adGroups.flatMap((adGroup) => {
         const scope = activeScopes.find((item) => item.adGroupId === adGroup.id);
         return scope?.adGroupTopic
-          ? [{ adGroupId: adGroup.googleAdGroupId, languageCode: '', topic: scope.adGroupTopic }]
+          ? [{ adGroupId: adGroup.googleAdGroupId, languageCode: scope.languageCode ?? '', topic: scope.adGroupTopic }]
           : [];
       }),
       allCampaignIds: campaigns
@@ -1636,8 +1636,11 @@ export class CreativeOperationsService {
       if (!item || typeof item !== 'object') return [];
       const record = item as Record<string, unknown>;
       const adGroupId = String(record.adGroupId ?? '').replace(/\D/g, '');
+      const languageCode = String(record.languageCode ?? '').trim().toLowerCase();
       const topic = String(record.topic ?? '').trim().slice(0, 500);
-      return adGroupId && topic ? [{ adGroupId, languageCode: '', topic }] : [];
+      return adGroupId && topic && /^[a-z]{2,3}$/.test(languageCode)
+        ? [{ adGroupId, languageCode, topic }]
+        : [];
     });
   }
 

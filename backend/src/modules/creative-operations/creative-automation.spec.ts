@@ -118,7 +118,7 @@ test('automation only targets explicitly selected enabled ad groups', async () =
       campaignName: 'Chiến dịch được phép',
       adGroupId: '1001',
       adGroupName: 'Được phép',
-      languageCode: '',
+      languageCode: 'vi',
       topic: 'Điều khiển điều hòa',
       automationPrompt: '',
     },

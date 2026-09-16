@@ -393,8 +393,20 @@ function automationRunStatus(value?: string | null) {
   if (value === 'COMPLETED') return 'Đã hoàn tất';
   if (value === 'PARTIAL') return 'Hoàn tất một phần';
   if (value === 'FAILED') return 'Thất bại';
+  if (value === 'SKIPPED') return 'Đã kiểm tra — không cần chạy AI';
   if (value === 'CANCELLED') return 'Đã hủy';
   return value || 'Chưa có';
+}
+
+function explainAutomationReason(value?: string | null) {
+  const reason = String(value ?? '').trim();
+  if (/No LOW headline\/description assets found for AI suggestions/i.test(reason)) {
+    return 'Không tìm thấy tiêu đề hoặc mô tả mang nhãn LOW. AI không được gọi vì không có nội dung cần thay.';
+  }
+  if (/No enabled ad groups found/i.test(reason)) return 'Không có nhóm quảng cáo đang hoạt động trong phạm vi đã chọn.';
+  if (/Creative policy is disabled/i.test(reason)) return 'Automation đang tắt nên lần chạy đã dừng.';
+  if (/returned empty text suggestions/i.test(reason)) return 'AI đã được gọi nhưng không trả về nội dung đề xuất.';
+  return reason || 'Không có thông tin chi tiết.';
 }
 
 function automationRunActionLabel(value: string) {
@@ -614,6 +626,7 @@ export function OperationsPanel({
   const [automationRunning, setAutomationRunning] = useState(false);
   const [automationRunningCampaignId, setAutomationRunningCampaignId] = useState('');
   const [automationResultOpen, setAutomationResultOpen] = useState(false);
+  const [selectedAutomationRunId, setSelectedAutomationRunId] = useState('');
   const [automationPromptLog, setAutomationPromptLog] = useState<{
     prompt: string;
     runId: string;
@@ -635,6 +648,8 @@ export function OperationsPanel({
   const [automationAddSearch, setAutomationAddSearch] = useState('');
   const [automationAddOpen, setAutomationAddOpen] = useState(false);
   const [automationHistoryCampaignId, setAutomationHistoryCampaignId] = useState('');
+  const [automationCampaignLogId, setAutomationCampaignLogId] = useState('');
+  const [automationCampaignLogRunId, setAutomationCampaignLogRunId] = useState('');
   const [automationCampaignDetail, setAutomationCampaignDetail] =
     useState<AutomationCampaignDetail | null>(null);
   const [automationMetricsSyncing, setAutomationMetricsSyncing] = useState(false);
@@ -645,12 +660,14 @@ export function OperationsPanel({
     useState('');
 
   useEffect(() => {
-    if (!automationAddOpen && !automationCampaignDetail && !automationHistoryCampaignId && !automationPromptOpen) return undefined;
+    if (!automationAddOpen && !automationCampaignDetail && !automationHistoryCampaignId && !automationCampaignLogId && !automationPromptOpen) return undefined;
 
     const closeTopLayer = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (automationPromptOpen) {
         setAutomationPromptOpen(false);
+      } else if (automationCampaignLogId) {
+        setAutomationCampaignLogId('');
       } else if (automationHistoryCampaignId) {
         setAutomationHistoryCampaignId('');
       } else if (automationCampaignDetail) {
@@ -662,7 +679,7 @@ export function OperationsPanel({
 
     window.addEventListener('keydown', closeTopLayer);
     return () => window.removeEventListener('keydown', closeTopLayer);
-  }, [automationAddOpen, automationCampaignDetail, automationHistoryCampaignId, automationPromptOpen]);
+  }, [automationAddOpen, automationCampaignDetail, automationHistoryCampaignId, automationCampaignLogId, automationPromptOpen]);
   const [accessUsers, setAccessUsers] = useState<AccessUser[]>([]);
   const [accessSavingId, setAccessSavingId] = useState('');
   const [accessFormError, setAccessFormError] = useState('');
@@ -1445,6 +1462,7 @@ export function OperationsPanel({
     return 'Tài khoản';
   }
   const latestAutomationRun = settings?.recentAutomationRuns[0] ?? null;
+  const displayedAutomationRun = (settings?.recentAutomationRuns ?? []).find((run) => run.id === selectedAutomationRunId) ?? latestAutomationRun;
   const latestAutomationSkippedCount = (latestAutomationRun?.items ?? []).filter(
     (item) => item.action === 'SKIPPED',
   ).length ?? 0;
@@ -1507,6 +1525,10 @@ export function OperationsPanel({
     }
     return summaries;
   }, [settings?.recentAutomationRuns]);
+  const automationCampaignLogRuns = (settings?.recentAutomationRuns ?? []).filter((run) =>
+    (run.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId),
+  );
+  const automationCampaignLogRun = automationCampaignLogRuns.find((run) => run.id === automationCampaignLogRunId) ?? automationCampaignLogRuns[0] ?? null;
   const automationChangeHistoryByCampaignId = useMemo(() => {
     const history = new Map<string, Array<{
       id: string;
@@ -1661,12 +1683,18 @@ export function OperationsPanel({
       (automationCampaignPrompts[campaignId] || DEFAULT_EDITABLE_SYSTEM_PROMPT).trim() !==
       (savedAutomationCampaignPrompts[campaignId] || DEFAULT_EDITABLE_SYSTEM_PROMPT).trim(),
   );
+  const savedAutomationGroupConfigs = new Map((settings?.automationScope?.adGroupConfigs ?? []).map((config) => [config.adGroupId, config]));
+  const automationGroupConfigsDirty = Object.entries(automationAdGroupConfigs).some(([adGroupId, config]) => {
+    const saved = savedAutomationGroupConfigs.get(adGroupId);
+    return config.languageCode !== (saved?.languageCode ?? '') || config.topic.trim() !== (saved?.topic ?? '');
+  });
   const automationScopeDirty =
     !sameIdSet(selectedAutomationCampaignIds, savedAutomationCampaignIds) ||
     !sameIdSet(selectedAutomationAdGroupIds, savedAutomationAdGroupIds) ||
     !sameIdSet(allAutomationCampaignIds, savedAllAutomationCampaignIds) ||
     automationIntervalsDirty ||
-    automationPromptsDirty;
+    automationPromptsDirty ||
+    automationGroupConfigsDirty;
   const nextAutomationCampaignRunAt = (settings?.automationScope?.campaigns ?? [])
     .map((campaign) => campaign.nextRunAt)
     .filter((value): value is string => Boolean(value))
@@ -1908,19 +1936,26 @@ export function OperationsPanel({
                 ) : null}
               </div>
             </div>
-            {automationResultOpen && latestAutomationRun ? (
+            {automationResultOpen && displayedAutomationRun ? (
               <div className="automationRunDetails">
                 <div className="automationRunDetailsHeader">
                   <div>
-                    <strong>Chi tiết lần chạy gần nhất</strong>
-                    <span>{formatDate(latestAutomationRun.completedAt ?? latestAutomationRun.startedAt)}</span>
+                    <strong>Nhật ký các lần chạy Automation</strong>
+                    <span>Chọn một lần chạy để xem prompt và kết quả của từng nhóm quảng cáo.</span>
                   </div>
-                  <span>{automationRunStatus(latestAutomationRun.status)}</span>
+                  <select aria-label="Chọn lần chạy Automation" value={displayedAutomationRun.id} onChange={(event) => setSelectedAutomationRunId(event.target.value)}>
+                    {(settings?.recentAutomationRuns ?? []).map((run) => <option key={run.id} value={run.id}>{formatDate(run.startedAt)} · {automationRunStatus(run.status)}</option>)}
+                  </select>
                 </div>
-                {(latestAutomationRun.items ?? []).length ? (
+                <div className="automationRunAuditSummary">
+                  <strong>{automationRunStatus(displayedAutomationRun.status)}</strong>
+                  <span>{(displayedAutomationRun.items ?? []).some((item) => item.action === 'AI_RESPONSE') ? 'AI đã trả phản hồi; xem prompt và quyết định lọc theo từng nhóm.' : (displayedAutomationRun.items ?? []).some((item) => item.action === 'AI_REQUEST') ? 'Đã tạo yêu cầu gửi AI nhưng chưa ghi nhận phản hồi.' : (displayedAutomationRun.items ?? []).some((item) => item.action === 'PROMPT') ? 'Đã tạo prompt, chưa có log yêu cầu gửi AI ở lần chạy này.' : 'Không có log gọi AI trong lần chạy này; xem lý do bỏ qua hoặc lỗi bên dưới.'}</span>
+                  <span>{displayedAutomationRun.appliedCount} áp dụng · {displayedAutomationRun.failedCount} lỗi · bắt đầu {formatDate(displayedAutomationRun.startedAt)}</span>
+                </div>
+                {(displayedAutomationRun.items ?? []).length ? (
                   <div className="automationRunItemList">
-                    {[...(latestAutomationRun.items ?? [])]
-                      .filter((item) => !['INPUT_SNAPSHOT', 'AI_REQUEST', 'AI_RESPONSE', 'AI_VALIDATION', 'APPLY_RESULT'].includes(item.action))
+                    {[...(displayedAutomationRun.items ?? [])]
+                      .filter((item) => !['SYNC_STARTED', 'SYNC_COMPLETED', 'INPUT_SNAPSHOT', 'AI_REQUEST', 'AI_RESPONSE', 'AI_VALIDATION', 'APPLY_RESULT'].includes(item.action))
                       .sort((left, right) => Number(right.action === 'FAILED') - Number(left.action === 'FAILED'))
                       .map((item) => {
                       const failed = item.action === 'FAILED';
@@ -1941,11 +1976,11 @@ export function OperationsPanel({
                               type="button"
                               onClick={() => setAutomationPromptLog({
                                 prompt: item.reason ?? '',
-                                runId: latestAutomationRun.id,
+                                runId: displayedAutomationRun.id,
                                 campaignName: item.targetSnapshot?.campaignName ?? 'Chiến dịch',
                                 adGroupName: item.targetSnapshot?.adGroupName ?? 'Nhóm quảng cáo',
                                 adGroupId: item.targetSnapshot?.adGroupId ?? '',
-                                runAt: latestAutomationRun.completedAt ?? latestAutomationRun.startedAt,
+                                runAt: displayedAutomationRun.completedAt ?? displayedAutomationRun.startedAt,
                               })}
                             >
                               Xem prompt
@@ -1991,30 +2026,30 @@ export function OperationsPanel({
                       <div><span>Nhóm quảng cáo</span><strong>{automationPromptLog.adGroupName}</strong><small>{automationPromptLog.adGroupId ? `ID ${automationPromptLog.adGroupId}` : ''}</small></div>
                       <div><span>Thời điểm chạy</span><strong>{formatDate(automationPromptLog.runAt)}</strong></div>
                     </div>
-                    <section className="automationPromptRunTimeline" aria-label="Diễn biến lần chạy AI">
-                      <h3>Diễn biến lần chạy AI</h3>
-                      <ol>
-                        <li><strong>Dữ liệu đầu vào</strong><span>{automationRunAudit.input ? `${automationRunAudit.input.candidates?.length ?? 0} nội dung LOW; ${(automationRunAudit.input.existingAdCopy?.headlines?.length ?? 0) + (automationRunAudit.input.existingAdCopy?.descriptions?.length ?? 0)} nội dung hiện có. Snapshot đã lưu ở lần chạy này.` : 'Lần chạy cũ chưa lưu snapshot riêng; xem dữ liệu đã chèn trong prompt bên dưới.'}</span>
-                          {automationRunAudit.input?.candidates?.map((item) => <p key={item.key}>{item.fieldType}: {item.text} · {item.impressions} hiển thị · {item.clicks} nhấp</p>)}
-                        </li>
-                        <li><strong>Yêu cầu gửi AI</strong><span>{automationRunAudit.request ? `${automationRunAudit.request.provider} · ${automationRunAudit.request.model} · gửi lúc ${formatDate(automationPromptRunItems.find((item) => item.action === 'AI_REQUEST')?.createdAt ?? automationPromptLog.runAt)}` : 'Lần chạy cũ chỉ lưu prompt nghiệp vụ, chưa lưu payload gửi AI và tên mô hình.'}</span>
-                          {automationRunAudit.request ? <details><summary>Xem chính xác văn bản gửi AI và schema đầu ra</summary><pre>{automationRunAudit.request.prompt}</pre><pre>{JSON.stringify(automationRunAudit.request.schema, null, 2)}</pre></details> : null}
-                        </li>
-                        <li><strong>Phản hồi AI</strong><span>{automationRunAudit.response ? 'Đã lưu phản hồi mô hình trước bước lọc.' : 'Lần chạy cũ chưa lưu phản hồi mô hình.'}</span>
-                          {automationRunAudit.response ? <details><summary>Xem phản hồi nguyên văn{automationRunAudit.response.raw !== automationRunAudit.response.used ? ' và bản JSON đã sửa' : ''}</summary><pre>{automationRunAudit.response.raw}</pre>{automationRunAudit.response.raw !== automationRunAudit.response.used ? <pre>{automationRunAudit.response.used}</pre> : null}</details> : null}
-                        </li>
-                        <li><strong>Kiểm tra và chọn nội dung</strong><span>{automationRunAudit.validation ? `${automationRunAudit.validation.accepted?.length ?? 0} hợp lệ · ${(automationRunAudit.validation.rejected?.length ?? 0) + (automationRunAudit.validation.missing?.length ?? 0)} không được chọn` : `${automationPromptRunItems.filter((item) => item.action === 'SELECTED').length} nội dung được chọn; lần chạy cũ chưa lưu lý do lọc từng câu.`}</span>
-                          {automationRunAudit.validation?.accepted?.map((item) => <p key={item.key}>Đạt: {item.oldText} → {item.newText}</p>)}
-                          {automationRunAudit.validation?.rejected?.map((item, index) => <p key={`${item.key}-${index}`}>Loại: {item.proposedText} · {item.reason}</p>)}
-                          {automationRunAudit.validation?.missing?.map((item) => <p key={item.key}>Thiếu: {item.oldText} · {item.reason}</p>)}
-                          {!automationRunAudit.validation ? automationPromptRunItems.filter((item) => item.action === 'SELECTED').map((item) => <p key={item.id}>{item.reason}</p>) : null}
-                        </li>
-                        <li><strong>Kết quả áp dụng</strong><span>{automationRunAudit.apply ? `Google Ads báo đã áp dụng ${automationRunAudit.apply.appliedCount} thay đổi.` : automationPromptRunItems.filter((item) => item.action === 'APPLIED').length ? 'Đã ghi nhận áp dụng lên Google Ads; lần chạy cũ chưa lưu biên bản chi tiết.' : automationPromptRunItems.some((item) => item.action === 'SUGGESTED') ? 'Đã tạo yêu cầu thay đổi, chờ duyệt.' : 'Chưa ghi nhận áp dụng cho nhóm này.'}</span>
-                          {automationRunAudit.apply?.selected?.map((item, index) => <p key={index}>Đề xuất gửi áp dụng: {item.oldText} → {item.newText}</p>)}
-                          {automationPromptRunItems.filter((item) => ['APPLIED', 'SUGGESTED', 'FAILED', 'SKIPPED'].includes(item.action)).map((item) => <p key={item.id}>{automationRunActionLabel(item.action)}: {item.reason}</p>)}
-                        </li>
-                      </ol>
+                    <section className="automationAiStory" aria-label="AI đã chạy như thế nào">
+                      <header><span>{automationRunAudit.response ? 'ĐÃ CHẠY AI' : 'CHƯA XÁC NHẬN PHẢN HỒI AI'}</span><h3>AI đã làm gì trong lần này?</h3></header>
+                      <article>
+                        <div className="automationAiStoryNumber">1</div>
+                        <div><strong>AI được giao việc gì?</strong><p>Viết lại {automationRunAudit.input?.candidates?.length ?? automationPromptExplanation.candidates.length} nội dung hiệu quả thấp của nhóm <b>{automationPromptLog.adGroupName}</b> bằng <b>{String(automationPromptExplanation.context.targetLanguageName || automationPromptExplanation.candidates[0]?.targetLanguage || 'ngôn ngữ đã cấu hình')}</b>, chủ đề <b>{String(automationPromptExplanation.context.automationTopic || 'chưa cấu hình')}</b>.</p>
+                          {(automationRunAudit.input?.candidates ?? []).map((item) => <div className="automationAiCopyRow" key={item.key}><span>{item.fieldType === 'HEADLINE' ? 'Tiêu đề cũ' : 'Mô tả cũ'}</span><b dir="auto">{item.text}</b><small>{item.impressions} hiển thị · {item.clicks} nhấp</small></div>)}
+                        </div>
+                      </article>
+                      <article>
+                        <div className="automationAiStoryNumber">2</div>
+                        <div><strong>AI trả lời như thế nào?</strong>{automationRunAudit.response ? <p>AI đã trả lời. Sau kiểm tra có <b>{automationRunAudit.validation?.accepted?.length ?? 0} câu đạt</b> và <b>{(automationRunAudit.validation?.rejected?.length ?? 0) + (automationRunAudit.validation?.missing?.length ?? 0)} câu không được chọn</b>.</p> : <p>Lần chạy này chưa có phản hồi AI được lưu. Nếu trạng thái là SKIPPED thì AI chưa được gọi.</p>}
+                          {automationRunAudit.validation?.accepted?.map((item) => <div className="automationAiDecision accepted" key={item.key}><span>ĐƯỢC CHỌN</span><p><del dir="auto">{item.oldText}</del><b dir="auto">{item.newText}</b></p></div>)}
+                          {automationRunAudit.validation?.rejected?.map((item, index) => <div className="automationAiDecision rejected" key={`${item.key}-${index}`}><span>BỊ LOẠI · {item.reason}</span><b dir="auto">{item.proposedText || item.oldText}</b></div>)}
+                        </div>
+                      </article>
+                      <article>
+                        <div className="automationAiStoryNumber">3</div>
+                        <div><strong>Hệ thống đã làm gì?</strong><p>{automationRunAudit.apply ? `Đã gửi ${automationRunAudit.apply.appliedCount} thay đổi lên Google Ads.` : automationPromptRunItems.some((item) => item.action === 'SUGGESTED') ? 'Đã tạo yêu cầu thay đổi và đang chờ duyệt.' : 'Không có nội dung nào được áp dụng trong lần này.'}</p>
+                          {automationPromptRunItems.filter((item) => ['FAILED', 'SKIPPED'].includes(item.action)).map((item) => <div className="automationAiRunNote" key={item.id}>{automationRunActionLabel(item.action)}: {item.reason}</div>)}
+                        </div>
+                      </article>
                     </section>
+                    <details className="automationTechnicalAudit">
+                      <summary>Xem prompt đầy đủ và chi tiết kỹ thuật</summary>
                     <div className="automationPromptLogToolbar">
                       <div><strong>{automationPromptRaw ? 'Prompt nghiệp vụ thô' : 'Prompt nghiệp vụ đã phân nhóm'}</strong><span>Văn bản trước khi gắn schema đầu ra; payload thực gửi AI nằm ở bước 2 bên trên.</span></div>
                       <div className="automationPromptLogActions">
@@ -2116,6 +2151,7 @@ export function OperationsPanel({
                         </details>
                       </div>
                     )}
+                    </details>
                   </div>
                 </aside>
               </div>
@@ -2226,6 +2262,9 @@ export function OperationsPanel({
                           >
                             <History size={14} />
                             Lịch sử {changeHistory.length ? `(${changeHistory.length})` : ''}
+                          </button>
+                          <button className="secondaryButton" type="button" onClick={() => { setAutomationCampaignLogId(campaign.id); setAutomationCampaignLogRunId(''); }}>
+                            <FileText size={14} /> Nhật ký AI
                           </button>
                           <button
                             className="secondaryButton"
@@ -2359,6 +2398,30 @@ export function OperationsPanel({
                         ))}
                       </div>
                     ) : <div className="automationHistoryEmpty"><History size={28} /><strong>Chưa có nội dung đã thay</strong><p>Chiến dịch này chưa có tiêu đề hoặc mô tả được AI áp dụng trong 5 lần chạy gần nhất.</p></div>}
+                  </div>
+                </aside>
+              </div>
+            ) : null}
+            {automationCampaignLogId ? (
+              <div className="automationHistoryBackdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAutomationCampaignLogId(''); }}>
+                <aside className="automationHistoryDrawer automationCampaignLogDrawer" role="dialog" aria-modal="true" aria-label="Nhật ký AI của chiến dịch">
+                  <header className="automationHistoryHeader">
+                    <div><span className="eyebrow">Nhật ký Automation</span><h2>{automationCampaigns.find((campaign) => campaign.id === automationCampaignLogId)?.name ?? 'Chiến dịch'}</h2><p>Mỗi lần chạy được lưu riêng. AI chỉ có prompt khi nhóm quảng cáo có nội dung LOW.</p></div>
+                    <button className="iconAction" type="button" onClick={() => setAutomationCampaignLogId('')} aria-label="Đóng nhật ký AI"><X size={18} /></button>
+                  </header>
+                  <div className="automationHistoryDrawerBody automationCampaignLogBody">
+                    {automationCampaignLogRuns.length ? <label className="automationCampaignLogPicker"><span>Lần chạy</span><select value={automationCampaignLogRun?.id ?? ''} onChange={(event) => setAutomationCampaignLogRunId(event.target.value)}>{automationCampaignLogRuns.map((run) => <option key={run.id} value={run.id}>{formatDate(run.startedAt)} · {automationRunStatus(run.status)}</option>)}</select></label> : null}
+                    {automationCampaignLogRun ? <div className="automationCampaignLogSummary"><strong>{automationRunStatus(automationCampaignLogRun.status)}</strong><span>{(automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'AI_RESPONSE') ? 'AI đã trả phản hồi.' : (automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'AI_REQUEST') ? 'Đã tạo yêu cầu gọi AI nhưng chưa có phản hồi.' : 'Không có phản hồi AI được ghi cho chiến dịch trong lần này.'}</span></div> : null}
+                    {automationCampaignLogRun ? <div className="automationCampaignRunFlow">
+                      <div className={(automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'SYNC_COMPLETED') ? 'done' : ''}><b>1</b><span><strong>Đồng bộ Google Ads</strong><small>{(automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'SYNC_COMPLETED') ? 'Đã hoàn tất' : 'Log cũ không ghi nhận'}</small></span></div>
+                      <div className={(automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'PROMPT') ? 'done' : 'stopped'}><b>2</b><span><strong>Tạo và gửi prompt</strong><small>{(automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'PROMPT') ? 'Đã tạo prompt cho AI' : 'Dừng trước bước gọi AI'}</small></span></div>
+                      <div className={(automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'AI_RESPONSE') ? 'done' : 'stopped'}><b>3</b><span><strong>Nhận và áp dụng</strong><small>{(automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'AI_RESPONSE') ? 'Đã nhận phản hồi AI' : 'Không có phản hồi AI'}</small></span></div>
+                    </div> : null}
+                    {automationCampaignLogRun ? (automationCampaignLogRun.items ?? []).filter((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && !['SYNC_STARTED', 'SYNC_COMPLETED', 'INPUT_SNAPSHOT', 'AI_REQUEST', 'AI_RESPONSE', 'AI_VALIDATION', 'APPLY_RESULT'].includes(item.action)).map((item) => <article className="automationCampaignLogEntry" key={item.id}>
+                      <div><strong>{item.targetSnapshot?.adGroupName ?? 'Chiến dịch'}</strong><small>{formatDate(item.createdAt)} · {automationRunActionLabel(item.action)}</small></div>
+                      {item.action === 'PROMPT' ? <button className="automationPromptViewButton" type="button" onClick={() => { setAutomationCampaignLogId(''); setAutomationPromptLog({ prompt: item.reason ?? '', runId: automationCampaignLogRun.id, campaignName: item.targetSnapshot?.campaignName ?? 'Chiến dịch', adGroupName: item.targetSnapshot?.adGroupName ?? 'Nhóm quảng cáo', adGroupId: item.targetSnapshot?.adGroupId ?? '', runAt: item.createdAt }); }}>Xem AI đã đọc và trả lời</button> : <p>{explainAutomationReason(item.reason)}</p>}
+                    </article>) : <div className="automationHistoryEmpty"><FileText size={28} /><strong>Chưa có nhật ký AI</strong><p>Chiến dịch này chưa xuất hiện trong các lần chạy gần đây.</p></div>}
+                    {automationCampaignLogRun && !(automationCampaignLogRun.items ?? []).some((item) => item.targetSnapshot?.campaignId === automationCampaignLogId && item.action === 'PROMPT') ? <div className="automationCampaignLogNoPrompt"><strong>Vì sao không có prompt?</strong><span>Hệ thống đã kiểm tra dữ liệu nhưng không có nội dung phù hợp để giao cho AI. Đây không phải lỗi AI.</span></div> : null}
                   </div>
                 </aside>
               </div>
@@ -2604,7 +2667,7 @@ export function OperationsPanel({
                         <small data-label="ROAS">{adGroup.metricsAvailable ? formatAutomationPercent(adGroup.metrics.roas) : '—'}</small>
                       </span>
                       {targeted ? <div className="automationAdGroupContext">
-                        <div className="automationLanguageDetection"><span>Ngôn ngữ đầu ra</span><strong>Tự nhận diện theo nội dung nhóm</strong><small>Mỗi nhóm quảng cáo được phân tích riêng; AI không mặc định sang tiếng Anh.</small></div>
+                        <label><span>Ngôn ngữ AI phải viết *</span><select value={config.languageCode} onChange={(event) => setAutomationAdGroupConfigs((current) => ({ ...current, [adGroup.id]: { ...config, languageCode: event.target.value } }))}><option value="">Chọn ngôn ngữ</option>{LANGUAGE_OPTIONS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select><small>Chọn ngôn ngữ của nội dung quảng cáo, không chọn theo quốc gia.</small></label>
                         <label><span>Chủ đề của nhóm quảng cáo</span><input value={config.topic} maxLength={500} placeholder="Ví dụ: Ứng dụng điều khiển điều hòa từ điện thoại" onChange={(event) => setAutomationAdGroupConfigs((current) => ({ ...current, [adGroup.id]: { ...config, topic: event.target.value } }))} /></label>
                       </div> : null}
                     </div>
@@ -2622,7 +2685,7 @@ export function OperationsPanel({
                   <button
                     className="primaryButton"
                     type="button"
-                    disabled={!selectedAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || automationCampaignDetail.adGroups.some((adGroup) => (allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id)) && !automationAdGroupConfigs[adGroup.id]?.topic.trim())}
+                    disabled={!selectedAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || automationCampaignDetail.adGroups.some((adGroup) => (allAutomationCampaignIds.includes(automationCampaignDetail.campaign.id) || selectedAutomationAdGroupIds.includes(adGroup.id)) && (!automationAdGroupConfigs[adGroup.id]?.languageCode || !automationAdGroupConfigs[adGroup.id]?.topic.trim()))}
                     onClick={() => setAutomationCampaignDetail(null)}
                   >
                     Xong
